@@ -11,11 +11,19 @@ app.use(express.static(__dirname)); // UI दिखाने के लिए
 let qrCodeData = null;
 let isConnected = false;
 
-// क्लाउड सर्वर (Render) के लिए सेटिंग
+// क्लाउड सर्वर (Render) के लिए खास मेमोरी-सेविंग सेटिंग
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage', // रैम (RAM) क्रैश रोकने के लिए
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu' // ग्राफिक्स कार्ड का इस्तेमाल बंद करने के लिए
+        ]
     }
 });
 
