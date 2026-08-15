@@ -53,18 +53,18 @@
         .qr-container { text-align: center; padding: 30px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1; }
         #pairingCodeDisplay { font-size: 26px; font-weight: 800; color: var(--primary); text-align: center; margin-top: 25px; letter-spacing: 4px; background: #eff6ff; padding: 15px 10px; border-radius: 12px; display: none; }
 
-        /* नया: Live Tracking CSS */
-        .live-tracker { display: none; margin-top: 25px; background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
+        /* Live Tracking CSS */
+        .live-tracker { margin-top: 10px; background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
         .live-header { background: #f8fafc; padding: 15px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
         .live-header h3 { margin: 0; color: var(--secondary); font-size: 16px; }
-        .live-badges { display: flex; gap: 10px; }
-        .badge { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; }
+        .live-badges { display: flex; gap: 10px; flex-wrap: wrap; }
+        .badge { padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; }
         .b-total { background: #e2e8f0; color: var(--secondary); }
         .b-sent { background: #d1fae5; color: var(--success); }
         .b-failed { background: #fee2e2; color: var(--danger); }
         .b-pending { background: #fef3c7; color: var(--warning); }
-        .live-list { max-height: 250px; overflow-y: auto; padding: 10px; }
-        .live-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+        .live-list { max-height: 400px; overflow-y: auto; padding: 10px; }
+        .live-item { display: flex; justify-content: space-between; padding: 12px 15px; border-bottom: 1px solid #f1f5f9; font-size: 15px; }
         .live-item:last-child { border-bottom: none; }
         .status-sent { color: var(--success); font-weight: 600; }
         .status-pending { color: var(--warning); font-weight: 600; }
@@ -83,6 +83,8 @@
     <div class="sidebar" id="sidebar">
         <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
         <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
+        <!-- नया: मेनू में Live Tracking का बटन -->
+        <button class="sidebar-btn" id="liveTrackMenuBtn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
         <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
         <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
     </div>
@@ -109,7 +111,6 @@
                 <button class="action-btn btn-success" style="flex: 1;" onclick="downloadHistory()">📥 CSV Download</button>
                 <button class="action-btn btn-danger" style="flex: 1;" onclick="downloadPDF()">📄 PDF Download</button>
             </div>
-            <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:10px;">अपनी डिलीवरी रिपोर्ट डाउनलोड करें</p>
         </div>
 
         <!-- Send Message -->
@@ -140,11 +141,17 @@
             </div>
 
             <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
+            <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:15px; font-weight: 600;">
+                <span style="color:#2563eb;">🛡️ Anti-Ban System Active:</span> बॉट अपने आप रैंडम समय लेगा।
+            </p>
+        </div>
 
-            <!-- नया: Live Tracking Box -->
+        <!-- नया: अलग Live Tracking Section -->
+        <div id="liveTrackingSec" class="content-section">
+            <h2 class="section-title">📡 Live Campaign Monitor</h2>
             <div id="liveTrackingContainer" class="live-tracker">
                 <div class="live-header">
-                    <h3>📡 Live Tracking...</h3>
+                    <h3>Current Status</h3>
                     <div class="live-badges">
                         <span class="badge b-total" id="liveTotal">Total: 0</span>
                         <span class="badge b-sent" id="liveSent">Sent: 0</span>
@@ -153,13 +160,11 @@
                     </div>
                 </div>
                 <div class="live-list" id="liveList">
-                    <!-- Numbers will appear here dynamically -->
+                    <div style="text-align:center; padding:30px; color:#64748b; font-size:16px;">
+                        अभी कोई कैंपेन नहीं चल रहा है।<br><br>नया कैंपेन शुरू करने के लिए <b>Campaign Sender</b> मेनू में जाएँ।
+                    </div>
                 </div>
             </div>
-
-            <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:15px; font-weight: 600;">
-                <span style="color:#2563eb;">🛡️ Anti-Ban System Active:</span> बॉट अपने आप रैंडम समय लेगा।
-            </p>
         </div>
 
         <!-- Auto Reply Settings -->
@@ -210,50 +215,47 @@
         function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent; document.getElementById('failedCount').innerText = d.failed; }) }
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ शानदार! मैसेज सफलतापूर्वक अपडेट हो गया।')) }
-        function downloadHistory() { /* Same as before... omitted to save space, but kept in full code above */ fetch('/api/history').then(r => r.json()).then(data => { if(data.length === 0) { alert('⚠️ कोई डेटा नहीं है!'); return; } let csv = 'Mobile Number,Sent Message,Date & Time\n'; data.forEach(row => { let safeMsg = row.message ? row.message.replace(/"/g, '""').replace(/\n/g, ' ') : ''; csv += `"${row.number}","${safeMsg}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Website_Banane_Wala_Report.csv'); a.click(); }); }
+        function downloadHistory() { fetch('/api/history').then(r => r.json()).then(data => { if(data.length === 0) { alert('⚠️ कोई डेटा नहीं है!'); return; } let csv = 'Mobile Number,Sent Message,Date & Time\n'; data.forEach(row => { let safeMsg = row.message ? row.message.replace(/"/g, '""').replace(/\n/g, ' ') : ''; csv += `"${row.number}","${safeMsg}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Website_Banane_Wala_Report.csv'); a.click(); }); }
         function downloadPDF() { fetch('/api/history').then(r => r.json()).then(data => { if(data.length === 0) { alert('⚠️ कोई डेटा नहीं है!'); return; } const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.setFontSize(16); doc.setTextColor(37, 99, 235); doc.text("Website Banane Wala - Report", 14, 20); const tableColumn = ["Mobile Number", "Message Sent", "Date & Time"]; const tableRows = []; data.forEach(row => { let msgText = row.message ? row.message : "Media/Photo Sent"; if(msgText.length > 50) { msgText = msgText.substring(0, 50) + "..."; } tableRows.push([row.number, msgText, row.date]); }); doc.autoTable({ head: [tableColumn], body: tableRows, startY: 30, theme: 'grid', styles: { fontSize: 10, cellPadding: 4 }, headStyles: { fillColor: [37, 99, 235], textColor: 255 } }); doc.save('Website_Banane_Wala_Report.pdf'); }); }
 
-        let liveMonitorInterval;
-
-        function startLiveMonitoring() {
-            document.getElementById('liveTrackingContainer').style.display = 'block';
-            document.getElementById('liveList').innerHTML = '<div style="text-align:center; padding:20px;">लोड हो रहा है...</div>';
-            
-            if(liveMonitorInterval) clearInterval(liveMonitorInterval);
-            
-            liveMonitorInterval = setInterval(() => {
-                fetch('/api/live-status').then(r => r.json()).then(data => {
-                    if (!data.isActive && data.total === 0) return; // अगर कोई कैंपेन नहीं चल रहा है
+        // नया: ग्लोबल लाइव स्टेटस चेकर
+        function fetchLiveStatus() {
+            fetch('/api/live-status').then(r => r.json()).then(data => {
+                if (data.total === 0) {
+                    document.getElementById('liveList').innerHTML = '<div style="text-align:center; padding:30px; color:#64748b; font-size:16px;">अभी कोई कैंपेन नहीं चल रहा है।<br><br>नया कैंपेन शुरू करने के लिए <b>Campaign Sender</b> मेनू में जाएँ।</div>';
+                    document.getElementById('liveTotal').innerText = `Total: 0`;
+                    document.getElementById('liveSent').innerText = `Sent: 0`;
+                    document.getElementById('liveFailed').innerText = `Failed: 0`;
+                    document.getElementById('livePending').innerText = `Pending: 0`;
+                    return;
+                }
+                
+                document.getElementById('liveTotal').innerText = `Total: ${data.total}`;
+                document.getElementById('liveSent').innerText = `Sent: ${data.sent}`;
+                document.getElementById('liveFailed').innerText = `Failed: ${data.failed}`;
+                document.getElementById('livePending').innerText = `Pending: ${data.pending}`;
+                
+                let html = '';
+                data.numbers.forEach(item => {
+                    let statusClass = 'status-pending';
+                    if(item.status.includes('Sent')) statusClass = 'status-sent';
+                    else if(item.status.includes('Invalid') || item.status.includes('Failed')) statusClass = 'status-failed';
                     
-                    document.getElementById('liveTotal').innerText = `Total: ${data.total}`;
-                    document.getElementById('liveSent').innerText = `Sent: ${data.sent}`;
-                    document.getElementById('liveFailed').innerText = `Failed: ${data.failed}`;
-                    document.getElementById('livePending').innerText = `Pending: ${data.pending}`;
-                    
-                    let html = '';
-                    data.numbers.forEach(item => {
-                        let statusClass = 'status-pending';
-                        if(item.status.includes('Sent')) statusClass = 'status-sent';
-                        else if(item.status.includes('Invalid') || item.status.includes('Failed')) statusClass = 'status-failed';
-                        
-                        html += `
-                        <div class="live-item">
-                            <span>📱 ${item.phone}</span>
-                            <span class="${statusClass}">${item.status}</span>
-                        </div>`;
-                    });
-                    
-                    document.getElementById('liveList').innerHTML = html;
-                    
-                    // अगर पेंडिंग 0 हो गए, तो मॉनिटरिंग रोक दें (कैंपेन खत्म)
-                    if (!data.isActive && data.total > 0 && data.pending === 0) {
-                        clearInterval(liveMonitorInterval);
-                        document.getElementById('sendBtn').disabled = false;
-                        document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign';
-                        fetchStats(); // डैशबोर्ड अपडेट करें
-                    }
+                    html += `
+                    <div class="live-item">
+                        <span>📱 ${item.phone}</span>
+                        <span class="${statusClass}">${item.status}</span>
+                    </div>`;
                 });
-            }, 2000); // हर 2 सेकंड में चेक करेगा
+                
+                document.getElementById('liveList').innerHTML = html;
+                
+                if (!data.isActive && data.total > 0 && data.pending === 0) {
+                    document.getElementById('sendBtn').disabled = false;
+                    document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign';
+                    fetchStats(); 
+                }
+            }).catch(e => console.log("Live Tracking Error:", e));
         }
 
         async function startSending() {
@@ -277,13 +279,18 @@
 
             fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: nums, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: img }) })
             .then(() => {
-                // जैसे ही रिक्वेस्ट जाए, लाइव ट्रैकिंग शुरू कर दें
-                startLiveMonitoring(); 
+                // जैसे ही 'सेंड' पर क्लिक होगा, मेनू अपने आप "Live Tracking" पर चला जाएगा
+                const trackMenuBtn = document.getElementById('liveTrackMenuBtn');
+                showSection('liveTrackingSec', trackMenuBtn);
+                fetchLiveStatus(); // तुरंत डेटा दिखाए
             })
         }
         function getPairingCode() { fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('pairPhone').value }) }).then(r => r.json()).then(d => { const codeDisplay = document.getElementById('pairingCodeDisplay'); codeDisplay.style.display = 'block'; codeDisplay.innerText = d.code; }) }
+        
         window.onload = () => {
             fetchStats();
+            fetchLiveStatus(); // पेज लोड होते ही चेक करेगा कोई कैंपेन चल तो नहीं रहा
+            
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
                     const qrImg = document.getElementById('realQr');
@@ -293,6 +300,9 @@
                     document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
                 }).catch(() => { document.getElementById('qrStatus').innerHTML = '❌ सर्वर ऑफलाइन है'; document.getElementById('qrStatus').style.color = '#ef4444'; });
+                
+                // हर 3 सेकंड में लाइव ट्रैकिंग भी अपडेट होती रहेगी
+                fetchLiveStatus();
             }, 3000);
         }
     </script>
