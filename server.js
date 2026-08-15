@@ -12,9 +12,30 @@ app.use(express.static(__dirname));
 let qrCodeData = null;
 let isConnected = false;
 let sock;
+let isAutoReplyEnabled = true;
 
-// नया ग्लोबल वेरिएबल: ऑटो-रिप्लाई बाय डिफॉल्ट चालू रहेगा
-let isAutoReplyEnabled = true; 
+// --- STATS DATABASE SYSTEM ---
+const statsFile = __dirname + '/stats.json';
+
+function getStats() {
+    try {
+        if (fs.existsSync(statsFile)) {
+            return JSON.parse(fs.readFileSync(statsFile));
+        }
+    } catch (e) {
+        console.error("Stats read error", e);
+    }
+    return {};
+}
+
+function saveStats(date, sent, failed) {
+    const stats = getStats();
+    if (!stats[date]) stats[date] = { sent: 0, failed: 0 };
+    stats[date].sent += sent;
+    stats[date].failed += failed;
+    fs.writeFileSync(statsFile, JSON.stringify(stats));
+}
+// -----------------------------
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -52,13 +73,8 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // ==========================================
-    // AUTO-REPLY (ऑटो-रिप्लाई) सिस्टम
-    // ==========================================
     sock.ev.on('messages.upsert', async (m) => {
         if (m.type !== 'notify') return;
-
-        // अगर ऑटो-रिप्लाई बटन OFF है, तो यहीं से वापस लौट जाओ (रिप्लाई मत करो)
         if (!isAutoReplyEnabled) return;
 
         const msg = m.messages[0];
@@ -100,15 +116,32 @@ app.get('/status', (req, res) => {
     res.json({
         connected: isConnected,
         qrCode: qrCodeData,
-        autoReply: isAutoReplyEnabled // स्टेटस के साथ ऑटो-रिप्लाई का स्टेटस भी भेजें
+        autoReply: isAutoReplyEnabled
     });
 });
 
-// नया API: ऑटो-रिप्लाई को ON/OFF करने के लिए
 app.post('/toggle-autoreply', (req, res) => {
     isAutoReplyEnabled = req.body.enabled;
-    console.log(`Auto-Reply is now: ${isAutoReplyEnabled ? 'ON' : 'OFF'}`);
     res.json({ success: true, autoReply: isAutoReplyEnabled });
+});
+
+// नया API: Dashboard के लिए डेटा भेजना
+app.get('/api/stats', (req, res) => {
+    const date = req.query.date; // Format: YYYY-MM-DD
+    const stats = getStats();
+    
+    if (date) {
+        res.json(stats[date] || { sent: 0, failed: 0 });
+    } else {
+        // अगर कोई तारीख नहीं चुनी गई है, तो 'All Time' डेटा दिखाएँ
+        let totalSent = 0;
+        let totalFailed = 0;
+        for (let d in stats) {
+            totalSent += stats[d].sent;
+            totalFailed += stats[d].failed;
+        }
+        res.json({ sent: totalSent, failed: totalFailed });
+    }
 });
 
 app.post('/pair-code', async (req, res) => {
@@ -123,7 +156,6 @@ app.post('/pair-code', async (req, res) => {
         const code = await sock.requestPairingCode(phone);
         res.json({ success: true, code: code });
     } catch (error) {
-        console.error('Pairing Code Error:', error);
         res.status(500).json({ success: false, error: 'कोड नहीं बन पाया। कृपया अपना नंबर सही से चेक करें।' });
     }
 });
@@ -163,6 +195,11 @@ app.post('/send', async (req, res) => {
             failedCount++;
         }
     }
+
+    // नया फ़ीचर: आज की तारीख में रिकॉर्ड सेव करना
+    const todayDate = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD format
+    saveStats(todayDate, sentCount, failedCount);
+
     res.json({ success: true, sent: sentCount, failed: failedCount });
 });
 
@@ -170,3 +207,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
