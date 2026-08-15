@@ -15,7 +15,6 @@ let sock;
 let isAutoReplyEnabled = true;
 let autoReplyMessage = `🌟 Welcome to website banane wala! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n\n*1️⃣* - हमारी सर्विस और प्रोडक्ट देखने के लिए\n*2️⃣* - प्राइस लिस्ट (Rate List) के लिए\n*3️⃣* - हमसे बात करने के लिए`;
 
-// --- DATABASE SYSTEMS ---
 const statsFile = __dirname + '/stats.json';
 const sentContactsFile = __dirname + '/sent_contacts.json';
 
@@ -44,7 +43,6 @@ function addSentContact(number) {
         fs.writeFileSync(sentContactsFile, JSON.stringify(list));
     }
 }
-// ------------------------
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -63,54 +61,31 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // --- AUTO-REPLY LOGIC (Whitelist Filter) ---
     sock.ev.on('messages.upsert', async (m) => {
         if (m.type !== 'notify' || !isAutoReplyEnabled) return;
-
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
         const jid = msg.key.remoteJid;
         const phone = jid.split('@')[0]; 
-        
         const sentList = getSentContacts();
         if (!sentList.includes(phone)) return; 
 
-        if (jid.includes('@g.us') || jid === 'status@broadcast') return;
-
         const messageType = Object.keys(msg.message)[0];
-        let text = '';
-        if (messageType === 'conversation') text = msg.message.conversation.trim().toLowerCase();
-        else if (messageType === 'extendedTextMessage') text = msg.message.extendedTextMessage.text.trim().toLowerCase();
+        let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
 
-        if (text === 'hi' || text === 'hello' || text === 'menu') {
-            await sock.sendMessage(jid, { text: autoReplyMessage });
-        } else if (text === '1') {
-            await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
-        } else if (text === '2') {
-            await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
-        } else if (text === '3') {
-            await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
-        }
+        if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplyMessage });
+        else if (text === '1') await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
+        else if (text === '2') await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
+        else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
     });
 }
 
 connectToWhatsApp();
 
-app.get('/status', (req, res) => {
-    res.json({ connected: isConnected, qrCode: qrCodeData, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage });
-});
-
-app.post('/toggle-autoreply', (req, res) => { 
-    isAutoReplyEnabled = req.body.enabled; 
-    res.json({ success: true, autoReply: isAutoReplyEnabled }); 
-});
-
-app.post('/update-autoreply', (req, res) => {
-    autoReplyMessage = req.body.message;
-    res.json({ success: true });
-});
-
+app.get('/status', (req, res) => res.json({ connected: isConnected, qrCode: qrCodeData, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage }));
+app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enabled; res.json({ success: true }); });
+app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 app.get('/api/stats', (req, res) => {
     const stats = getStats();
     const date = req.query.date;
@@ -128,23 +103,21 @@ app.post('/pair-code', async (req, res) => {
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     const { numbers, message, delay, imageBase64 } = req.body;
+    res.json({ success: true }); 
     let sentCount = 0; let failedCount = 0;
-
     for (let num of numbers) {
         try {
             if (!num.startsWith('91')) num = '91' + num;
-            addSentContact(num); 
-            
+            addSentContact(num);
             const jid = num + '@s.whatsapp.net';
             let messageOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message || '' } : { text: message };
             await sock.sendMessage(jid, messageOptions);
             sentCount++;
             await new Promise(resolve => setTimeout(resolve, (delay || 3) * 1000));
-        } catch (error) { failedCount++; }
+        } catch (e) { failedCount++; }
     }
     saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
-    res.json({ success: true, sent: sentCount, failed: failedCount });
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Server is running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Server started`));
