@@ -13,6 +13,9 @@ let qrCodeData = null;
 let isConnected = false;
 let sock;
 
+// नया ग्लोबल वेरिएबल: ऑटो-रिप्लाई बाय डिफॉल्ट चालू रहेगा
+let isAutoReplyEnabled = true; 
+
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     
@@ -50,20 +53,20 @@ async function connectToWhatsApp() {
     sock.ev.on('creds.update', saveCreds);
 
     // ==========================================
-    // नया फीचर: AUTO-REPLY (ऑटो-रिप्लाई) सिस्टम
+    // AUTO-REPLY (ऑटो-रिप्लाई) सिस्टम
     // ==========================================
     sock.ev.on('messages.upsert', async (m) => {
+        if (m.type !== 'notify') return;
+
+        // अगर ऑटो-रिप्लाई बटन OFF है, तो यहीं से वापस लौट जाओ (रिप्लाई मत करो)
+        if (!isAutoReplyEnabled) return;
+
         const msg = m.messages[0];
-        
-        // अगर मैसेज खुद का है या खाली है, तो कुछ मत करो
         if (!msg.message || msg.key.fromMe) return;
 
         const jid = msg.key.remoteJid;
-        
-        // ग्रुप या स्टेटस को इग्नोर करने के लिए
         if (jid.includes('@g.us') || jid === 'status@broadcast') return;
 
-        // मैसेज क्या आया है, उसे पढ़ना (text में बदलना)
         const messageType = Object.keys(msg.message)[0];
         let text = '';
         if (messageType === 'conversation') {
@@ -72,25 +75,18 @@ async function connectToWhatsApp() {
             text = msg.message.extendedTextMessage.text.trim().toLowerCase();
         }
 
-        // --- 1. अगर कोई Hi, Hello या Menu भेजे ---
         if (text === 'hi' || text === 'hello' || text === 'menu') {
             const menuText = `🌟 Welcome to website banane wala! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n\n*1️⃣* - हमारी सर्विस और प्रोडक्ट देखने के लिए\n*2️⃣* - प्राइस लिस्ट (Rate List) के लिए\n*3️⃣* - हमसे बात करने के लिए`;
             await sock.sendMessage(jid, { text: menuText });
         } 
-        
-        // --- 2. अगर कोई '1' लिखकर भेजे ---
         else if (text === '1') {
             const reply1 = `यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है...\n\n(आप इस जगह अपनी सर्विस के बारे में लिख सकते हैं)`;
             await sock.sendMessage(jid, { text: reply1 });
         } 
-        
-        // --- 3. अगर कोई '2' लिखकर भेजे ---
         else if (text === '2') {
             const reply2 = `यहाँ हमारी प्राइस लिस्ट है...\n\n(आप यहाँ अपनी रेट लिस्ट डाल सकते हैं)`;
             await sock.sendMessage(jid, { text: reply2 });
         } 
-        
-        // --- 4. अगर कोई '3' लिखकर भेजे ---
         else if (text === '3') {
             const reply3 = `कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!`;
             await sock.sendMessage(jid, { text: reply3 });
@@ -103,8 +99,16 @@ connectToWhatsApp();
 app.get('/status', (req, res) => {
     res.json({
         connected: isConnected,
-        qrCode: qrCodeData
+        qrCode: qrCodeData,
+        autoReply: isAutoReplyEnabled // स्टेटस के साथ ऑटो-रिप्लाई का स्टेटस भी भेजें
     });
+});
+
+// नया API: ऑटो-रिप्लाई को ON/OFF करने के लिए
+app.post('/toggle-autoreply', (req, res) => {
+    isAutoReplyEnabled = req.body.enabled;
+    console.log(`Auto-Reply is now: ${isAutoReplyEnabled ? 'ON' : 'OFF'}`);
+    res.json({ success: true, autoReply: isAutoReplyEnabled });
 });
 
 app.post('/pair-code', async (req, res) => {
