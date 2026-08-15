@@ -82,7 +82,21 @@
                 <div class="qr-placeholder" id="qrPlaceholder">Connecting to Backend...</div>
                 <img id="realQr" src="" style="display:none; max-width:250px; margin: 0 auto;">
                 <div style="margin-top: 15px; font-weight: bold; color: #d9534f;" id="connectionStatus">Status: Not Connected</div>
-                <p style="color:#666; font-size:14px;">WhatsApp से QR कोड स्कैन करें।</p>
+                
+                <hr style="margin: 25px 0; border: 0; border-top: 1px dashed #ccc;">
+                
+                <h3 style="color: #333; font-size: 16px; margin-bottom: 15px;">या बिना दूसरे फ़ोन के नंबर से लिंक करें (Pairing Code)</h3>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <input type="text" id="pairPhone" placeholder="अपना WhatsApp नंबर डालें (जैसे 9876543210)" style="text-align: center;">
+                </div>
+                <button class="action-btn" style="background-color: #128C7E;" id="pairBtn" onclick="getPairingCode()">8-Digit कोड प्राप्त करें</button>
+                
+                <div id="pairingCodeDisplay" style="display:none; margin-top:20px; font-size:28px; font-weight:bold; letter-spacing: 8px; color: #075e54; background: #e8f5e9; padding: 15px; border-radius: 8px; border: 2px dashed #25d366;">
+                    --------
+                </div>
+                <p id="pairInstruction" style="display:none; color:#666; font-size:14px; margin-top:10px;">
+                    अपने WhatsApp में <b>Linked Devices</b> -> <b>Link with phone number instead</b> पर जाएँ और यह कोड डालें।
+                </p>
             </div>
         </div>
     </div>
@@ -116,9 +130,16 @@
                         realQr.style.display = "none";
                         sendBtn.disabled = false;
                         sendBtn.innerText = "संदेश भेजना शुरू करें";
+                        
+                        // कोड वाले बॉक्स को भी छुपा दें
+                        document.getElementById('pairingCodeDisplay').style.display = 'none';
+                        document.getElementById('pairInstruction').style.display = 'none';
+                        document.getElementById('pairBtn').style.display = 'none';
+                        document.getElementById('pairPhone').style.display = 'none';
+
                         clearInterval(checkInterval);
                     } else if (data.qrCode) {
-                        statusText.innerText = "Status: Waiting for Scan...";
+                        statusText.innerText = "Status: Waiting for Scan or Code...";
                         statusText.style.color = "#ff9800";
                         qrPlaceholder.style.display = "none";
                         realQr.src = data.qrCode;
@@ -135,7 +156,44 @@
             checkInterval = setInterval(checkBackendStatus, 3000);
         };
 
-        // फ़ोटो को अपलोड करने के लिए तैयार करना
+        // नया फीचर: Pairing Code मंगाना
+        function getPairingCode() {
+            const phone = document.getElementById('pairPhone').value.trim();
+            if(!phone) {
+                alert('कृपया अपना WhatsApp नंबर दर्ज करें!');
+                return;
+            }
+
+            const btn = document.getElementById('pairBtn');
+            btn.innerText = "कोड जनरेट हो रहा है...";
+            btn.disabled = true;
+
+            fetch('/pair-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: phone })
+            })
+            .then(res => res.json())
+            .then(data => {
+                btn.innerText = "8-Digit कोड प्राप्त करें";
+                btn.disabled = false;
+                
+                if(data.success) {
+                    document.getElementById('pairingCodeDisplay').style.display = 'block';
+                    document.getElementById('pairInstruction').style.display = 'block';
+                    document.getElementById('pairingCodeDisplay').innerText = data.code;
+                } else {
+                    alert('❌ Error: ' + data.error);
+                }
+            })
+            .catch(err => {
+                alert('सर्वर से संपर्क टूट गया है!');
+                btn.innerText = "8-Digit कोड प्राप्त करें";
+                btn.disabled = false;
+            });
+        }
+
+        // फ़ोटो अपलोड सेटिंग
         let imageBase64 = null;
         document.getElementById('imageFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
