@@ -14,7 +14,6 @@ let isConnected = false;
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        executablePath: '/data/data/com.termux/files/usr/bin/chromium-browser', // Termux का Chromium
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
 });
