@@ -5,82 +5,72 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Marketing Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-    
-    <!-- PDF बनाने के लिए लाइब्रेरीज़ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 
     <style>
-        :root {
-            --primary: #2563eb;       
-            --primary-hover: #1d4ed8;
-            --secondary: #1e293b;     
-            --bg-color: #f1f5f9;      
-            --card-bg: #ffffff;
-            --text-main: #334155;
-            --text-muted: #64748b;
-            --border-color: #e2e8f0;
-            --success: #10b981;
-            --danger: #ef4444;
-        }
-
+        :root { --primary: #2563eb; --secondary: #1e293b; --bg-color: #f1f5f9; --card-bg: #ffffff; --text-main: #334155; --text-muted: #64748b; --border-color: #e2e8f0; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
         body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; display: flex; height: 100vh; overflow: hidden; }
-
         .topbar { width: 100%; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 16px 24px; display: flex; align-items: center; position: fixed; top: 0; z-index: 1001; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
         .menu-toggle { background: rgba(255, 255, 255, 0.1); border: none; color: white; font-size: 20px; cursor: pointer; padding: 8px 12px; border-radius: 8px; transition: 0.3s; }
         .brand-title { margin: 0 0 0 20px; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; background: linear-gradient(to right, #60a5fa, #ffffff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-
         .sidebar { width: 260px; background: var(--card-bg); height: 100%; position: fixed; left: -260px; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); padding-top: 80px; border-right: 1px solid var(--border-color); z-index: 1000; box-shadow: 4px 0 15px rgba(0,0,0,0.03); }
         .sidebar.active { left: 0; }
         .sidebar-btn { display: block; width: 90%; margin: 8px auto; padding: 14px 20px; text-align: left; background: none; border: none; font-size: 15px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-radius: 10px; transition: all 0.3s ease; }
         .sidebar-btn:hover { background: #f8fafc; color: var(--secondary); transform: translateX(5px); }
         .sidebar-btn.active { background: #eff6ff; color: var(--primary); border-left: 4px solid var(--primary); }
-
         .main-content { margin-top: 70px; padding: 30px; width: 100%; overflow-y: auto; scrollbar-width: thin; }
         .content-section { display: none; max-width: 850px; margin: 0 auto; background: var(--card-bg); padding: 40px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid rgba(255, 255, 255, 0.5); animation: fadeIn 0.4s ease-out; }
         .content-section.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
         h2.section-title { color: var(--secondary); font-weight: 700; font-size: 24px; margin-top: 0; margin-bottom: 25px; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; }
-
         .stats-grid { display: flex; gap: 20px; margin-top: 20px; }
-        .stat-card { flex: 1; background: #ffffff; padding: 25px; border-radius: 16px; text-align: center; border: 1px solid var(--border-color); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); transition: transform 0.3s; }
+        .stat-card { flex: 1; background: #ffffff; padding: 25px; border-radius: 16px; text-align: center; border: 1px solid var(--border-color); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); }
         .stat-card.success { border-bottom: 4px solid var(--success); }
         .stat-card.failed { border-bottom: 4px solid var(--danger); }
         .stat-card h3 { margin: 0 0 10px 0; font-size: 14px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
         .stat-card .number { font-size: 42px; font-weight: 700; }
         .number.green { color: var(--success); }
         .number.red { color: var(--danger); }
-
         .form-group { margin-bottom: 20px; }
         label { font-weight: 600; color: var(--text-main); font-size: 14px; display: block; margin-bottom: 8px; }
         textarea, input[type="number"], input[type="text"], input[type="date"], input[type="file"] { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
         textarea:focus, input[type="number"]:focus, input[type="text"]:focus { outline: none; border-color: var(--primary); background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
-
         .action-btn { width: 100%; padding: 16px; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2); }
-        .action-btn:disabled { background: #94a3b8 !important; cursor: not-allowed; transform: none; box-shadow: none; }
-        
         .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); }
         .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
         .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-
         .delay-box { display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
-
         .switch-wrapper { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
         .switch-text h3 { margin: 0 0 5px 0; color: var(--secondary); font-size: 18px; }
         .switch-text p { margin: 0; color: var(--text-muted); font-size: 13px; }
         .switch { position: relative; display: inline-block; width: 60px; height: 32px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
-        .slider:before { position: absolute; content: ""; height: 24px; width: 24px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .slider:before { position: absolute; content: ""; height: 24px; width: 24px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
         input:checked + .slider { background-color: var(--success); }
         input:checked + .slider:before { transform: translateX(28px); }
-
         .qr-container { text-align: center; padding: 30px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1; }
-        #pairingCodeDisplay { font-size: 26px; font-weight: 800; color: var(--primary); text-align: center; margin-top: 25px; letter-spacing: 4px; background: #eff6ff; padding: 15px 10px; border-radius: 12px; display: none; word-wrap: break-word; width: 100%; box-sizing: border-box; }
+        #pairingCodeDisplay { font-size: 26px; font-weight: 800; color: var(--primary); text-align: center; margin-top: 25px; letter-spacing: 4px; background: #eff6ff; padding: 15px 10px; border-radius: 12px; display: none; }
 
-        @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid { flex-direction: column; } .delay-box { flex-direction: column; } #pairingCodeDisplay { font-size: 22px; letter-spacing: 2px; } .download-buttons { flex-direction: column; } }
+        /* नया: Live Tracking CSS */
+        .live-tracker { display: none; margin-top: 25px; background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
+        .live-header { background: #f8fafc; padding: 15px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .live-header h3 { margin: 0; color: var(--secondary); font-size: 16px; }
+        .live-badges { display: flex; gap: 10px; }
+        .badge { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; }
+        .b-total { background: #e2e8f0; color: var(--secondary); }
+        .b-sent { background: #d1fae5; color: var(--success); }
+        .b-failed { background: #fee2e2; color: var(--danger); }
+        .b-pending { background: #fef3c7; color: var(--warning); }
+        .live-list { max-height: 250px; overflow-y: auto; padding: 10px; }
+        .live-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+        .live-item:last-child { border-bottom: none; }
+        .status-sent { color: var(--success); font-weight: 600; }
+        .status-pending { color: var(--warning); font-weight: 600; }
+        .status-failed { color: var(--danger); font-weight: 600; }
+
+        @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid, .delay-box { flex-direction: column; } .download-buttons { flex-direction: column; } .live-header { flex-direction: column; gap: 10px; align-items: flex-start; } }
     </style>
 </head>
 <body>
@@ -115,8 +105,6 @@
                     <div class="number red" id="failedCount">0</div>
                 </div>
             </div>
-            
-            <!-- डाउनलोड बटन्स (CSV & PDF) -->
             <div class="download-buttons" style="display: flex; gap: 15px; margin-top: 25px;">
                 <button class="action-btn btn-success" style="flex: 1;" onclick="downloadHistory()">📥 CSV Download</button>
                 <button class="action-btn btn-danger" style="flex: 1;" onclick="downloadPDF()">📄 PDF Download</button>
@@ -152,6 +140,23 @@
             </div>
 
             <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
+
+            <!-- नया: Live Tracking Box -->
+            <div id="liveTrackingContainer" class="live-tracker">
+                <div class="live-header">
+                    <h3>📡 Live Tracking...</h3>
+                    <div class="live-badges">
+                        <span class="badge b-total" id="liveTotal">Total: 0</span>
+                        <span class="badge b-sent" id="liveSent">Sent: 0</span>
+                        <span class="badge b-failed" id="liveFailed">Failed: 0</span>
+                        <span class="badge b-pending" id="livePending">Pending: 0</span>
+                    </div>
+                </div>
+                <div class="live-list" id="liveList">
+                    <!-- Numbers will appear here dynamically -->
+                </div>
+            </div>
+
             <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:15px; font-weight: 600;">
                 <span style="color:#2563eb;">🛡️ Anti-Ban System Active:</span> बॉट अपने आप रैंडम समय लेगा।
             </p>
@@ -205,65 +210,50 @@
         function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent; document.getElementById('failedCount').innerText = d.failed; }) }
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ शानदार! मैसेज सफलतापूर्वक अपडेट हो गया।')) }
-        
-        // CSV डाउनलोड फंक्शन
-        function downloadHistory() {
-            fetch('/api/history').then(r => r.json()).then(data => {
-                if(data.length === 0) { alert('⚠️ अभी तक कोई मैसेज नहीं भेजा गया है!'); return; }
-                let csv = 'Mobile Number,Sent Message,Date & Time\n';
-                data.forEach(row => {
-                    let safeMsg = row.message ? row.message.replace(/"/g, '""').replace(/\n/g, ' ') : '';
-                    csv += `"${row.number}","${safeMsg}","${row.date}"\n`;
-                });
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.setAttribute('href', url);
-                a.setAttribute('download', 'Website_Banane_Wala_Report.csv');
-                a.click();
-            });
-        }
+        function downloadHistory() { /* Same as before... omitted to save space, but kept in full code above */ fetch('/api/history').then(r => r.json()).then(data => { if(data.length === 0) { alert('⚠️ कोई डेटा नहीं है!'); return; } let csv = 'Mobile Number,Sent Message,Date & Time\n'; data.forEach(row => { let safeMsg = row.message ? row.message.replace(/"/g, '""').replace(/\n/g, ' ') : ''; csv += `"${row.number}","${safeMsg}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Website_Banane_Wala_Report.csv'); a.click(); }); }
+        function downloadPDF() { fetch('/api/history').then(r => r.json()).then(data => { if(data.length === 0) { alert('⚠️ कोई डेटा नहीं है!'); return; } const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.setFontSize(16); doc.setTextColor(37, 99, 235); doc.text("Website Banane Wala - Report", 14, 20); const tableColumn = ["Mobile Number", "Message Sent", "Date & Time"]; const tableRows = []; data.forEach(row => { let msgText = row.message ? row.message : "Media/Photo Sent"; if(msgText.length > 50) { msgText = msgText.substring(0, 50) + "..."; } tableRows.push([row.number, msgText, row.date]); }); doc.autoTable({ head: [tableColumn], body: tableRows, startY: 30, theme: 'grid', styles: { fontSize: 10, cellPadding: 4 }, headStyles: { fillColor: [37, 99, 235], textColor: 255 } }); doc.save('Website_Banane_Wala_Report.pdf'); }); }
 
-        // नया: PDF डाउनलोड फंक्शन
-        function downloadPDF() {
-            fetch('/api/history').then(r => r.json()).then(data => {
-                if(data.length === 0) { alert('⚠️ अभी तक कोई मैसेज नहीं भेजा गया है!'); return; }
-                
-                // jsPDF का इस्तेमाल
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF();
-                
-                // टाइटल 
-                doc.setFontSize(16);
-                doc.setTextColor(37, 99, 235); // प्राइमरी ब्लू कलर
-                doc.text("Website Banane Wala - Campaign Report", 14, 20);
-                
-                // टेबल का डेटा तैयार करना
-                const tableColumn = ["Mobile Number", "Message Sent", "Date & Time"];
-                const tableRows = [];
+        let liveMonitorInterval;
 
-                data.forEach(row => {
-                    // अगर मैसेज बहुत बड़ा है तो उसे थोड़ा छोटा (Trim) कर देंगे ताकि PDF साफ़ दिखे
-                    let msgText = row.message ? row.message : "Media/Photo Sent";
-                    if(msgText.length > 50) { msgText = msgText.substring(0, 50) + "..."; }
+        function startLiveMonitoring() {
+            document.getElementById('liveTrackingContainer').style.display = 'block';
+            document.getElementById('liveList').innerHTML = '<div style="text-align:center; padding:20px;">लोड हो रहा है...</div>';
+            
+            if(liveMonitorInterval) clearInterval(liveMonitorInterval);
+            
+            liveMonitorInterval = setInterval(() => {
+                fetch('/api/live-status').then(r => r.json()).then(data => {
+                    if (!data.isActive && data.total === 0) return; // अगर कोई कैंपेन नहीं चल रहा है
                     
-                    const rowData = [row.number, msgText, row.date];
-                    tableRows.push(rowData);
+                    document.getElementById('liveTotal').innerText = `Total: ${data.total}`;
+                    document.getElementById('liveSent').innerText = `Sent: ${data.sent}`;
+                    document.getElementById('liveFailed').innerText = `Failed: ${data.failed}`;
+                    document.getElementById('livePending').innerText = `Pending: ${data.pending}`;
+                    
+                    let html = '';
+                    data.numbers.forEach(item => {
+                        let statusClass = 'status-pending';
+                        if(item.status.includes('Sent')) statusClass = 'status-sent';
+                        else if(item.status.includes('Invalid') || item.status.includes('Failed')) statusClass = 'status-failed';
+                        
+                        html += `
+                        <div class="live-item">
+                            <span>📱 ${item.phone}</span>
+                            <span class="${statusClass}">${item.status}</span>
+                        </div>`;
+                    });
+                    
+                    document.getElementById('liveList').innerHTML = html;
+                    
+                    // अगर पेंडिंग 0 हो गए, तो मॉनिटरिंग रोक दें (कैंपेन खत्म)
+                    if (!data.isActive && data.total > 0 && data.pending === 0) {
+                        clearInterval(liveMonitorInterval);
+                        document.getElementById('sendBtn').disabled = false;
+                        document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign';
+                        fetchStats(); // डैशबोर्ड अपडेट करें
+                    }
                 });
-
-                // टेबल डिज़ाइन
-                doc.autoTable({
-                    head: [tableColumn],
-                    body: tableRows,
-                    startY: 30,
-                    theme: 'grid',
-                    styles: { fontSize: 10, cellPadding: 4 },
-                    headStyles: { fillColor: [37, 99, 235], textColor: 255 }
-                });
-
-                // PDF सेव करना
-                doc.save('Website_Banane_Wala_Report.pdf');
-            });
+            }, 2000); // हर 2 सेकंड में चेक करेगा
         }
 
         async function startSending() {
@@ -274,6 +264,7 @@
             if (img) { const reader = new FileReader(); reader.onload = (e) => { imgBase64 = e.target.result; doSend(nums, msg, imgBase64); }; reader.readAsDataURL(img); } 
             else { doSend(nums, msg, null); }
         }
+        
         function doSend(nums, msg, img) {
             const minD = document.getElementById('minDelay').value;
             const maxD = document.getElementById('maxDelay').value;
@@ -286,8 +277,8 @@
 
             fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: nums, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: img }) })
             .then(() => {
-                alert('🚀 कैंपेन शुरू हो गया है! आप डैशबोर्ड में रिपोर्ट चेक कर सकते हैं।');
-                setTimeout(() => { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign'; }, 3000);
+                // जैसे ही रिक्वेस्ट जाए, लाइव ट्रैकिंग शुरू कर दें
+                startLiveMonitoring(); 
             })
         }
         function getPairingCode() { fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('pairPhone').value }) }).then(r => r.json()).then(d => { const codeDisplay = document.getElementById('pairingCodeDisplay'); codeDisplay.style.display = 'block'; codeDisplay.innerText = d.code; }) }
@@ -297,22 +288,11 @@
                 fetch('/status').then(r => r.json()).then(d => {
                     const qrImg = document.getElementById('realQr');
                     const qrStatus = document.getElementById('qrStatus');
-                    if (d.connected) {
-                        qrImg.style.display = 'none';
-                        qrStatus.innerHTML = '✅ डिवाइस सफलतापूर्वक कनेक्टेड है!';
-                        qrStatus.style.color = '#10b981';
-                    } else if (d.qrCode) {
-                        qrImg.src = d.qrCode;
-                        qrImg.style.display = 'block';
-                        qrStatus.innerHTML = 'क्यूआर (QR) कोड स्कैन करें...';
-                        qrStatus.style.color = '#f59e0b';
-                    }
+                    if (d.connected) { qrImg.style.display = 'none'; qrStatus.innerHTML = '✅ डिवाइस सफलतापूर्वक कनेक्टेड है!'; qrStatus.style.color = '#10b981'; } 
+                    else if (d.qrCode) { qrImg.src = d.qrCode; qrImg.style.display = 'block'; qrStatus.innerHTML = 'क्यूआर (QR) कोड स्कैन करें...'; qrStatus.style.color = '#f59e0b'; }
                     document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
-                }).catch(() => {
-                    document.getElementById('qrStatus').innerHTML = '❌ सर्वर ऑफलाइन है';
-                    document.getElementById('qrStatus').style.color = '#ef4444';
-                });
+                }).catch(() => { document.getElementById('qrStatus').innerHTML = '❌ सर्वर ऑफलाइन है'; document.getElementById('qrStatus').style.color = '#ef4444'; });
             }, 3000);
         }
     </script>
