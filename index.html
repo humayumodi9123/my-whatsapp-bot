@@ -17,7 +17,6 @@
         .content-section { display: none; max-width: 800px; margin: 0 auto; background: #ffffff; padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; }
         .content-section.active { display: block; }
         
-        /* Stats Dashboard Enhancements */
         .filter-container { text-align: center; margin-bottom: 30px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; }
         .filter-container input[type="date"] { padding: 10px 15px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 15px; color: #2d3748; cursor: pointer; outline: none; transition: 0.3s; }
         .filter-container input[type="date"]:focus { border-color: #075e54; box-shadow: 0 0 0 3px rgba(7, 94, 84, 0.1); }
@@ -75,22 +74,20 @@
 
     <div class="sidebar" id="sidebar">
         <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
-        <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Send Message & Photo</button>
+        <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Send Message</button>
         <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Auto-Reply Setting</button>
         <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Connect WhatsApp</button>
     </div>
 
     <div class="main-content" id="mainContent">
-        <!-- Dashboard with Date Filter & Stats -->
+        <!-- Dashboard -->
         <div id="dashboard" class="content-section active">
             <div style="text-align: center;"><h2 class="section-title">Message Analytics</h2></div>
-            
             <div class="filter-container">
                 <label for="dateFilter" style="font-weight: bold; color: #4a5568; margin-right: 10px;">तारीख चुनें:</label>
                 <input type="date" id="dateFilter" onchange="fetchStats()">
                 <button onclick="clearDateFilter()" class="clear-btn">All Time (सभी)</button>
             </div>
-
             <div class="stats-container">
                 <div class="stat-card">
                     <h3>✅ Total Sent (सफल)</h3>
@@ -131,7 +128,7 @@
             <div class="toggle-container">
                 <div class="toggle-text">
                     <h3>Auto-Reply Assistant</h3>
-                    <p>जब आप काम में व्यस्त हों, तो यह स्मार्ट बॉट ग्राहकों को अपने आप रिप्लाई करेगा। इसे अपनी ज़रूरत के हिसाब से चालू (ON) या बंद (OFF) करें।</p>
+                    <p>जब आप काम में व्यस्त हों, तो यह स्मार्ट बॉट ग्राहकों को अपने आप रिप्लाई करेगा। इसे चालू रखें और नीचे अपना कस्टम मैसेज सेट करें।</p>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: center;">
                     <label class="modern-switch">
@@ -140,6 +137,12 @@
                     </label>
                     <div id="toggleLabel" class="status-badge">OFF</div>
                 </div>
+            </div>
+            
+            <div class="form-group" style="margin-top: 25px;">
+                <label>ऑटो-रिप्लाई मैसेज:</label>
+                <textarea id="editAutoReplyMsg" placeholder="यहाँ अपना वेलकम मैसेज लिखें..." style="height: 150px;"></textarea>
+                <button class="action-btn" style="margin-top: 15px; background-color: #2b6cb0;" onclick="updateAutoReplyMsg()">मैसेज अपडेट करें</button>
             </div>
         </div>
 
@@ -178,13 +181,11 @@
 
         let checkInterval;
         
-        // --- नया फ़ंक्शन: Stats Fetch करना ---
         function fetchStats() {
             const dateVal = document.getElementById('dateFilter').value;
             let url = '/api/stats';
-            if (dateVal) {
-                url += '?date=' + dateVal;
-            }
+            if (dateVal) url += '?date=' + dateVal;
+            
             fetch(url)
                 .then(res => res.json())
                 .then(data => {
@@ -198,7 +199,6 @@
             document.getElementById('dateFilter').value = '';
             fetchStats();
         }
-        // ------------------------------------
 
         function checkBackendStatus() {
             fetch('/status')
@@ -210,6 +210,7 @@
                     const sendBtn = document.getElementById('sendBtn');
                     const toggleInput = document.getElementById('autoReplyToggle');
                     const toggleLabel = document.getElementById('toggleLabel');
+                    const editArea = document.getElementById('editAutoReplyMsg');
 
                     if(data.autoReply !== undefined) {
                         toggleInput.checked = data.autoReply;
@@ -220,6 +221,11 @@
                             toggleLabel.innerText = "OFF";
                             toggleLabel.classList.remove('active');
                         }
+                    }
+
+                    // Auto Reply का मैसेज टेक्स्ट बॉक्स में सेट करना
+                    if(data.currentMsg && !editArea.value) {
+                        editArea.value = data.currentMsg;
                     }
 
                     if (data.connected) {
@@ -254,7 +260,7 @@
 
         window.onload = () => {
             checkBackendStatus();
-            fetchStats(); // पेज लोड होते ही Stats लाएं
+            fetchStats(); 
             checkInterval = setInterval(checkBackendStatus, 3000);
         };
 
@@ -275,6 +281,20 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: isEnabled })
             });
+        }
+
+        function updateAutoReplyMsg() {
+            const msg = document.getElementById('editAutoReplyMsg').value;
+            fetch('/update-autoreply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: msg })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) alert('✅ ऑटो-रिप्लाई मैसेज सफलतापूर्वक अपडेट हो गया!');
+            })
+            .catch(err => alert('❌ एरर: मैसेज अपडेट नहीं हुआ'));
         }
 
         function getPairingCode() {
@@ -351,7 +371,6 @@
             .then(data => {
                 if (data.success) {
                     alert(`✅ प्रोसेस पूरी हुई!\nसफलता (Sent): ${data.sent}\nफेल (Failed): ${data.failed}`);
-                    // नया मैसेज भेजने के बाद डैशबोर्ड का रिकॉर्ड तुरंत अपडेट करें
                     fetchStats();
                 } else {
                     alert('❌ Error: ' + data.error);
