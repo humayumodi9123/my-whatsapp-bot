@@ -1,80 +1,406 @@
 <!DOCTYPE html>
-<html lang="hi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>WhatsApp Marketing Pro</title><style>
-body{font-family:sans-serif;background:#f4f7f6;margin:0;display:flex;height:100vh;overflow:hidden}.sidebar{width:250px;background:#fff;height:100%;position:fixed;left:-250px;transition:.3s;padding-top:60px;border-right:1px solid #eaeaea;z-index:1000}.sidebar.active{left:0}.sidebar-btn{display:block;width:100%;padding:16px 20px;text-align:left;background:none;border:none;font-weight:600;color:#4a5568;cursor:pointer}.topbar{width:100%;background:#075e54;color:#fff;padding:15px;display:flex;align-items:center;position:fixed;top:0;z-index:1001}.main-content{margin-top:60px;padding:20px;width:100%;overflow-y:auto}.content-section{display:none;background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 10px rgba(0,0,0,0.05)}.content-section.active{display:block}.stat-card{background:#f8fff9;padding:20px;border-radius:10px;margin-bottom:15px;text-align:center;border-left:5px solid #25d366}.number{font-size:30px;font-weight:bold}.action-btn{width:100%;padding:15px;background:#25d366;color:#fff;border:none;border-radius:8px;font-weight:bold;cursor:pointer}.form-group{margin-bottom: 15px;}label{font-weight: bold; color:#333; font-size:14px; display:block; margin-bottom:5px;}input[type="number"]{width:100%; padding:10px; border:1px solid #ccc; border-radius:5px; box-sizing:border-box;}
-</style></head><body>
-<div class="topbar"><button onclick="document.getElementById('sidebar').classList.toggle('active')" style="background:none;border:none;color:white;font-size:24px;cursor:pointer;">&#9776;</button><h2 style="margin-left:15px; margin-top:0; margin-bottom:0;">WhatsApp Pro</h2></div>
-<div class="sidebar" id="sidebar">
-<button class="sidebar-btn" onclick="showSection('dashboard')">📊 Dashboard</button>
-<button class="sidebar-btn" onclick="showSection('sendMsg')">📨 Send Message</button>
-<button class="sidebar-btn" onclick="showSection('autoReply')">🤖 Auto-Reply</button>
-<button class="sidebar-btn" onclick="showSection('connectWp')">🔗 WhatsApp</button>
-</div>
-<div class="main-content">
-<div id="dashboard" class="content-section active">
-<h2>Analytics</h2>
-<input type="date" id="dateFilter" onchange="fetchStats()" style="padding:10px; border-radius:5px; border:1px solid #ccc; margin-bottom:15px; width:100%; box-sizing:border-box;">
-<div class="stat-card"><h3>Sent</h3><div class="number" id="sentCount" style="color:green;">0</div></div>
-<div class="stat-card" style="border-left-color:red"><h3>Failed</h3><div class="number" id="failedCount" style="color:red;">0</div></div>
-</div>
-<div id="sendMsg" class="content-section">
-<h2>Send Message</h2>
-<div class="form-group">
-<textarea id="numbers" placeholder="Mobile Numbers (One per line)..." style="width:100%;height:100px;padding:10px;border:1px solid #ccc;border-radius:5px;box-sizing:border-box;"></textarea>
-</div>
-<div class="form-group"><input type="file" id="imageFile"></div>
-<div class="form-group">
-<textarea id="message" placeholder="Message / Caption..." style="width:100%;height:100px;padding:10px;border:1px solid #ccc;border-radius:5px;box-sizing:border-box;"></textarea>
-</div>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;       /* Royal Blue */
+            --primary-hover: #1d4ed8;
+            --secondary: #1e293b;     /* Slate Dark */
+            --bg-color: #f1f5f9;      /* Light Slate */
+            --card-bg: #ffffff;
+            --text-main: #334155;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --success: #10b981;
+            --danger: #ef4444;
+        }
 
-<!-- नया रैंडम टाइमर सेटिंग्स -->
-<div style="display: flex; gap: 10px; margin-bottom: 20px; background: #f9f9f9; padding: 15px; border-radius: 8px; border: 1px dashed #ccc;">
-    <div style="flex: 1;">
-        <label>कम से कम समय (Sec):</label>
-        <input type="number" id="minDelay" value="15" min="5">
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Topbar - Premium Dark Gradient */
+        .topbar {
+            width: 100%;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #fff;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            position: fixed;
+            top: 0;
+            z-index: 1001;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .menu-toggle {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 8px;
+            transition: 0.3s;
+        }
+        .menu-toggle:hover { background: rgba(255, 255, 255, 0.2); }
+
+        .brand-title {
+            margin: 0 0 0 20px;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            background: linear-gradient(to right, #60a5fa, #ffffff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Sidebar - Clean & Modern */
+        .sidebar {
+            width: 260px;
+            background: var(--card-bg);
+            height: 100%;
+            position: fixed;
+            left: -260px;
+            transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            padding-top: 80px;
+            border-right: 1px solid var(--border-color);
+            z-index: 1000;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.03);
+        }
+        .sidebar.active { left: 0; }
+
+        .sidebar-btn {
+            display: block;
+            width: 90%;
+            margin: 8px auto;
+            padding: 14px 20px;
+            text-align: left;
+            background: none;
+            border: none;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+        .sidebar-btn:hover {
+            background: #f8fafc;
+            color: var(--secondary);
+            transform: translateX(5px);
+        }
+        .sidebar-btn.active {
+            background: #eff6ff;
+            color: var(--primary);
+            border-left: 4px solid var(--primary);
+        }
+
+        /* Main Content & Cards */
+        .main-content {
+            margin-top: 70px;
+            padding: 30px;
+            width: 100%;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+
+        .content-section {
+            display: none;
+            max-width: 850px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            animation: fadeIn 0.4s ease-out;
+        }
+        .content-section.active { display: block; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        h2.section-title {
+            color: var(--secondary);
+            font-weight: 700;
+            font-size: 24px;
+            margin-top: 0;
+            margin-bottom: 25px;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 15px;
+        }
+
+        /* Stats Cards */
+        .stats-grid { display: flex; gap: 20px; margin-top: 20px; }
+        .stat-card {
+            flex: 1;
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 16px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+            transition: transform 0.3s;
+        }
+        .stat-card:hover { transform: translateY(-5px); }
+        .stat-card.success { border-bottom: 4px solid var(--success); }
+        .stat-card.failed { border-bottom: 4px solid var(--danger); }
+        .stat-card h3 { margin: 0 0 10px 0; font-size: 14px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .stat-card .number { font-size: 42px; font-weight: 700; }
+        .number.green { color: var(--success); }
+        .number.red { color: var(--danger); }
+
+        /* Form Inputs */
+        .form-group { margin-bottom: 20px; }
+        label { font-weight: 600; color: var(--text-main); font-size: 14px; display: block; margin-bottom: 8px; }
+        
+        textarea, input[type="number"], input[type="text"], input[type="date"], input[type="file"] {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 15px;
+            background: #f8fafc;
+            transition: all 0.3s;
+        }
+        textarea:focus, input[type="number"]:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: #ffffff;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+        }
+
+        /* Modern Gradient Button */
+        .action-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(37, 99, 235, 0.4);
+        }
+        .action-btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Delay Settings Box */
+        .delay-box {
+            display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;
+        }
+
+        /* Modern Toggle Switch */
+        .switch-wrapper { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+        .switch-text h3 { margin: 0 0 5px 0; color: var(--secondary); font-size: 18px; }
+        .switch-text p { margin: 0; color: var(--text-muted); font-size: 13px; }
+        
+        .switch { position: relative; display: inline-block; width: 60px; height: 32px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 24px; width: 24px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(28px); }
+
+        /* QR Section */
+        .qr-container { text-align: center; padding: 30px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1; }
+
+        @media (max-width: 768px) {
+            .content-section { padding: 20px; }
+            .stats-grid { flex-direction: column; }
+            .delay-box { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="topbar">
+        <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('active')">&#9776;</button>
+        <h2 class="brand-title">Mayur Print & Pack</h2>
     </div>
-    <div style="flex: 1;">
-        <label>अधिकतम समय (Sec):</label>
-        <input type="number" id="maxDelay" value="45" min="10">
+
+    <div class="sidebar" id="sidebar">
+        <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
+        <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
+        <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
+        <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
     </div>
-</div>
 
-<button class="action-btn" id="sendBtn" onclick="startSending()">Send Message</button>
-<p style="font-size: 12px; color: #666; text-align:center; margin-top:10px;">नोट: बॉट हर मैसेज के लिए इन दोनों के बीच का कोई रैंडम समय लेगा (Anti-Ban).</p>
-</div>
-<div id="autoReply" class="content-section">
-<h2>Auto-Reply Setting</h2>
-<div style="margin-bottom:15px;">
-<input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()" style="transform: scale(1.5); margin-right:10px;"> <label style="display:inline; font-size:18px;">Auto-Reply ON</label>
-</div>
-<textarea id="editAutoReplyMsg" style="width:100%;height:150px;padding:10px;border:1px solid #ccc;border-radius:5px;box-sizing:border-box;"></textarea>
-<button class="action-btn" onclick="updateAutoReplyMsg()" style="margin-top:15px; background-color:#2b6cb0;">Update Msg</button>
-</div>
-<div id="connectWp" class="content-section" style="text-align:center;">
-<h2>Connect WhatsApp</h2>
-<img id="realQr" style="max-width:100%; margin:0 auto; border-radius:8px;">
-<hr style="margin:20px 0;">
-<div class="form-group">
-<input type="text" id="pairPhone" placeholder="Enter WhatsApp Number" style="width:100%; padding:15px; text-align:center; font-size:18px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box;">
-</div>
-<button class="action-btn" onclick="getPairingCode()" style="background-color:#2b6cb0;">Get 8-Digit Code</button>
-<div id="pairingCodeDisplay" style="font-size:28px; font-weight:bold; color:#2b6cb0; text-align:center; margin-top:20px; letter-spacing:5px;"></div>
-</div>
-</div>
-<script>
-function showSection(id){document.querySelectorAll('.content-section').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active')}
-function fetchStats(){fetch('/api/stats?date='+document.getElementById('dateFilter').value).then(r=>r.json()).then(d=>{document.getElementById('sentCount').innerText=d.sent;document.getElementById('failedCount').innerText=d.failed})}
-function toggleAutoReply(){fetch('/toggle-autoreply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:document.getElementById('autoReplyToggle').checked})})}
-function updateAutoReplyMsg(){fetch('/update-autoreply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:document.getElementById('editAutoReplyMsg').value})}).then(()=>alert('✅ Message Updated Successfully!'))}
-async function startSending(){const nums=document.getElementById('numbers').value.split('\n');const msg=document.getElementById('message').value;const img=document.getElementById('imageFile').files[0];let imgBase64=null;if(img){const reader=new FileReader();reader.onload=(e)=>{imgBase64=e.target.result;doSend(nums,msg,imgBase64)};reader.readAsDataURL(img)}else{doSend(nums,msg,null)}}
-function doSend(nums,msg,img){
-    const minD = document.getElementById('minDelay').value;
-    const maxD = document.getElementById('maxDelay').value;
-    if(parseInt(minD) >= parseInt(maxD)){ alert('एरर: अधिकतम समय (Max), कम से कम (Min) समय से ज़्यादा होना चाहिए!'); return; }
-    
-    fetch('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({numbers:nums,message:msg,minDelay:minD,maxDelay:maxD,imageBase64:img})})
-    .then(()=>alert('🚀 मैसेज भेजने की प्रक्रिया बैकग्राउंड में शुरू हो गई है! आप डैशबोर्ड में प्रोग्रेस देख सकते हैं।'))
-}
-function getPairingCode(){fetch('/pair-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:document.getElementById('pairPhone').value})}).then(r=>r.json()).then(d=>document.getElementById('pairingCodeDisplay').innerText=d.code)}
-window.onload=()=>{fetchStats();setInterval(()=>{fetch('/status').then(r=>r.json()).then(d=>{if(d.qrCode)document.getElementById('realQr').src=d.qrCode;document.getElementById('autoReplyToggle').checked=d.autoReply;if(!document.getElementById('editAutoReplyMsg').value)document.getElementById('editAutoReplyMsg').value=d.currentMsg})},3000)}
-</script></body></html>
+    <div class="main-content">
+        <!-- Dashboard -->
+        <div id="dashboard" class="content-section active">
+            <h2 class="section-title">Overview & Analytics</h2>
+            <div class="form-group">
+                <label>फ़िल्टर (तारीख चुनें):</label>
+                <input type="date" id="dateFilter" onchange="fetchStats()">
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card success">
+                    <h3>✅ Messages Sent</h3>
+                    <div class="number green" id="sentCount">0</div>
+                </div>
+                <div class="stat-card failed">
+                    <h3>❌ Failed Delivery</h3>
+                    <div class="number red" id="failedCount">0</div>
+                </div>
+            </div>
+        </div>
 
+        <!-- Send Message -->
+        <div id="sendMsg" class="content-section">
+            <h2 class="section-title">New Marketing Campaign</h2>
+            <div class="form-group">
+                <label>ग्राहक के मोबाइल नंबर (एक लाइन में एक):</label>
+                <textarea id="numbers" placeholder="919876543210&#10;918888888888" style="height:120px;"></textarea>
+            </div>
+            <div class="form-group">
+                <label>प्रमोशनल डिज़ाइन / पोस्टर (Optional):</label>
+                <input type="file" id="imageFile" accept="image/*">
+            </div>
+            <div class="form-group">
+                <label>कैप्शन / मैसेज:</label>
+                <textarea id="message" placeholder="यहाँ अपना शानदार मैसेज टाइप करें..." style="height:120px;"></textarea>
+            </div>
+
+            <div class="delay-box">
+                <div style="flex: 1;">
+                    <label>कम से कम समय (Sec):</label>
+                    <input type="number" id="minDelay" value="15" min="5">
+                </div>
+                <div style="flex: 1;">
+                    <label>अधिकतम समय (Sec):</label>
+                    <input type="number" id="maxDelay" value="45" min="10">
+                </div>
+            </div>
+
+            <button class="action-btn" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
+            <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:15px; font-weight: 600;">
+                <span style="color:#2563eb;">🛡️ Anti-Ban System Active:</span> बॉट अपने आप रैंडम समय लेगा।
+            </p>
+        </div>
+
+        <!-- Auto Reply Settings -->
+        <div id="autoReply" class="content-section">
+            <h2 class="section-title">Smart Auto-Reply</h2>
+            <div class="switch-wrapper">
+                <div class="switch-text">
+                    <h3>Auto-Reply Assistant</h3>
+                    <p>ग्राहकों को अपने आप तुरंत जवाब भेजें।</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label>वेलकम मैसेज सेट करें:</label>
+                <textarea id="editAutoReplyMsg" style="height:180px;"></textarea>
+            </div>
+            <button class="action-btn" onclick="updateAutoReplyMsg()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">💾 Update Message</button>
+        </div>
+
+        <!-- Connect WhatsApp -->
+        <div id="connectWp" class="content-section">
+            <h2 class="section-title">Device Connection</h2>
+            <div class="qr-container">
+                <img id="realQr" style="max-width:100%; margin:0 auto; border-radius:12px; display: none;">
+                <p id="qrStatus" style="font-size: 16px; color: #64748b; font-weight: 600; margin-top: 15px;">Connecting to secure server...</p>
+                
+                <hr style="margin:30px 0; border:0; border-top: 1px dashed #cbd5e1;">
+                
+                <h3 style="color: var(--secondary); font-size: 16px; margin-bottom: 15px;">या Pairing Code से कनेक्ट करें</h3>
+                <div class="form-group">
+                    <input type="text" id="pairPhone" placeholder="Enter WhatsApp Number (e.g. 919876543210)" style="text-align:center; font-size:18px; letter-spacing: 1px;">
+                </div>
+                <button class="action-btn" onclick="getPairingCode()">📲 Get 8-Digit Code</button>
+                <div id="pairingCodeDisplay" style="font-size:32px; font-weight:800; color:var(--primary); text-align:center; margin-top:25px; letter-spacing:8px; background: #eff6ff; padding: 15px; border-radius: 12px; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showSection(id, btn) {
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
+        }
+        function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent; document.getElementById('failedCount').innerText = d.failed; }) }
+        function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
+        function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ शानदार! मैसेज सफलतापूर्वक अपडेट हो गया।')) }
+        async function startSending() {
+            const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
+            const msg = document.getElementById('message').value;
+            const img = document.getElementById('imageFile').files[0];
+            let imgBase64 = null;
+            if (img) { const reader = new FileReader(); reader.onload = (e) => { imgBase64 = e.target.result; doSend(nums, msg, imgBase64); }; reader.readAsDataURL(img); } 
+            else { doSend(nums, msg, null); }
+        }
+        function doSend(nums, msg, img) {
+            const minD = document.getElementById('minDelay').value;
+            const maxD = document.getElementById('maxDelay').value;
+            if (parseInt(minD) >= parseInt(maxD)) { alert('⚠️ एरर: अधिकतम समय, कम से कम समय से ज़्यादा होना चाहिए!'); return; }
+            if (nums.length === 0) { alert('⚠️ कृपया मोबाइल नंबर दर्ज करें!'); return; }
+            
+            const btn = document.getElementById('sendBtn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Campaign Running...';
+
+            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: nums, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: img }) })
+            .then(() => {
+                alert('🚀 कैंपेन शुरू हो गया है! आप डैशबोर्ड में रिपोर्ट चेक कर सकते हैं।');
+                setTimeout(() => { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign'; }, 3000);
+            })
+        }
+        function getPairingCode() { fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('pairPhone').value }) }).then(r => r.json()).then(d => { const codeDisplay = document.getElementById('pairingCodeDisplay'); codeDisplay.style.display = 'block'; codeDisplay.innerText = d.code; }) }
+        window.onload = () => {
+            fetchStats();
+            setInterval(() => {
+                fetch('/status').then(r => r.json()).then(d => {
+                    const qrImg = document.getElementById('realQr');
+                    const qrStatus = document.getElementById('qrStatus');
+                    if (d.connected) {
+                        qrImg.style.display = 'none';
+                        qrStatus.innerHTML = '✅ डिवाइस सफलतापूर्वक कनेक्टेड है!';
+                        qrStatus.style.color = '#10b981';
+                    } else if (d.qrCode) {
+                        qrImg.src = d.qrCode;
+                        qrImg.style.display = 'block';
+                        qrStatus.innerHTML = 'क्यूआर (QR) कोड स्कैन करें...';
+                        qrStatus.style.color = '#f59e0b';
+                    }
+                    document.getElementById('autoReplyToggle').checked = d.autoReply;
+                    if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
+                }).catch(() => {
+                    document.getElementById('qrStatus').innerHTML = '❌ सर्वर ऑफलाइन है';
+                    document.getElementById('qrStatus').style.color = '#ef4444';
+                });
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
