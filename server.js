@@ -1,50 +1,56 @@
 const express = require('express');
 const cors = require('cors');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname)); // UI दिखाने के लिए
+app.use(express.static(__dirname));
 
 let qrCodeData = null;
 let isConnected = false;
+let sock;
 
-// Render के 512MB RAM लिमिट के लिए सबसे तगड़ी 'Single Process' सेटिंग
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process', // <-- यह सबसे ज़्यादा RAM बचाएगा
-            '--disable-gpu'
-        ]
-    }
-});
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        browser: ["My WhatsApp Bot", "Chrome", "1.0.0"]
+    });
 
-client.on('qr', async (qr) => {
-    console.log('नया QR Code जनरेट हुआ है...');
-    qrCodeData = await qrcode.toDataURL(qr);
-});
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if(qr) {
+            console.log('नया QR Code जनरेट हुआ है...');
+            qrCodeData = await qrcode.toDataURL(qr);
+        }
 
-client.on('ready', () => {
-    console.log('WhatsApp सफलतापूर्वक कनेक्ट हो गया है!');
-    isConnected = true;
-    qrCodeData = null; 
-});
+        if(connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting:', shouldReconnect);
+            isConnected = false;
+            if(shouldReconnect) {
+                setTimeout(connectToWhatsApp, 3000);
+            } else {
+                fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+                connectToWhatsApp();
+            }
+        } else if(connection === 'open') {
+            console.log('WhatsApp सफलतापूर्वक कनेक्ट हो गया है!');
+            isConnected = true;
+            qrCodeData = null;
+        }
+    });
 
-client.on('disconnected', (reason) => {
-    console.log('WhatsApp डिस्कनेक्ट हो गया:', reason);
-    isConnected = false;
-});
+    sock.ev.on('creds.update', saveCreds);
+}
 
-client.initialize();
+connectToWhatsApp();
 
 app.get('/status', (req, res) => {
     res.json({
@@ -54,7 +60,7 @@ app.get('/status', (req, res) => {
 });
 
 app.post('/send', async (req, res) => {
-    if (!isConnected) {
+    if (!isConnected || !sock) {
         return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     }
 
@@ -65,9 +71,9 @@ app.post('/send', async (req, res) => {
     for (let num of numbers) {
         try {
             if (!num.startsWith('91')) num = '91' + num;
-            const chatId = num + '@c.us';
+            const jid = num + '@s.whatsapp.net';
             
-            await client.sendMessage(chatId, message);
+            await sock.sendMessage(jid, { text: message });
             sentCount++;
             console.log(`${num} पर मैसेज भेजा गया।`);
             
@@ -80,8 +86,7 @@ app.post('/send', async (req, res) => {
     res.json({ success: true, sent: sentCount, failed: failedCount });
 });
 
-// '0.0.0.0' जोड़ने से क्लाउड सर्वर का कनेक्शन मजबूत रहता है
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
 });
