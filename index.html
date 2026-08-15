@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Marketing Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- PDF बनाने के लिए लाइब्रेरीज़ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
     <style>
         :root {
             --primary: #2563eb;       
@@ -52,9 +57,13 @@
         textarea, input[type="number"], input[type="text"], input[type="date"], input[type="file"] { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
         textarea:focus, input[type="number"]:focus, input[type="text"]:focus { outline: none; border-color: var(--primary); background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
 
-        .action-btn { width: 100%; padding: 16px; background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); }
-        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(37, 99, 235, 0.4); }
-        .action-btn:disabled { background: #94a3b8; cursor: not-allowed; transform: none; box-shadow: none; }
+        .action-btn { width: 100%; padding: 16px; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2); }
+        .action-btn:disabled { background: #94a3b8 !important; cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); }
+        .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
 
         .delay-box { display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
 
@@ -71,7 +80,7 @@
         .qr-container { text-align: center; padding: 30px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1; }
         #pairingCodeDisplay { font-size: 26px; font-weight: 800; color: var(--primary); text-align: center; margin-top: 25px; letter-spacing: 4px; background: #eff6ff; padding: 15px 10px; border-radius: 12px; display: none; word-wrap: break-word; width: 100%; box-sizing: border-box; }
 
-        @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid { flex-direction: column; } .delay-box { flex-direction: column; } #pairingCodeDisplay { font-size: 22px; letter-spacing: 2px; } }
+        @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid { flex-direction: column; } .delay-box { flex-direction: column; } #pairingCodeDisplay { font-size: 22px; letter-spacing: 2px; } .download-buttons { flex-direction: column; } }
     </style>
 </head>
 <body>
@@ -106,8 +115,13 @@
                     <div class="number red" id="failedCount">0</div>
                 </div>
             </div>
-            <!-- नया: डाउनलोड रिपोर्ट बटन -->
-            <button class="action-btn" style="margin-top:25px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);" onclick="downloadHistory()">📥 Download Sent Report (CSV)</button>
+            
+            <!-- डाउनलोड बटन्स (CSV & PDF) -->
+            <div class="download-buttons" style="display: flex; gap: 15px; margin-top: 25px;">
+                <button class="action-btn btn-success" style="flex: 1;" onclick="downloadHistory()">📥 CSV Download</button>
+                <button class="action-btn btn-danger" style="flex: 1;" onclick="downloadPDF()">📄 PDF Download</button>
+            </div>
+            <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:10px;">अपनी डिलीवरी रिपोर्ट डाउनलोड करें</p>
         </div>
 
         <!-- Send Message -->
@@ -137,7 +151,7 @@
                 </div>
             </div>
 
-            <button class="action-btn" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
+            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
             <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:15px; font-weight: 600;">
                 <span style="color:#2563eb;">🛡️ Anti-Ban System Active:</span> बॉट अपने आप रैंडम समय लेगा।
             </p>
@@ -160,7 +174,7 @@
                 <label>वेलकम मैसेज सेट करें:</label>
                 <textarea id="editAutoReplyMsg" style="height:180px;"></textarea>
             </div>
-            <button class="action-btn" onclick="updateAutoReplyMsg()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">💾 Update Message</button>
+            <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
         </div>
 
         <!-- Connect WhatsApp -->
@@ -174,7 +188,7 @@
                 <div class="form-group">
                     <input type="text" id="pairPhone" placeholder="WhatsApp Number (e.g. 919876543210)" style="text-align:center; font-size:18px; letter-spacing: 1px;">
                 </div>
-                <button class="action-btn" onclick="getPairingCode()">📲 Get 8-Digit Code</button>
+                <button class="action-btn btn-primary" onclick="getPairingCode()">📲 Get 8-Digit Code</button>
                 <div id="pairingCodeDisplay"></div>
             </div>
         </div>
@@ -192,11 +206,9 @@
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ शानदार! मैसेज सफलतापूर्वक अपडेट हो गया।')) }
         
-        // नया: रिपोर्ट डाउनलोड करने का फंक्शन
+        // CSV डाउनलोड फंक्शन
         function downloadHistory() {
-            fetch('/api/history')
-            .then(r => r.json())
-            .then(data => {
+            fetch('/api/history').then(r => r.json()).then(data => {
                 if(data.length === 0) { alert('⚠️ अभी तक कोई मैसेज नहीं भेजा गया है!'); return; }
                 let csv = 'Mobile Number,Sent Message,Date & Time\n';
                 data.forEach(row => {
@@ -209,6 +221,48 @@
                 a.setAttribute('href', url);
                 a.setAttribute('download', 'Website_Banane_Wala_Report.csv');
                 a.click();
+            });
+        }
+
+        // नया: PDF डाउनलोड फंक्शन
+        function downloadPDF() {
+            fetch('/api/history').then(r => r.json()).then(data => {
+                if(data.length === 0) { alert('⚠️ अभी तक कोई मैसेज नहीं भेजा गया है!'); return; }
+                
+                // jsPDF का इस्तेमाल
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
+                // टाइटल 
+                doc.setFontSize(16);
+                doc.setTextColor(37, 99, 235); // प्राइमरी ब्लू कलर
+                doc.text("Website Banane Wala - Campaign Report", 14, 20);
+                
+                // टेबल का डेटा तैयार करना
+                const tableColumn = ["Mobile Number", "Message Sent", "Date & Time"];
+                const tableRows = [];
+
+                data.forEach(row => {
+                    // अगर मैसेज बहुत बड़ा है तो उसे थोड़ा छोटा (Trim) कर देंगे ताकि PDF साफ़ दिखे
+                    let msgText = row.message ? row.message : "Media/Photo Sent";
+                    if(msgText.length > 50) { msgText = msgText.substring(0, 50) + "..."; }
+                    
+                    const rowData = [row.number, msgText, row.date];
+                    tableRows.push(rowData);
+                });
+
+                // टेबल डिज़ाइन
+                doc.autoTable({
+                    head: [tableColumn],
+                    body: tableRows,
+                    startY: 30,
+                    theme: 'grid',
+                    styles: { fontSize: 10, cellPadding: 4 },
+                    headStyles: { fillColor: [37, 99, 235], textColor: 255 }
+                });
+
+                // PDF सेव करना
+                doc.save('Website_Banane_Wala_Report.pdf');
             });
         }
 
@@ -264,4 +318,3 @@
     </script>
 </body>
 </html>
-
