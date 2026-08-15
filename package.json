@@ -1,13 +1,16 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "WhatsApp Bot Server",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.0",
+    "qrcode": "^1.5.3",
+    "whatsapp-web.js": "^1.23.0"
+  }
 }
+
