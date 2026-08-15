@@ -11,18 +11,19 @@ app.use(express.static(__dirname)); // UI दिखाने के लिए
 let qrCodeData = null;
 let isConnected = false;
 
-// क्लाउड सर्वर (Render) के लिए खास मेमोरी-सेविंग सेटिंग
+// Render के 512MB RAM लिमिट के लिए सबसे तगड़ी 'Single Process' सेटिंग
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage', // रैम (RAM) क्रैश रोकने के लिए
+            '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu' // ग्राफिक्स कार्ड का इस्तेमाल बंद करने के लिए
+            '--single-process', // <-- यह सबसे ज़्यादा RAM बचाएगा
+            '--disable-gpu'
         ]
     }
 });
@@ -79,8 +80,8 @@ app.post('/send', async (req, res) => {
     res.json({ success: true, sent: sentCount, failed: failedCount });
 });
 
-// Render के लिए डायनामिक पोर्ट सेटिंग
+// '0.0.0.0' जोड़ने से क्लाउड सर्वर का कनेक्शन मजबूत रहता है
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
 });
