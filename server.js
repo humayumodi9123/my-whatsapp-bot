@@ -6,6 +6,7 @@ const qrcode = require('qrcode');
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static(__dirname));
 
 let qrCodeData = null;
 let isConnected = false;
