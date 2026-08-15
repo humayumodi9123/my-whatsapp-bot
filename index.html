@@ -21,8 +21,11 @@
         .stat-card h3 { margin: 0 0 10px 0; color: #4a5568; font-size: 16px; font-weight: 600; }
         .stat-card .number { font-size: 38px; font-weight: bold; color: #2d3748; }
         h2.section-title { color: #075e54; text-align: center; margin-top: 0; margin-bottom: 30px; font-size: 24px; border-bottom: 2px solid #e6fcf5; padding-bottom: 10px; display: inline-block; }
-        .qr-section { text-align: center; padding: 30px; background-color: #fcfcfc; border: 2px dashed #cbd5e0; border-radius: 12px; }
-        .qr-placeholder { width: 220px; height: 220px; background-color: #edf2f7; display: flex; align-items: center; justify-content: center; margin: 0 auto; color: #a0aec0; font-weight:bold; border-radius: 12px; }
+        
+        /* QR Section Updates for Mobile Responsiveness */
+        .qr-section { text-align: center; padding: 30px 15px; background-color: #fcfcfc; border: 2px dashed #cbd5e0; border-radius: 12px; }
+        .qr-placeholder { width: 100%; max-width: 220px; height: 220px; background-color: #edf2f7; display: flex; align-items: center; justify-content: center; margin: 0 auto; color: #a0aec0; font-weight:bold; border-radius: 12px; }
+        
         .form-group { margin-bottom: 25px; }
         label { display: block; font-weight: 600; margin-bottom: 8px; color: #4a5568; }
         textarea, input[type="file"], input[type="text"], input[type="number"] { width: 100%; padding: 12px 15px; border: 1px solid #cbd5e0; border-radius: 8px; box-sizing: border-box; font-family: inherit; font-size: 15px; transition: 0.3s; }
@@ -61,6 +64,11 @@
             color: #a0aec0; transition: 0.3s; letter-spacing: 1px;
         }
         .status-badge.active { color: #10b981; }
+        
+        /* Mobile Specific Padding */
+        @media (max-width: 768px) {
+            .content-section { padding: 20px 15px; }
+        }
     </style>
 </head>
 <body>
@@ -134,7 +142,10 @@
             <div style="text-align: center;"><h2 class="section-title">Connect WhatsApp</h2></div>
             <div class="qr-section">
                 <div class="qr-placeholder" id="qrPlaceholder">Connecting to Backend...</div>
-                <img id="realQr" src="" style="display:none; max-width:250px; margin: 0 auto; border-radius: 8px;">
+                
+                <!-- यहाँ मैंने max-width: 100% और height: auto लगा दिया है ताकि मोबाइल में बाहर न निकले -->
+                <img id="realQr" src="" style="display:none; width: 250px; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-sizing: border-box;">
+                
                 <div style="margin-top: 20px; font-size: 18px; font-weight: bold; color: #d9534f;" id="connectionStatus">Status: Not Connected</div>
                 
                 <hr style="margin: 30px 0; border: 0; border-top: 1px dashed #cbd5e0;">
@@ -145,7 +156,6 @@
                 </div>
                 <button class="action-btn" style="background-color: #2b6cb0; box-shadow: 0 4px 6px rgba(43, 108, 176, 0.2);" id="pairBtn" onclick="getPairingCode()">8-Digit कोड प्राप्त करें</button>
                 
-                <!-- मोबाइल फ्रेंडली कोड बॉक्स -->
                 <div id="pairingCodeDisplay" style="display:none; margin-top:25px; font-size:24px; font-weight:900; letter-spacing: 5px; color: #2b6cb0; background: #ebf8ff; padding: 15px 10px; border-radius: 12px; border: 2px dashed #4299e1; text-align: center; word-break: break-all; box-sizing: border-box; width: 100%;">
                     --------
                 </div>
@@ -336,3 +346,4 @@
     </script>
 </body>
 </html>
+
