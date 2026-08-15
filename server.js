@@ -6,12 +6,12 @@ const qrcode = require('qrcode');
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.static(__dirname)); // UI दिखाने के लिए
 
 let qrCodeData = null;
 let isConnected = false;
 
-// Termux (Android) के लिए खास सेटिंग
+// क्लाउड सर्वर (Render) के लिए सेटिंग
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
@@ -71,7 +71,8 @@ app.post('/send', async (req, res) => {
     res.json({ success: true, sent: sentCount, failed: failedCount });
 });
 
-const PORT = 3000;
+// Render के लिए डायनामिक पोर्ट सेटिंग
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
