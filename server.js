@@ -31,17 +31,25 @@ function saveStats(date, sent, failed) {
     fs.writeFileSync(statsFile, JSON.stringify(stats));
 }
 
+// नया: एडवांस कॉन्टेक्ट सेविंग सिस्टम
 function getSentContacts() {
-    try { return fs.existsSync(sentContactsFile) ? JSON.parse(fs.readFileSync(sentContactsFile)) : []; }
+    try { 
+        let data = fs.existsSync(sentContactsFile) ? JSON.parse(fs.readFileSync(sentContactsFile)) : []; 
+        // पुराने सेव किए गए सिर्फ नंबरों को नए सिस्टम में बदलना
+        return data.map(item => typeof item === 'string' ? { number: item, message: "No Record", date: "Old" } : item);
+    }
     catch(e) { return []; }
 }
 
-function addSentContact(number) {
+function addSentContact(number, messageSent) {
     let list = getSentContacts();
-    if (!list.includes(number)) {
-        list.push(number);
-        fs.writeFileSync(sentContactsFile, JSON.stringify(list));
-    }
+    let index = list.findIndex(item => item.number === number);
+    const entry = { number: number, message: messageSent, date: new Date().toLocaleString('en-IN') };
+    
+    if (index === -1) { list.push(entry); } 
+    else { list[index] = entry; } // अगर नंबर पहले से है, तो नया मैसेज अपडेट कर देगा
+    
+    fs.writeFileSync(sentContactsFile, JSON.stringify(list, null, 2));
 }
 
 async function connectToWhatsApp() {
@@ -68,8 +76,9 @@ async function connectToWhatsApp() {
 
         const jid = msg.key.remoteJid;
         const phone = jid.split('@')[0]; 
+        
         const sentList = getSentContacts();
-        if (!sentList.includes(phone)) return; 
+        if (!sentList.find(c => c.number === phone)) return; // व्हाइटलिस्ट चेक
 
         const messageType = Object.keys(msg.message)[0];
         let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
@@ -92,6 +101,11 @@ app.get('/api/stats', (req, res) => {
     res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) });
 });
 
+// नया API: डाउनलोड के लिए डाटा भेजना
+app.get('/api/history', (req, res) => {
+    res.json(getSentContacts());
+});
+
 app.post('/pair-code', async (req, res) => {
     let { phone } = req.body;
     phone = phone.replace(/[^0-9]/g, '');
@@ -103,9 +117,8 @@ app.post('/pair-code', async (req, res) => {
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     
-    // नया: minDelay और maxDelay को रिसीव करना
     const { numbers, message, minDelay, maxDelay, imageBase64 } = req.body;
-    res.json({ success: true }); // ब्राउज़र का कनेक्शन टूटने से बचाने के लिए तुरंत रिस्पांस
+    res.json({ success: true }); // ब्राउज़र का कनेक्शन टूटने से बचाने के लिए
     
     let sentCount = 0; let failedCount = 0;
     let minD = parseInt(minDelay) || 10;
@@ -114,19 +127,24 @@ app.post('/send', async (req, res) => {
     for (let num of numbers) {
         try {
             if (!num.startsWith('91')) num = '91' + num;
-            addSentContact(num);
             const jid = num + '@s.whatsapp.net';
             let messageOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message || '' } : { text: message };
+            
+            // 1. पहले मैसेज भेजने की कोशिश करेगा
             await sock.sendMessage(jid, messageOptions);
+            
+            // 2. अगर मैसेज चला गया, तभी नीचे का कोड चलेगा और नंबर सेव होगा
             sentCount++;
+            addSentContact(num, message || "Photo/Media Sent"); 
             
-            // --- SMART RANDOM DELAY SYSTEM ---
+            // 3. रैंडम टाइम गैप
             const randomDelay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
-            console.log(`✅ ${num} को मैसेज गया। अगला मैसेज ${randomDelay} सेकंड बाद...`);
             await new Promise(resolve => setTimeout(resolve, randomDelay * 1000));
-            // ---------------------------------
             
-        } catch (e) { failedCount++; }
+        } catch (e) { 
+            // अगर नंबर गलत है या WhatsApp नहीं है, तो यहाँ आ जाएगा (नंबर सेव नहीं होगा)
+            failedCount++; 
+        }
     }
     saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
 });
