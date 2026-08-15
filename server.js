@@ -102,9 +102,15 @@ app.post('/pair-code', async (req, res) => {
 
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
-    const { numbers, message, delay, imageBase64 } = req.body;
-    res.json({ success: true }); 
+    
+    // नया: minDelay और maxDelay को रिसीव करना
+    const { numbers, message, minDelay, maxDelay, imageBase64 } = req.body;
+    res.json({ success: true }); // ब्राउज़र का कनेक्शन टूटने से बचाने के लिए तुरंत रिस्पांस
+    
     let sentCount = 0; let failedCount = 0;
+    let minD = parseInt(minDelay) || 10;
+    let maxD = parseInt(maxDelay) || 20;
+
     for (let num of numbers) {
         try {
             if (!num.startsWith('91')) num = '91' + num;
@@ -113,7 +119,13 @@ app.post('/send', async (req, res) => {
             let messageOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message || '' } : { text: message };
             await sock.sendMessage(jid, messageOptions);
             sentCount++;
-            await new Promise(resolve => setTimeout(resolve, (delay || 3) * 1000));
+            
+            // --- SMART RANDOM DELAY SYSTEM ---
+            const randomDelay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
+            console.log(`✅ ${num} को मैसेज गया। अगला मैसेज ${randomDelay} सेकंड बाद...`);
+            await new Promise(resolve => setTimeout(resolve, randomDelay * 1000));
+            // ---------------------------------
+            
         } catch (e) { failedCount++; }
     }
     saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
