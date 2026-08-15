@@ -99,7 +99,7 @@
 
         // Backend से QR कोड और स्टेटस लाना
         function checkBackendStatus() {
-            fetch('http://localhost:3000/status')
+            fetch('/status')
                 .then(res => res.json())
                 .then(data => {
                     const statusText = document.getElementById('connectionStatus');
@@ -126,7 +126,7 @@
                     }
                 })
                 .catch(err => {
-                    document.getElementById('connectionStatus').innerText = "Status: Termux Server is Offline ❌";
+                    document.getElementById('connectionStatus').innerText = "Status: Server is Offline ❌";
                 });
         }
 
@@ -150,7 +150,7 @@
             sendBtn.disabled = true;
             sendBtn.innerText = "संदेश भेजे जा रहे हैं...";
 
-            fetch('http://localhost:3000/send', {
+            fetch('/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ numbers: numbers, message: message })
