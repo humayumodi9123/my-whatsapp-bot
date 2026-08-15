@@ -32,7 +32,6 @@
         .action-btn:hover { background-color: #1ebe5d; transform: translateY(-1px); box-shadow: 0 6px 8px rgba(37, 211, 102, 0.3); }
         .action-btn:disabled { background-color: #9cdbaf; cursor: not-allowed; transform: none; box-shadow: none; }
         
-        /* --- PREMIUM MODERN TOGGLE SWITCH --- */
         .toggle-container {
             display: flex; align-items: center; justify-content: space-between;
             background: #ffffff; padding: 25px; border-radius: 16px;
@@ -111,7 +110,7 @@
             <button class="action-btn" id="sendBtn" onclick="startSending()" disabled>संदेश भेजना शुरू करें (QR कनेक्ट करें)</button>
         </div>
 
-        <!-- Auto Reply Settings (PREMIUM UI) -->
+        <!-- Auto Reply Settings -->
         <div id="autoReply" class="content-section">
             <div style="text-align: center;"><h2 class="section-title">Auto-Reply Settings</h2></div>
             
@@ -146,7 +145,8 @@
                 </div>
                 <button class="action-btn" style="background-color: #2b6cb0; box-shadow: 0 4px 6px rgba(43, 108, 176, 0.2);" id="pairBtn" onclick="getPairingCode()">8-Digit कोड प्राप्त करें</button>
                 
-                <div id="pairingCodeDisplay" style="display:none; margin-top:25px; font-size:32px; font-weight:900; letter-spacing: 10px; color: #2b6cb0; background: #ebf8ff; padding: 20px; border-radius: 12px; border: 2px dashed #4299e1;">
+                <!-- मोबाइल फ्रेंडली कोड बॉक्स -->
+                <div id="pairingCodeDisplay" style="display:none; margin-top:25px; font-size:24px; font-weight:900; letter-spacing: 5px; color: #2b6cb0; background: #ebf8ff; padding: 15px 10px; border-radius: 12px; border: 2px dashed #4299e1; text-align: center; word-break: break-all; box-sizing: border-box; width: 100%;">
                     --------
                 </div>
                 <p id="pairInstruction" style="display:none; color:#718096; font-size:15px; margin-top:15px; line-height: 1.5;">
@@ -178,7 +178,6 @@
                     const toggleInput = document.getElementById('autoReplyToggle');
                     const toggleLabel = document.getElementById('toggleLabel');
 
-                    // Sync the UI switch with backend status
                     if(data.autoReply !== undefined) {
                         toggleInput.checked = data.autoReply;
                         if(data.autoReply) {
@@ -225,7 +224,6 @@
             checkInterval = setInterval(checkBackendStatus, 3000);
         };
 
-        // उन्नत (Premium) ऑटो-रिप्लाई टॉगल फंक्शन
         function toggleAutoReply() {
             const isEnabled = document.getElementById('autoReplyToggle').checked;
             const label = document.getElementById('toggleLabel');
