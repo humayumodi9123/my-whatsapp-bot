@@ -16,13 +16,24 @@
         .main-content { margin-top: 60px; padding: 30px; width: 100%; transition: 0.3s; overflow-y: auto; }
         .content-section { display: none; max-width: 800px; margin: 0 auto; background: #ffffff; padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; }
         .content-section.active { display: block; }
+        
+        /* Stats Dashboard Enhancements */
+        .filter-container { text-align: center; margin-bottom: 30px; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; }
+        .filter-container input[type="date"] { padding: 10px 15px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 15px; color: #2d3748; cursor: pointer; outline: none; transition: 0.3s; }
+        .filter-container input[type="date"]:focus { border-color: #075e54; box-shadow: 0 0 0 3px rgba(7, 94, 84, 0.1); }
+        .clear-btn { background-color: #718096; color: white; border: none; padding: 11px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; margin-left: 10px; font-size: 15px; }
+        .clear-btn:hover { background-color: #4a5568; }
+
         .stats-container { display: flex; gap: 20px; margin-bottom: 30px; }
         .stat-card { flex: 1; background: #f8fff9; padding: 25px; border-radius: 12px; text-align: center; border-left: 6px solid #25d366; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+        .stat-card.failed { background: #fff5f5; border-left: 6px solid #ef4444; }
         .stat-card h3 { margin: 0 0 10px 0; color: #4a5568; font-size: 16px; font-weight: 600; }
         .stat-card .number { font-size: 38px; font-weight: bold; color: #2d3748; }
+        .stat-card.failed .number { color: #ef4444; }
+        .stat-card .number.success-text { color: #10b981; }
+
         h2.section-title { color: #075e54; text-align: center; margin-top: 0; margin-bottom: 30px; font-size: 24px; border-bottom: 2px solid #e6fcf5; padding-bottom: 10px; display: inline-block; }
         
-        /* QR Section Updates for Mobile Responsiveness */
         .qr-section { text-align: center; padding: 30px 15px; background-color: #fcfcfc; border: 2px dashed #cbd5e0; border-radius: 12px; }
         .qr-placeholder { width: 100%; max-width: 220px; height: 220px; background-color: #edf2f7; display: flex; align-items: center; justify-content: center; margin: 0 auto; color: #a0aec0; font-weight:bold; border-radius: 12px; }
         
@@ -35,39 +46,24 @@
         .action-btn:hover { background-color: #1ebe5d; transform: translateY(-1px); box-shadow: 0 6px 8px rgba(37, 211, 102, 0.3); }
         .action-btn:disabled { background-color: #9cdbaf; cursor: not-allowed; transform: none; box-shadow: none; }
         
-        .toggle-container {
-            display: flex; align-items: center; justify-content: space-between;
-            background: #ffffff; padding: 25px; border-radius: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #eaeaea;
-        }
+        .toggle-container { display: flex; align-items: center; justify-content: space-between; background: #ffffff; padding: 25px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #eaeaea; }
         .toggle-text { flex: 1; padding-right: 25px; }
         .toggle-text h3 { margin: 0 0 8px 0; color: #2d3748; font-size: 19px; font-weight: bold; }
         .toggle-text p { margin: 0; color: #718096; font-size: 15px; line-height: 1.6; }
-        
         .modern-switch { position: relative; display: inline-block; width: 74px; height: 38px; flex-shrink: 0; }
         .modern-switch input { opacity: 0; width: 0; height: 0; }
-        .slider {
-            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #cbd5e1; transition: .4s; border-radius: 40px;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); border: 2px solid #e2e8f0;
-        }
-        .slider:before {
-            position: absolute; content: ""; height: 30px; width: 30px; left: 2px; bottom: 2px;
-            background-color: white; transition: .4s cubic-bezier(0.68, -0.55, 0.265, 1.55); border-radius: 50%;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 40px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); border: 2px solid #e2e8f0; }
+        .slider:before { position: absolute; content: ""; height: 30px; width: 30px; left: 2px; bottom: 2px; background-color: white; transition: .4s cubic-bezier(0.68, -0.55, 0.265, 1.55); border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
         input:checked + .slider { background-color: #10b981; border-color: #10b981; }
         input:checked + .slider:before { transform: translateX(36px); }
-        
-        .status-badge {
-            font-size: 15px; font-weight: 800; margin-top: 10px; text-align: center;
-            color: #a0aec0; transition: 0.3s; letter-spacing: 1px;
-        }
+        .status-badge { font-size: 15px; font-weight: 800; margin-top: 10px; text-align: center; color: #a0aec0; transition: 0.3s; letter-spacing: 1px; }
         .status-badge.active { color: #10b981; }
         
-        /* Mobile Specific Padding */
         @media (max-width: 768px) {
             .content-section { padding: 20px 15px; }
+            .stats-container { flex-direction: column; gap: 15px; }
+            .filter-container input[type="date"] { margin-bottom: 10px; width: 100%; }
+            .clear-btn { width: 100%; margin-left: 0; }
         }
     </style>
 </head>
@@ -85,13 +81,24 @@
     </div>
 
     <div class="main-content" id="mainContent">
-        <!-- Dashboard -->
+        <!-- Dashboard with Date Filter & Stats -->
         <div id="dashboard" class="content-section active">
-            <div style="text-align: center;"><h2 class="section-title">Dashboard</h2></div>
+            <div style="text-align: center;"><h2 class="section-title">Message Analytics</h2></div>
+            
+            <div class="filter-container">
+                <label for="dateFilter" style="font-weight: bold; color: #4a5568; margin-right: 10px;">तारीख चुनें:</label>
+                <input type="date" id="dateFilter" onchange="fetchStats()">
+                <button onclick="clearDateFilter()" class="clear-btn">All Time (सभी)</button>
+            </div>
+
             <div class="stats-container">
                 <div class="stat-card">
-                    <h3>Messages Sent (Today)</h3>
-                    <div class="number" id="sentCount">0</div>
+                    <h3>✅ Total Sent (सफल)</h3>
+                    <div class="number success-text" id="sentCount">0</div>
+                </div>
+                <div class="stat-card failed">
+                    <h3>❌ Total Unsent (फ़ेल)</h3>
+                    <div class="number" id="failedCount">0</div>
                 </div>
             </div>
         </div>
@@ -121,7 +128,6 @@
         <!-- Auto Reply Settings -->
         <div id="autoReply" class="content-section">
             <div style="text-align: center;"><h2 class="section-title">Auto-Reply Settings</h2></div>
-            
             <div class="toggle-container">
                 <div class="toggle-text">
                     <h3>Auto-Reply Assistant</h3>
@@ -142,20 +148,14 @@
             <div style="text-align: center;"><h2 class="section-title">Connect WhatsApp</h2></div>
             <div class="qr-section">
                 <div class="qr-placeholder" id="qrPlaceholder">Connecting to Backend...</div>
-                
-                <!-- यहाँ मैंने max-width: 100% और height: auto लगा दिया है ताकि मोबाइल में बाहर न निकले -->
                 <img id="realQr" src="" style="display:none; width: 250px; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-sizing: border-box;">
-                
                 <div style="margin-top: 20px; font-size: 18px; font-weight: bold; color: #d9534f;" id="connectionStatus">Status: Not Connected</div>
-                
                 <hr style="margin: 30px 0; border: 0; border-top: 1px dashed #cbd5e0;">
-                
                 <h3 style="color: #2d3748; font-size: 17px; margin-bottom: 15px;">या बिना दूसरे फ़ोन के नंबर से लिंक करें (Pairing Code)</h3>
                 <div class="form-group" style="margin-bottom: 15px;">
                     <input type="text" id="pairPhone" placeholder="WhatsApp नंबर डालें (जैसे 9876543210)" style="text-align: center; font-size: 18px; letter-spacing: 1px;">
                 </div>
                 <button class="action-btn" style="background-color: #2b6cb0; box-shadow: 0 4px 6px rgba(43, 108, 176, 0.2);" id="pairBtn" onclick="getPairingCode()">8-Digit कोड प्राप्त करें</button>
-                
                 <div id="pairingCodeDisplay" style="display:none; margin-top:25px; font-size:24px; font-weight:900; letter-spacing: 5px; color: #2b6cb0; background: #ebf8ff; padding: 15px 10px; border-radius: 12px; border: 2px dashed #4299e1; text-align: center; word-break: break-all; box-sizing: border-box; width: 100%;">
                     --------
                 </div>
@@ -177,6 +177,29 @@
         }
 
         let checkInterval;
+        
+        // --- नया फ़ंक्शन: Stats Fetch करना ---
+        function fetchStats() {
+            const dateVal = document.getElementById('dateFilter').value;
+            let url = '/api/stats';
+            if (dateVal) {
+                url += '?date=' + dateVal;
+            }
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('sentCount').innerText = data.sent || 0;
+                    document.getElementById('failedCount').innerText = data.failed || 0;
+                })
+                .catch(err => console.error('Stats Error:', err));
+        }
+
+        function clearDateFilter() {
+            document.getElementById('dateFilter').value = '';
+            fetchStats();
+        }
+        // ------------------------------------
+
         function checkBackendStatus() {
             fetch('/status')
                 .then(res => res.json())
@@ -231,6 +254,7 @@
 
         window.onload = () => {
             checkBackendStatus();
+            fetchStats(); // पेज लोड होते ही Stats लाएं
             checkInterval = setInterval(checkBackendStatus, 3000);
         };
 
@@ -250,9 +274,6 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: isEnabled })
-            })
-            .catch(err => {
-                alert('सर्वर से संपर्क टूट गया है!');
             });
         }
 
@@ -329,8 +350,9 @@
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    alert(`✅ प्रोसेस पूरी हुई!\nसफलता: ${data.sent}\nफेल: ${data.failed}`);
-                    document.getElementById('sentCount').innerText = parseInt(document.getElementById('sentCount').innerText) + data.sent;
+                    alert(`✅ प्रोसेस पूरी हुई!\nसफलता (Sent): ${data.sent}\nफेल (Failed): ${data.failed}`);
+                    // नया मैसेज भेजने के बाद डैशबोर्ड का रिकॉर्ड तुरंत अपडेट करें
+                    fetchStats();
                 } else {
                     alert('❌ Error: ' + data.error);
                 }
@@ -346,4 +368,3 @@
     </script>
 </body>
 </html>
-
