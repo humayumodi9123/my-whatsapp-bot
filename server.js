@@ -18,6 +18,16 @@ let autoReplyMessage = `🌟 Welcome to website banane wala! 🌟\n\nकृप�
 const statsFile = __dirname + '/stats.json';
 const sentContactsFile = __dirname + '/sent_contacts.json';
 
+// --- नया: Live Campaign Tracking Variable ---
+let liveCampaign = {
+    isActive: false,
+    total: 0,
+    sent: 0,
+    failed: 0,
+    pending: 0,
+    numbers: [] // [{ phone: '919876543210', status: 'Pending ⏳' }]
+};
+
 function getStats() {
     try { return fs.existsSync(statsFile) ? JSON.parse(fs.readFileSync(statsFile)) : {}; } 
     catch (e) { return {}; }
@@ -31,11 +41,9 @@ function saveStats(date, sent, failed) {
     fs.writeFileSync(statsFile, JSON.stringify(stats));
 }
 
-// नया: एडवांस कॉन्टेक्ट सेविंग सिस्टम
 function getSentContacts() {
     try { 
         let data = fs.existsSync(sentContactsFile) ? JSON.parse(fs.readFileSync(sentContactsFile)) : []; 
-        // पुराने सेव किए गए सिर्फ नंबरों को नए सिस्टम में बदलना
         return data.map(item => typeof item === 'string' ? { number: item, message: "No Record", date: "Old" } : item);
     }
     catch(e) { return []; }
@@ -47,7 +55,7 @@ function addSentContact(number, messageSent) {
     const entry = { number: number, message: messageSent, date: new Date().toLocaleString('en-IN') };
     
     if (index === -1) { list.push(entry); } 
-    else { list[index] = entry; } // अगर नंबर पहले से है, तो नया मैसेज अपडेट कर देगा
+    else { list[index] = entry; }
     
     fs.writeFileSync(sentContactsFile, JSON.stringify(list, null, 2));
 }
@@ -78,7 +86,7 @@ async function connectToWhatsApp() {
         const phone = jid.split('@')[0]; 
         
         const sentList = getSentContacts();
-        if (!sentList.find(c => c.number === phone)) return; // व्हाइटलिस्ट चेक
+        if (!sentList.find(c => c.number === phone)) return;
 
         const messageType = Object.keys(msg.message)[0];
         let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
@@ -100,10 +108,11 @@ app.get('/api/stats', (req, res) => {
     const date = req.query.date;
     res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) });
 });
+app.get('/api/history', (req, res) => res.json(getSentContacts()));
 
-// नया API: डाउनलोड के लिए डाटा भेजना
-app.get('/api/history', (req, res) => {
-    res.json(getSentContacts());
+// --- नया: Live Status API ---
+app.get('/api/live-status', (req, res) => {
+    res.json(liveCampaign);
 });
 
 app.post('/pair-code', async (req, res) => {
@@ -118,35 +127,53 @@ app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     
     const { numbers, message, minDelay, maxDelay, imageBase64 } = req.body;
-    res.json({ success: true }); // ब्राउज़र का कनेक्शन टूटने से बचाने के लिए
     
-    let sentCount = 0; let failedCount = 0;
+    // Live Campaign Reset & Setup
+    liveCampaign = {
+        isActive: true,
+        total: numbers.length,
+        sent: 0,
+        failed: 0,
+        pending: numbers.length,
+        numbers: numbers.map(n => ({ phone: n, status: 'Pending ⏳' }))
+    };
+    
+    res.json({ success: true }); // Respond immediately
+    
     let minD = parseInt(minDelay) || 10;
     let maxD = parseInt(maxDelay) || 20;
 
-    for (let num of numbers) {
+    for (let i = 0; i < numbers.length; i++) {
+        let num = numbers[i];
         try {
             if (!num.startsWith('91')) num = '91' + num;
             const jid = num + '@s.whatsapp.net';
             let messageOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message || '' } : { text: message };
             
-            // 1. पहले मैसेज भेजने की कोशिश करेगा
             await sock.sendMessage(jid, messageOptions);
             
-            // 2. अगर मैसेज चला गया, तभी नीचे का कोड चलेगा और नंबर सेव होगा
-            sentCount++;
+            // Success Update
+            liveCampaign.sent++;
+            liveCampaign.pending--;
+            liveCampaign.numbers[i].status = 'Sent ✅';
             addSentContact(num, message || "Photo/Media Sent"); 
             
-            // 3. रैंडम टाइम गैप
-            const randomDelay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
-            await new Promise(resolve => setTimeout(resolve, randomDelay * 1000));
+            // Random Delay (अगर यह आखिरी मैसेज नहीं है तो ही रुकेगा)
+            if (i < numbers.length - 1) {
+                const randomDelay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
+                await new Promise(resolve => setTimeout(resolve, randomDelay * 1000));
+            }
             
         } catch (e) { 
-            // अगर नंबर गलत है या WhatsApp नहीं है, तो यहाँ आ जाएगा (नंबर सेव नहीं होगा)
-            failedCount++; 
+            // Failed Update
+            liveCampaign.failed++;
+            liveCampaign.pending--;
+            liveCampaign.numbers[i].status = 'Invalid No. ❌';
         }
     }
-    saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
+    
+    liveCampaign.isActive = false; // Campaign Finished
+    saveStats(new Date().toLocaleDateString('en-CA'), liveCampaign.sent, liveCampaign.failed);
 });
 
 const PORT = process.env.PORT || 10000;
