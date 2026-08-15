@@ -6,7 +6,6 @@ const fs = require('fs');
 
 const app = express();
 app.use(cors());
-// बड़ी फ़ोटो को प्रोसेस करने के लिए लिमिट बढ़ा दी गई है
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
@@ -20,7 +19,8 @@ async function connectToWhatsApp() {
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        browser: ["My WhatsApp Bot", "Chrome", "1.0.0"]
+        // Pairing Code फीचर के लिए ब्राउज़र का नाम इस तरह होना ज़रूरी है
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
     sock.ev.on('connection.update', async (update) => {
@@ -60,6 +60,26 @@ app.get('/status', (req, res) => {
     });
 });
 
+// नया फीचर: Phone Number से Pairing Code मंगाना
+app.post('/pair-code', async (req, res) => {
+    try {
+        let { phone } = req.body;
+        if (!sock) return res.status(400).json({ error: 'सिस्टम तैयार नहीं है, थोड़ा इंतज़ार करें।' });
+        if (isConnected) return res.status(400).json({ error: 'WhatsApp पहले से ही कनेक्ट है!' });
+
+        // नंबर में से स्पेस और + हटाकर सिर्फ अंक रखें
+        phone = phone.replace(/[^0-9]/g, '');
+        if (!phone.startsWith('91')) phone = '91' + phone;
+
+        // Baileys से 8 अक्षरों का कोड रिक्वेस्ट करें
+        const code = await sock.requestPairingCode(phone);
+        res.json({ success: true, code: code });
+    } catch (error) {
+        console.error('Pairing Code Error:', error);
+        res.status(500).json({ success: false, error: 'कोड नहीं बन पाया। कृपया अपना नंबर सही से चेक करें।' });
+    }
+});
+
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) {
         return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
@@ -76,13 +96,11 @@ app.post('/send', async (req, res) => {
             
             let messageOptions = {};
             
-            // अगर फ़ोटो अपलोड की गई है
             if (imageBase64) {
                 const base64Data = imageBase64.split(',')[1];
                 const buffer = Buffer.from(base64Data, 'base64');
                 messageOptions = { image: buffer, caption: message || '' };
             } else {
-                // अगर सिर्फ टेक्स्ट मैसेज है
                 messageOptions = { text: message };
             }
             
@@ -90,7 +108,6 @@ app.post('/send', async (req, res) => {
             sentCount++;
             console.log(`${num} पर मैसेज भेजा गया।`);
             
-            // यूज़र के द्वारा सेट किया गया Time Delay (सेकंड्स को मिलीसेकंड्स में बदला)
             const delayMs = (delay && delay > 0 ? delay : 3) * 1000;
             await new Promise(resolve => setTimeout(resolve, delayMs));
         } catch (error) {
