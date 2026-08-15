@@ -19,7 +19,6 @@ async function connectToWhatsApp() {
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        // Pairing Code फीचर के लिए ब्राउज़र का नाम इस तरह होना ज़रूरी है
         browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
@@ -49,6 +48,54 @@ async function connectToWhatsApp() {
     });
 
     sock.ev.on('creds.update', saveCreds);
+
+    // ==========================================
+    // नया फीचर: AUTO-REPLY (ऑटो-रिप्लाई) सिस्टम
+    // ==========================================
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        
+        // अगर मैसेज खुद का है या खाली है, तो कुछ मत करो
+        if (!msg.message || msg.key.fromMe) return;
+
+        const jid = msg.key.remoteJid;
+        
+        // ग्रुप या स्टेटस को इग्नोर करने के लिए
+        if (jid.includes('@g.us') || jid === 'status@broadcast') return;
+
+        // मैसेज क्या आया है, उसे पढ़ना (text में बदलना)
+        const messageType = Object.keys(msg.message)[0];
+        let text = '';
+        if (messageType === 'conversation') {
+            text = msg.message.conversation.trim().toLowerCase();
+        } else if (messageType === 'extendedTextMessage') {
+            text = msg.message.extendedTextMessage.text.trim().toLowerCase();
+        }
+
+        // --- 1. अगर कोई Hi, Hello या Menu भेजे ---
+        if (text === 'hi' || text === 'hello' || text === 'menu') {
+            const menuText = `🌟 Welcome to website banane wala! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n\n*1️⃣* - हमारी सर्विस और प्रोडक्ट देखने के लिए\n*2️⃣* - प्राइस लिस्ट (Rate List) के लिए\n*3️⃣* - हमसे बात करने के लिए`;
+            await sock.sendMessage(jid, { text: menuText });
+        } 
+        
+        // --- 2. अगर कोई '1' लिखकर भेजे ---
+        else if (text === '1') {
+            const reply1 = `यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है...\n\n(आप इस जगह अपनी सर्विस के बारे में लिख सकते हैं)`;
+            await sock.sendMessage(jid, { text: reply1 });
+        } 
+        
+        // --- 3. अगर कोई '2' लिखकर भेजे ---
+        else if (text === '2') {
+            const reply2 = `यहाँ हमारी प्राइस लिस्ट है...\n\n(आप यहाँ अपनी रेट लिस्ट डाल सकते हैं)`;
+            await sock.sendMessage(jid, { text: reply2 });
+        } 
+        
+        // --- 4. अगर कोई '3' लिखकर भेजे ---
+        else if (text === '3') {
+            const reply3 = `कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!`;
+            await sock.sendMessage(jid, { text: reply3 });
+        }
+    });
 }
 
 connectToWhatsApp();
@@ -60,18 +107,15 @@ app.get('/status', (req, res) => {
     });
 });
 
-// नया फीचर: Phone Number से Pairing Code मंगाना
 app.post('/pair-code', async (req, res) => {
     try {
         let { phone } = req.body;
         if (!sock) return res.status(400).json({ error: 'सिस्टम तैयार नहीं है, थोड़ा इंतज़ार करें।' });
         if (isConnected) return res.status(400).json({ error: 'WhatsApp पहले से ही कनेक्ट है!' });
 
-        // नंबर में से स्पेस और + हटाकर सिर्फ अंक रखें
         phone = phone.replace(/[^0-9]/g, '');
         if (!phone.startsWith('91')) phone = '91' + phone;
 
-        // Baileys से 8 अक्षरों का कोड रिक्वेस्ट करें
         const code = await sock.requestPairingCode(phone);
         res.json({ success: true, code: code });
     } catch (error) {
