@@ -30,6 +30,14 @@
         .action-btn { background-color: #25d366; color: white; border: none; padding: 14px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; width: 100%; font-weight: bold; transition: background 0.3s; }
         .action-btn:hover { background-color: #1ebe5d; }
         .action-btn:disabled { background-color: #9cdbaf; cursor: not-allowed; }
+        
+        /* Toggle Switch CSS */
+        .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #25d366; }
+        input:checked + .slider:before { transform: translateX(26px); }
     </style>
 </head>
 <body>
@@ -41,10 +49,12 @@
     <div class="sidebar" id="sidebar">
         <button class="sidebar-btn active" onclick="showSection('dashboard', this)">1. Dashboard</button>
         <button class="sidebar-btn" onclick="showSection('sendMsg', this)">2. Send Message & Photo</button>
-        <button class="sidebar-btn" onclick="showSection('connectWp', this)">3. Connect WhatsApp</button>
+        <button class="sidebar-btn" onclick="showSection('autoReply', this)">3. Auto-Reply Setting</button>
+        <button class="sidebar-btn" onclick="showSection('connectWp', this)">4. Connect WhatsApp</button>
     </div>
 
     <div class="main-content" id="mainContent">
+        <!-- Dashboard -->
         <div id="dashboard" class="content-section active">
             <h2 class="section-title">Dashboard</h2>
             <div class="stats-container">
@@ -55,6 +65,7 @@
             </div>
         </div>
 
+        <!-- Send Message -->
         <div id="sendMsg" class="content-section">
             <h2 class="section-title">Send Message & Photo</h2>
             <div class="form-group">
@@ -76,6 +87,22 @@
             <button class="action-btn" id="sendBtn" onclick="startSending()" disabled>संदेश भेजना शुरू करें (QR कनेक्ट करें)</button>
         </div>
 
+        <!-- Auto Reply Settings -->
+        <div id="autoReply" class="content-section">
+            <h2 class="section-title">Auto-Reply Settings</h2>
+            <div style="display: flex; align-items: center; justify-content: space-between; background: #f9f9f9; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
+                <div>
+                    <h3 style="margin:0 0 5px 0;">Auto-Reply Bot</h3>
+                    <p style="margin:0; color:#666; font-size:14px;">कोई भी मैसेज करने पर बॉट अपने आप रिप्लाई करेगा या नहीं, इसे यहाँ से सेट करें।</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Connect WhatsApp -->
         <div id="connectWp" class="content-section">
             <h2 class="section-title">Connect WhatsApp</h2>
             <div class="qr-section">
@@ -121,6 +148,11 @@
                     const realQr = document.getElementById('realQr');
                     const sendBtn = document.getElementById('sendBtn');
 
+                    // Auto Reply बटन को सर्वर के हिसाब से अपडेट करें
+                    if(data.autoReply !== undefined) {
+                        document.getElementById('autoReplyToggle').checked = data.autoReply;
+                    }
+
                     if (data.connected) {
                         statusText.innerText = "Status: WhatsApp Connected ✅";
                         statusText.style.color = "green";
@@ -131,7 +163,6 @@
                         sendBtn.disabled = false;
                         sendBtn.innerText = "संदेश भेजना शुरू करें";
                         
-                        // कोड वाले बॉक्स को भी छुपा दें
                         document.getElementById('pairingCodeDisplay').style.display = 'none';
                         document.getElementById('pairInstruction').style.display = 'none';
                         document.getElementById('pairBtn').style.display = 'none';
@@ -156,7 +187,23 @@
             checkInterval = setInterval(checkBackendStatus, 3000);
         };
 
-        // नया फीचर: Pairing Code मंगाना
+        // ऑटो-रिप्लाई को ON/OFF करने का फंक्शन
+        function toggleAutoReply() {
+            const isEnabled = document.getElementById('autoReplyToggle').checked;
+            fetch('/toggle-autoreply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: isEnabled })
+            })
+            .then(res => res.json())
+            .then(data => {
+                console.log("Auto-reply set to:", data.autoReply);
+            })
+            .catch(err => {
+                alert('सर्वर से संपर्क टूट गया है!');
+            });
+        }
+
         function getPairingCode() {
             const phone = document.getElementById('pairPhone').value.trim();
             if(!phone) {
@@ -193,7 +240,6 @@
             });
         }
 
-        // फ़ोटो अपलोड सेटिंग
         let imageBase64 = null;
         document.getElementById('imageFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
