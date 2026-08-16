@@ -1,180 +1,88 @@
 const express = require('express');
+const session = require('express-session');
 const cors = require('cors');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
 const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
-let qrCodeData = null;
-let isConnected = false;
-let sock;
-let isAutoReplyEnabled = true;
-let autoReplyMessage = `🌟 Welcome to website banane wala! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n\n*1️⃣* - हमारी सर्विस और प्रोडक्ट देखने के लिए\n*2️⃣* - प्राइस लिस्ट (Rate List) के लिए\n*3️⃣* - हमसे बात करने के लिए`;
+app.use(session({
+    secret: 'my-super-secret-key-12345',
+    resave: false,
+    saveUninitialized: false
+}));
 
-const statsFile = __dirname + '/stats.json';
-const sentContactsFile = __dirname + '/sent_contacts.json';
+// यहाँ यूजर आईडी और पासवर्ड डालें
+const USERS = { "admin": "admin123", "mayur": "mayur123" };
 
-// --- नया: Live Campaign Tracking Variable ---
-let liveCampaign = {
-    isActive: false,
-    total: 0,
-    sent: 0,
-    failed: 0,
-    pending: 0,
-    numbers: [] // [{ phone: '919876543210', status: 'Pending ⏳' }]
+const isAuthenticated = (req, res, next) => {
+    if (req.session.user) next();
+    else res.status(401).json({ error: 'Unauthorized' });
 };
 
-function getStats() {
-    try { return fs.existsSync(statsFile) ? JSON.parse(fs.readFileSync(statsFile)) : {}; } 
-    catch (e) { return {}; }
-}
-
-function saveStats(date, sent, failed) {
-    const stats = getStats();
-    if (!stats[date]) stats[date] = { sent: 0, failed: 0 };
-    stats[date].sent += sent;
-    stats[date].failed += failed;
-    fs.writeFileSync(statsFile, JSON.stringify(stats));
-}
-
-function getSentContacts() {
-    try { 
-        let data = fs.existsSync(sentContactsFile) ? JSON.parse(fs.readFileSync(sentContactsFile)) : []; 
-        return data.map(item => typeof item === 'string' ? { number: item, message: "No Record", date: "Old" } : item);
-    }
-    catch(e) { return []; }
-}
-
-function addSentContact(number, messageSent) {
-    let list = getSentContacts();
-    let index = list.findIndex(item => item.number === number);
-    const entry = { number: number, message: messageSent, date: new Date().toLocaleString('en-IN') };
-    
-    if (index === -1) { list.push(entry); } 
-    else { list[index] = entry; }
-    
-    fs.writeFileSync(sentContactsFile, JSON.stringify(list, null, 2));
-}
-
-async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-    sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        if(qr) qrCodeData = await qrcode.toDataURL(qr);
-        if(connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            isConnected = false;
-            if(shouldReconnect) setTimeout(connectToWhatsApp, 3000);
-            else { fs.rmSync('auth_info_baileys', { recursive: true, force: true }); connectToWhatsApp(); }
-        } else if(connection === 'open') { isConnected = true; qrCodeData = null; }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify' || !isAutoReplyEnabled) return;
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-
-        const jid = msg.key.remoteJid;
-        const phone = jid.split('@')[0]; 
-        
-        const sentList = getSentContacts();
-        if (!sentList.find(c => c.number === phone)) return;
-
-        const messageType = Object.keys(msg.message)[0];
-        let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
-
-        if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplyMessage });
-        else if (text === '1') await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
-        else if (text === '2') await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
-        else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
-    });
-}
-
-connectToWhatsApp();
-
-app.get('/status', (req, res) => res.json({ connected: isConnected, qrCode: qrCodeData, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage }));
-app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enabled; res.json({ success: true }); });
-app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
-app.get('/api/stats', (req, res) => {
-    const stats = getStats();
-    const date = req.query.date;
-    res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) });
-});
-app.get('/api/history', (req, res) => res.json(getSentContacts()));
-
-// --- नया: Live Status API ---
-app.get('/api/live-status', (req, res) => {
-    res.json(liveCampaign);
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    if (USERS[username] && USERS[username] === password) {
+        req.session.user = username;
+        if (!fs.existsSync(`./data/${username}`)) fs.mkdirSync(`./data/${username}`, { recursive: true });
+        res.json({ success: true });
+    } else res.status(401).json({ success: false });
 });
 
-app.post('/pair-code', async (req, res) => {
-    let { phone } = req.body;
-    phone = phone.replace(/[^0-9]/g, '');
-    if (!phone.startsWith('91')) phone = '91' + phone;
-    const code = await sock.requestPairingCode(phone);
-    res.json({ success: true, code: code });
+app.post('/logout', (req, res) => { req.session.destroy(); res.json({ success: true }); });
+
+// बाईलिस और लाइव ट्रैकिंग का डेटा यूजर-वाइज़ हैंडलिंग
+let userSockets = {}; // { username: sock }
+let liveCampaigns = {}; // { username: liveCampaignData }
+
+app.get('/status', isAuthenticated, (req, res) => {
+    const user = req.session.user;
+    res.json({ connected: !!userSockets[user], autoReply: true });
 });
 
-app.post('/send', async (req, res) => {
-    if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
-    
+app.post('/send', isAuthenticated, async (req, res) => {
+    const user = req.session.user;
     const { numbers, message, minDelay, maxDelay, imageBase64 } = req.body;
-    
-    // Live Campaign Reset & Setup
-    liveCampaign = {
-        isActive: true,
-        total: numbers.length,
-        sent: 0,
-        failed: 0,
-        pending: numbers.length,
-        numbers: numbers.map(n => ({ phone: n, status: 'Pending ⏳' }))
-    };
-    
-    res.json({ success: true }); // Respond immediately
-    
-    let minD = parseInt(minDelay) || 10;
-    let maxD = parseInt(maxDelay) || 20;
+    const sock = userSockets[user];
+    if (!sock) return res.status(400).json({ error: 'WhatsApp कनेक्ट नहीं है!' });
+
+    liveCampaigns[user] = { isActive: true, total: numbers.length, sent: 0, failed: 0, pending: numbers.length, numbers: numbers.map(n => ({ phone: n, status: 'Pending ⏳' })) };
+    res.json({ success: true });
 
     for (let i = 0; i < numbers.length; i++) {
-        let num = numbers[i];
         try {
+            let num = numbers[i].replace(/[^0-9]/g, '');
             if (!num.startsWith('91')) num = '91' + num;
-            const jid = num + '@s.whatsapp.net';
-            let messageOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message || '' } : { text: message };
-            
-            await sock.sendMessage(jid, messageOptions);
-            
-            // Success Update
-            liveCampaign.sent++;
-            liveCampaign.pending--;
-            liveCampaign.numbers[i].status = 'Sent ✅';
-            addSentContact(num, message || "Photo/Media Sent"); 
-            
-            // Random Delay (अगर यह आखिरी मैसेज नहीं है तो ही रुकेगा)
-            if (i < numbers.length - 1) {
-                const randomDelay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
-                await new Promise(resolve => setTimeout(resolve, randomDelay * 1000));
-            }
-            
-        } catch (e) { 
-            // Failed Update
-            liveCampaign.failed++;
-            liveCampaign.pending--;
-            liveCampaign.numbers[i].status = 'Invalid No. ❌';
+            await sock.sendMessage(num + '@s.whatsapp.net', imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message } : { text: message });
+            liveCampaigns[user].sent++;
+            liveCampaigns[user].pending--;
+            liveCampaigns[user].numbers[i].status = 'Sent ✅';
+            fs.appendFileSync(`./data/${user}/history.json`, JSON.stringify({ number: num, date: new Date().toLocaleString() }) + '\n');
+        } catch (e) {
+            liveCampaigns[user].failed++;
+            liveCampaigns[user].pending--;
+            liveCampaigns[user].numbers[i].status = 'Invalid ❌';
         }
+        await new Promise(r => setTimeout(r, (Math.floor(Math.random() * (parseInt(maxDelay) - parseInt(minDelay) + 1)) + parseInt(minDelay)) * 1000));
     }
-    
-    liveCampaign.isActive = false; // Campaign Finished
-    saveStats(new Date().toLocaleDateString('en-CA'), liveCampaign.sent, liveCampaign.failed);
+    liveCampaigns[user].isActive = false;
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Server started`));
+app.get('/api/live-status', isAuthenticated, (req, res) => res.json(liveCampaigns[req.session.user] || { total: 0 }));
+
+app.post('/pair-code', isAuthenticated, async (req, res) => {
+    const user = req.session.user;
+    const { state, saveCreds } = await useMultiFileAuthState(`./data/${user}/auth`);
+    const sock = makeWASocket({ auth: state });
+    userSockets[user] = sock;
+    sock.ev.on('creds.update', saveCreds);
+    const code = await sock.requestPairingCode(req.body.phone.replace(/[^0-9]/g, ''));
+    res.json({ code });
+});
+
+app.listen(process.env.PORT || 10000, '0.0.0.0', () => console.log('Server Running'));
