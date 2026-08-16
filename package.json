@@ -1,16 +1,16 @@
 {
-  "name": "my-whatsapp-bot",
+  "name": "whatsapp-bot-pro",
   "version": "1.0.0",
-  "description": "WhatsApp Bot Lightweight",
+  "description": "WhatsApp Marketing Dashboard",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "qrcode": "^1.5.3",
     "@whiskeysockets/baileys": "^6.7.5",
-    "pino": "^8.14.1"
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-session": "^1.18.0",
+    "qrcode": "^1.5.3"
   }
 }
