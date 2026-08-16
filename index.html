@@ -9,17 +9,28 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 
     <style>
-        :root { --primary: #2563eb; --secondary: #1e293b; --bg-color: #f1f5f9; --card-bg: #ffffff; --text-main: #334155; --text-muted: #64748b; --border-color: #e2e8f0; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
+        :root { --primary: #00e5ff; --secondary: #1e293b; --bg-color: #f1f5f9; --card-bg: #ffffff; --text-main: #334155; --text-muted: #64748b; --border-color: #e2e8f0; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
         body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; display: block; height: 100vh; overflow: hidden; }
         
-        /* Login Screen CSS */
-        .login-wrapper { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-        .login-box { width: 90%; max-width: 380px; background: #fff; padding: 40px 30px; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center; }
-        .login-box h2 { margin-top: 0; color: var(--secondary); font-size: 26px; margin-bottom: 25px; font-weight: 700; }
-        .login-box input { width: 100%; padding: 15px; margin-bottom: 20px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 16px; background: #f8fafc; box-sizing: border-box; transition: 0.3s; }
-        .login-box input:focus { border-color: var(--primary); outline: none; background: #fff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+        /* 📱 NEW DARK LOGIN SCREEN (Payment In / Out Pro Style) */
+        .login-wrapper { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0f1c; display: flex; align-items: center; justify-content: center; z-index: 9999; flex-direction: column; }
+        .login-header-card { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); width: 90%; max-width: 400px; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 15px; border: 1px solid #1e293b; }
+        .login-header-card h2 { margin: 0; color: #fff; font-size: 24px; font-weight: 700; }
+        .login-header-card span { color: var(--primary); }
+        .login-box { width: 90%; max-width: 400px; background: #0d1424; padding: 30px; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); text-align: center; border: 1px solid #1e293b; }
         
-        /* Dashboard CSS */
+        .btn-google { background: #fff; color: #333; padding: 15px; border-radius: 50px; border: none; width: 100%; font-weight: bold; font-size: 15px; margin-bottom: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .btn-google img { width: 20px; }
+        .divider { color: #64748b; margin: 20px 0; font-size: 14px; position: relative; }
+        .divider::before, .divider::after { content: ""; position: absolute; top: 50%; width: 40%; height: 1px; background: #334155; }
+        .divider::before { left: 0; } .divider::after { right: 0; }
+        
+        .login-box h3 { color: #fff; text-align: left; margin-bottom: 20px; font-size: 18px; }
+        .login-box input { width: 100%; padding: 15px; margin-bottom: 20px; background: #0a0f1c; border: 1px solid #1e293b; color: #fff; border-radius: 12px; font-size: 15px; box-sizing: border-box; transition: 0.3s; }
+        .login-box input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.2); }
+        .btn-login { background: linear-gradient(90deg, #007bff, #00e5ff); color: #fff; padding: 15px; border-radius: 12px; border: none; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
+        
+        /* 📊 DASHBOARD CSS */
         #dashboardWrapper { display: none; width: 100%; height: 100%; }
         .topbar { width: 100%; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 16px 24px; display: flex; align-items: center; position: fixed; top: 0; z-index: 1001; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); box-sizing: border-box; }
         .menu-toggle { background: rgba(255, 255, 255, 0.1); border: none; color: white; font-size: 20px; cursor: pointer; padding: 8px 12px; border-radius: 8px; transition: 0.3s; }
@@ -29,12 +40,15 @@
         .sidebar.active { left: 0; }
         .sidebar-menu { flex: 1; overflow-y: auto; }
         .sidebar-btn { display: block; width: 90%; margin: 8px auto; padding: 14px 20px; text-align: left; background: none; border: none; font-size: 15px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-radius: 10px; transition: all 0.3s ease; }
-        .sidebar-btn:hover { background: #f8fafc; color: var(--secondary); transform: translateX(5px); }
-        .sidebar-btn.active { background: #eff6ff; color: var(--primary); border-left: 4px solid var(--primary); }
-        .logout-btn { background: #fee2e2; color: var(--danger); margin-top: auto; margin-bottom: 20px; }
+        .sidebar-btn:hover { background: #f8fafc; color: #2563eb; transform: translateX(5px); }
+        .sidebar-btn.active { background: #eff6ff; color: #2563eb; border-left: 4px solid #2563eb; }
+        
+        /* ⚙️ Settings & Logout Button */
+        .sidebar-divider { height: 1px; background: var(--border-color); margin: 15px 20px; }
+        .settings-btn { color: #64748b; }
+        .logout-btn { background: #fee2e2; color: var(--danger); margin-bottom: 20px; }
         .logout-btn:hover { background: #fecaca; transform: none; }
         
-        /* 🔧 यहाँ स्क्रॉल की समस्या को ठीक किया गया है */
         .main-content { margin-top: 65px; padding: 20px; width: 100%; height: calc(100vh - 65px); box-sizing: border-box; overflow-y: auto; padding-bottom: 120px; scrollbar-width: thin; }
         
         .content-section { display: none; max-width: 850px; margin: 0 auto; background: var(--card-bg); padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid rgba(255, 255, 255, 0.5); animation: fadeIn 0.4s ease-out; }
@@ -54,11 +68,11 @@
         
         .form-group { margin-bottom: 20px; }
         label { font-weight: 600; color: var(--text-main); font-size: 14px; display: block; margin-bottom: 8px; }
-        textarea, input[type="number"], input[type="text"], input[type="date"], input[type="file"] { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
-        textarea:focus, input[type="number"]:focus, input[type="text"]:focus { outline: none; border-color: var(--primary); background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+        textarea, input[type="number"], input[type="text"], input[type="date"], input[type="file"], input[type="password"] { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
+        textarea:focus, input[type="number"]:focus, input[type="text"]:focus, input[type="password"]:focus { outline: none; border-color: #2563eb; background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
         
         .action-btn { width: 100%; padding: 16px; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-        .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); }
+        .btn-primary { background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%); }
         .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
         .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
         
@@ -74,7 +88,7 @@
         input:checked + .slider:before { transform: translateX(22px); }
         
         .qr-container { text-align: center; padding: 20px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1; }
-        #pairingCodeDisplay { font-size: 26px; font-weight: 800; color: var(--primary); text-align: center; margin-top: 25px; letter-spacing: 4px; background: #eff6ff; padding: 15px 10px; border-radius: 12px; display: none; }
+        #pairingCodeDisplay { font-size: 26px; font-weight: 800; color: #2563eb; text-align: center; margin-top: 25px; letter-spacing: 4px; background: #eff6ff; padding: 15px 10px; border-radius: 12px; display: none; }
 
         /* Live Tracking CSS */
         .live-tracker { margin-top: 10px; background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
@@ -105,13 +119,22 @@
 </head>
 <body>
 
-    <!-- 🔐 LOGIN SCREEN -->
+    <!-- 🔐 NEW DARK LOGIN SCREEN -->
     <div id="loginArea" class="login-wrapper">
+        <div class="login-header-card">
+            <h2>Website Banane Wala <span>Pro</span></h2>
+        </div>
         <div class="login-box">
-            <h2>Welcome Back!</h2>
-            <input type="text" id="username" placeholder="Username (e.g., admin)">
+            <button class="btn-google" onclick="alert('Google Login अभी सेटअप हो रहा है। कृपया Admin Access का इस्तेमाल करें।')">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="G"> Continue with Google (First Time)
+            </button>
+            
+            <div class="divider">OR</div>
+            
+            <h3>🔓 Admin Access</h3>
+            <input type="text" id="username" placeholder="Admin User ID">
             <input type="password" id="password" placeholder="Password">
-            <button class="action-btn btn-primary" onclick="login()">Secure Login</button>
+            <button class="btn-login" onclick="login()">Login as Admin</button>
         </div>
     </div>
 
@@ -129,7 +152,12 @@
                 <button class="sidebar-btn" id="liveTrackMenuBtn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
                 <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
                 <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
+                
+                <div class="sidebar-divider"></div>
+                <!-- ⚙️ नया: पासवर्ड चेंज करने का मेनू -->
+                <button class="sidebar-btn settings-btn" onclick="showSection('settingsSec', this)">⚙️ Settings (ID/Pass)</button>
             </div>
+            <!-- 🚪 नया: लॉगआउट मेनू के सबसे नीचे -->
             <button class="sidebar-btn logout-btn" onclick="logout()">🚪 Logout</button>
         </div>
 
@@ -246,6 +274,17 @@
                     <div id="pairingCodeDisplay"></div>
                 </div>
             </div>
+
+            <!-- 6. ⚙️ Settings (Change Password) -->
+            <div id="settingsSec" class="content-section">
+                <h2 class="section-title">⚙️ Update Admin Password</h2>
+                <div class="form-group">
+                    <label>नया पासवर्ड दर्ज करें:</label>
+                    <input type="password" id="newAdminPassword" placeholder="New Password...">
+                </div>
+                <button class="action-btn btn-primary" onclick="updatePassword()">💾 Save New Password</button>
+                <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:15px;">पासवर्ड बदलने के बाद आपको दोबारा लॉगिन करना होगा।</p>
+            </div>
         </div>
     </div>
 
@@ -289,6 +328,19 @@
             fetch('/logout', { method: 'POST' }).then(() => {
                 if(dashboardInterval) clearInterval(dashboardInterval);
                 location.reload(); 
+            });
+        }
+
+        function updatePassword() {
+            const newPass = document.getElementById('newAdminPassword').value;
+            if(!newPass) { alert("कृपया नया पासवर्ड डालें!"); return; }
+            
+            fetch('/update-credentials', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({newPassword: newPass}) })
+            .then(r => r.json()).then(d => {
+                if(d.success) {
+                    alert("✅ पासवर्ड सफलतापूर्वक बदल दिया गया है! कृपया दोबारा लॉगिन करें।");
+                    logout();
+                }
             });
         }
 
