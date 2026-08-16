@@ -1,5 +1,4 @@
 const express = require('express');
-const session = require('express-session');
 const cors = require('cors');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
@@ -10,248 +9,156 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
-// --- 🔐 Session (Login) System ---
-app.use(session({
-    secret: 'website-banane-wala-secret-key',
-    resave: false,
-    saveUninitialized: false
-}));
+let qrCodeData = null;
+let isConnected = false;
+let sock;
+let isAutoReplyEnabled = true;
+let autoReplyMessage = `🌟 Welcome to website banane wala! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n\n*1️⃣* - हमारी सर्विस और प्रोडक्ट देखने के लिए\n*2️⃣* - प्राइस लिस्ट (Rate List) के लिए\n*3️⃣* - हमसे बात करने के लिए`;
 
-// --- 👤 Credentials Management ---
-const credsFile = './credentials.json';
-// अगर फ़ाइल नहीं है तो डिफ़ॉल्ट (admin / admin123) बना देगा
-if (!fs.existsSync(credsFile)) {
-    fs.writeFileSync(credsFile, JSON.stringify({ admin: "admin123" }));
+const statsFile = __dirname + '/stats.json';
+const historyFile = __dirname + '/history.json';
+
+// --- Live Campaign Tracking Variable ---
+let liveCampaign = {
+    isActive: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: []
+};
+
+// Data Management
+function getStats() {
+    try { return fs.existsSync(statsFile) ? JSON.parse(fs.readFileSync(statsFile)) : {}; } 
+    catch (e) { return {}; }
 }
-const getCreds = () => JSON.parse(fs.readFileSync(credsFile));
-const saveCredsDB = (data) => fs.writeFileSync(credsFile, JSON.stringify(data));
 
-// --- 📊 Data Tracking Variables ---
-let userSockets = {};
-let isConnected = {};
-let qrCodes = {};
-let liveCampaigns = {};
-let autoReplySettings = {}; 
+function saveStats(date, sent, failed) {
+    const stats = getStats();
+    if (!stats[date]) stats[date] = { sent: 0, failed: 0 };
+    stats[date].sent += sent;
+    stats[date].failed += failed;
+    fs.writeFileSync(statsFile, JSON.stringify(stats));
+}
 
-const defaultAutoReply = `🌟 Welcome to website banane wala! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n\n*1️⃣* - हमारी सर्विस और प्रोडक्ट देखने के लिए\n*2️⃣* - प्राइस लिस्ट (Rate List) के लिए\n*3️⃣* - हमसे बात करने के लिए`;
+function getHistory() {
+    try { return fs.existsSync(historyFile) ? JSON.parse(fs.readFileSync(historyFile)) : []; }
+    catch(e) { return []; }
+}
 
-// --- 🚀 WhatsApp Connection Manager ---
-async function startWhatsApp(user) {
-    const userDir = `./data/${user}`;
-    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+function addHistory(number, messageSent) {
+    let list = getHistory();
+    list.push({ number: number, message: messageSent, date: new Date().toLocaleString('en-IN') });
+    fs.writeFileSync(historyFile, JSON.stringify(list, null, 2));
+}
 
-    const { state, saveCreds } = await useMultiFileAuthState(`${userDir}/auth`);
-    
-    const sock = makeWASocket({ 
-        auth: state, 
-        printQRInTerminal: false, 
-        browser: ["Ubuntu", "Chrome", "20.0.04"] 
-    });
-
-    userSockets[user] = sock;
-    if(!autoReplySettings[user]) autoReplySettings[user] = { enabled: true, msg: defaultAutoReply };
+// WhatsApp Connection
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
-        if (qr) qrCodes[user] = await qrcode.toDataURL(qr);
-        
-        if (connection === 'close') {
-            isConnected[user] = false;
+        if(qr) qrCodeData = await qrcode.toDataURL(qr);
+        if(connection === 'close') {
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) {
-                setTimeout(() => startWhatsApp(user), 3000);
-            } else { 
-                fs.rmSync(`${userDir}/auth`, { recursive: true, force: true }); 
-                userSockets[user] = null;
-                qrCodes[user] = null;
-            }
-        } else if (connection === 'open') { 
-            isConnected[user] = true; 
-            qrCodes[user] = null; 
-        }
+            isConnected = false;
+            if(shouldReconnect) setTimeout(connectToWhatsApp, 3000);
+            else { fs.rmSync('auth_info_baileys', { recursive: true, force: true }); connectToWhatsApp(); }
+        } else if(connection === 'open') { isConnected = true; qrCodeData = null; }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // --- 🤖 Auto-Reply Logic ---
+    // Auto-Reply
     sock.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify' || !autoReplySettings[user].enabled) return;
+        if (m.type !== 'notify' || !isAutoReplyEnabled) return;
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
         const jid = msg.key.remoteJid;
         const phone = jid.split('@')[0]; 
+        
+        const histList = getHistory();
+        if (!histList.find(c => c.number === phone)) return; // Only reply to those we sent a message
 
-        const histFile = `./data/${user}/history.json`;
-        if (!fs.existsSync(histFile)) return;
-        const historyData = fs.readFileSync(histFile, 'utf-8');
-        if (!historyData.includes(phone)) return; 
+        const messageType = Object.keys(msg.message)[0];
+        let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
 
-        const msgType = Object.keys(msg.message)[0];
-        let text = msgType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (msgType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
-
-        if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplySettings[user].msg });
+        if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplyMessage });
         else if (text === '1') await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
         else if (text === '2') await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
         else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
     });
 }
 
-// सर्वर स्टार्ट होते ही पुराने यूज़र्स का डेटा लोड करें
-if (!fs.existsSync('./data')) fs.mkdirSync('./data');
-fs.readdirSync('./data').forEach(user => {
-    const creds = getCreds();
-    if (creds[user]) startWhatsApp(user);
-});
+connectToWhatsApp();
 
-// --- 🛡️ Security Check ---
-const isAuthenticated = (req, res, next) => {
-    if (req.session.user) next();
-    else res.status(401).json({ error: 'Unauthorized' });
-};
+// API Routes
+app.get('/status', (req, res) => res.json({ connected: isConnected, qrCode: qrCodeData, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage }));
+app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enabled; res.json({ success: true }); });
+app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 
-// --- 🌐 API Routes ---
-app.post('/login', (req, res) => {
-    const { username, password } = req.body;
-    const creds = getCreds();
-    if (creds[username] && creds[username] === password) {
-        req.session.user = username;
-        if (!userSockets[username]) startWhatsApp(username); 
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ success: false });
-    }
-});
-
-// नया: पासवर्ड अपडेट करने का रूट
-app.post('/update-credentials', isAuthenticated, (req, res) => {
-    const { newPassword } = req.body;
-    const user = req.session.user;
-    const creds = getCreds();
-    creds[user] = newPassword;
-    saveCredsDB(creds);
-    res.json({ success: true });
-});
-
-app.post('/logout', (req, res) => { req.session.destroy(); res.json({ success: true }); });
-
-app.get('/status', isAuthenticated, (req, res) => {
-    const user = req.session.user;
-    res.json({ 
-        connected: isConnected[user] || false, 
-        qrCode: qrCodes[user] || null,
-        autoReply: autoReplySettings[user]?.enabled || false,
-        currentMsg: autoReplySettings[user]?.msg || defaultAutoReply
-    });
-});
-
-app.post('/toggle-autoreply', isAuthenticated, (req, res) => { 
-    autoReplySettings[req.session.user].enabled = req.body.enabled; 
-    res.json({ success: true }); 
-});
-
-app.post('/update-autoreply', isAuthenticated, (req, res) => { 
-    autoReplySettings[req.session.user].msg = req.body.message; 
-    res.json({ success: true }); 
-});
-
-app.get('/api/stats', isAuthenticated, (req, res) => {
-    const user = req.session.user;
-    const statsFile = `./data/${user}/stats.json`;
-    let stats = {};
-    try { if(fs.existsSync(statsFile)) stats = JSON.parse(fs.readFileSync(statsFile)); } catch(e){}
-    
+app.get('/api/stats', (req, res) => {
+    const stats = getStats();
     const date = req.query.date;
-    if(date) res.json(stats[date] || { sent: 0, failed: 0 });
-    else res.json({ 
-        sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), 
-        failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) 
-    });
+    res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) });
 });
 
-app.get('/api/history', isAuthenticated, (req, res) => {
-    const histFile = `./data/${req.session.user}/history.json`;
-    try {
-        if(fs.existsSync(histFile)) res.json(JSON.parse(fs.readFileSync(histFile)));
-        else res.json([]);
-    } catch(e) { res.json([]); }
-});
+app.get('/api/history', (req, res) => res.json(getHistory()));
+app.get('/api/live-status', (req, res) => res.json(liveCampaign));
 
-app.get('/api/live-status', isAuthenticated, (req, res) => {
-    res.json(liveCampaigns[req.session.user] || { isActive: false, total: 0 });
-});
-
-app.post('/pair-code', isAuthenticated, async (req, res) => {
-    const user = req.session.user;
-    if (!userSockets[user]) await startWhatsApp(user);
-    
-    let phone = req.body.phone.replace(/[^0-9]/g, '');
+app.post('/pair-code', async (req, res) => {
+    let { phone } = req.body;
+    phone = phone.replace(/[^0-9]/g, '');
     if (!phone.startsWith('91')) phone = '91' + phone;
-    
-    setTimeout(async () => {
-        try {
-            const code = await userSockets[user].requestPairingCode(phone);
-            res.json({ success: true, code: code });
-        } catch(e) { res.status(500).json({ success: false, error: 'Pairing failed' }); }
-    }, 1500);
+    const code = await sock.requestPairingCode(phone);
+    res.json({ success: true, code: code });
 });
 
-app.post('/send', isAuthenticated, async (req, res) => {
-    const user = req.session.user;
-    if (!isConnected[user] || !userSockets[user]) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
+app.post('/send', async (req, res) => {
+    if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     
     const { numbers, message, minDelay, maxDelay, imageBase64 } = req.body;
-    res.json({ success: true }); 
     
-    liveCampaigns[user] = { isActive: true, total: numbers.length, sent: 0, failed: 0, pending: numbers.length, numbers: numbers.map(n => ({ phone: n, status: 'Pending ⏳' })) };
+    // Live Campaign Reset
+    liveCampaign = {
+        isActive: true, total: numbers.length, sent: 0, failed: 0, pending: numbers.length,
+        numbers: numbers.map(n => ({ phone: n, status: 'Pending ⏳' }))
+    };
     
-    let sentCount = 0, failedCount = 0;
-    let minD = parseInt(minDelay) || 10, maxD = parseInt(maxDelay) || 20;
+    res.json({ success: true }); // Response before loop
+    
+    let minD = parseInt(minDelay) || 10;
+    let maxD = parseInt(maxDelay) || 20;
+    let sentCount = 0; let failedCount = 0;
 
     for (let i = 0; i < numbers.length; i++) {
         let num = numbers[i].replace(/[^0-9]/g, '');
-        if (!num.startsWith('91')) num = '91' + num;
-        
         try {
+            if (!num.startsWith('91')) num = '91' + num;
             const jid = num + '@s.whatsapp.net';
-            let msgOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message || '' } : { text: message };
-            await userSockets[user].sendMessage(jid, msgOptions);
+            let messageOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: message || '' } : { text: message };
+            
+            await sock.sendMessage(jid, messageOptions);
             
             sentCount++;
-            liveCampaigns[user].sent++;
-            liveCampaigns[user].pending--;
-            liveCampaigns[user].numbers[i].status = 'Sent ✅';
+            liveCampaign.sent++;
+            liveCampaign.pending--;
+            liveCampaign.numbers[i].status = 'Sent ✅';
+            addHistory(num, message || "Media Sent"); 
             
-            const histFile = `./data/${user}/history.json`;
-            let history = [];
-            if(fs.existsSync(histFile)) history = JSON.parse(fs.readFileSync(histFile));
-            history.push({ number: num, message: message || "Media Sent", date: new Date().toLocaleString('en-IN') });
-            fs.writeFileSync(histFile, JSON.stringify(history, null, 2));
-            
-        } catch (e) {
+            if (i < numbers.length - 1) {
+                const randomDelay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
+                await new Promise(resolve => setTimeout(resolve, randomDelay * 1000));
+            }
+        } catch (e) { 
             failedCount++;
-            liveCampaigns[user].failed++;
-            liveCampaigns[user].pending--;
-            liveCampaigns[user].numbers[i].status = 'Invalid ❌';
-        }
-        
-        if (i < numbers.length - 1) {
-            const rDelay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
-            await new Promise(r => setTimeout(r, rDelay * 1000));
+            liveCampaign.failed++;
+            liveCampaign.pending--;
+            liveCampaign.numbers[i].status = 'Invalid ❌';
         }
     }
-    
-    liveCampaigns[user].isActive = false;
-    
-    const today = new Date().toLocaleDateString('en-CA');
-    const statsFile = `./data/${user}/stats.json`;
-    let stats = {};
-    if(fs.existsSync(statsFile)) stats = JSON.parse(fs.readFileSync(statsFile));
-    if(!stats[today]) stats[today] = { sent: 0, failed: 0 };
-    stats[today].sent += sentCount;
-    stats[today].failed += failedCount;
-    fs.writeFileSync(statsFile, JSON.stringify(stats));
+    liveCampaign.isActive = false;
+    saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Server started`));
+
