@@ -261,12 +261,6 @@
         let allContacts = {}; 
 
         window.onload = () => {
-            // Auto-set today date on dashboard filter
-            const df = document.getElementById('dateFilter');
-            if (df && !df.value) {
-                const t = new Date();
-                df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
-            }
             fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
@@ -277,7 +271,6 @@
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
                 });
                 fetchLiveStatus();
-                fetchStats(); // dashboard live update during campaign
             }, 3000);
         }
 
@@ -296,102 +289,55 @@
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ मैसेज अपडेट हो गया।')) }
 
         // --- EXCEL & PDF EXTRACTOR LOGIC ---
-        function setUploadStatus(msg, color) {
-            let el = document.getElementById('uploadStatusMsg');
-            if (!el) {
-                el = document.createElement('p');
-                el.id = 'uploadStatusMsg';
-                el.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;';
-                const box = document.getElementById('contactFileInput') || document.getElementById('campaignFileInput');
-                if (box && box.parentNode) box.parentNode.appendChild(el);
-            }
-            el.style.display = msg ? 'block' : 'none';
-            el.style.color = color || '#f59e0b';
-            el.innerHTML = msg || '';
-        }
-
-        // Non-blocking PDF extract — page by page, UI nahi atakti
-        function extractDataFromFile(file, callback, onProgress) {
+        function extractDataFromFile(file, callback) {
             const ext = file.name.split('.').pop().toLowerCase();
             if (ext === 'pdf') {
                 const reader = new FileReader();
-                reader.onerror = () => {
-                    alert('PDF read error — file corrupt ho sakti hai.');
-                    callback([]);
-                };
                 reader.onload = async function(e) {
-                    try {
-                        const typedarray = new Uint8Array(e.target.result);
-                        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
-                        const total = pdf.numPages;
-                        const phoneSet = new Set();
-                        const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
-
-                        for (let i = 1; i <= total; i++) {
-                            if (onProgress) onProgress(i, total);
-                            const page = await pdf.getPage(i);
-                            const textContent = await page.getTextContent();
-                            const pageText = textContent.items.map(item => item.str).join(' ');
-                            let m;
-                            regex.lastIndex = 0;
-                            while ((m = regex.exec(pageText)) !== null) {
-                                const num = m[0].replace(/\D/g, '').slice(-10);
-                                if (num.length === 10) phoneSet.add(num);
-                            }
-                            // Har 3 page baad UI ko breathe do (hang nahi hoga)
-                            if (i % 3 === 0) {
-                                await new Promise(r => setTimeout(r, 0));
-                            }
-                        }
-                        const result = Array.from(phoneSet).map(num => ['Customer', num]);
-                        callback(result);
-                    } catch (err) {
-                        console.error(err);
-                        alert('PDF process error: ' + (err.message || 'unknown'));
-                        callback([]);
+                    const typedarray = new Uint8Array(e.target.result);
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    let fullText = "";
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        fullText += textContent.items.map(item => item.str).join(" ") + " ";
                     }
+                    const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
+                    let matches = fullText.match(regex) || [];
+                    matches = matches.map(n => n.replace(/\D/g, '').slice(-10));
+                    matches = [...new Set(matches)]; // Remove duplicates
+                    callback(matches.map(num => ['Customer', num]));
                 };
                 reader.readAsArrayBuffer(file);
             } else if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                        const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-                        callback(json);
-                    } catch (err) {
-                        alert('Excel/CSV read error');
-                        callback([]);
-                    }
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+                    callback(json);
                 };
                 reader.readAsArrayBuffer(file);
             } else {
                 alert("कृपया केवल PDF, Excel या CSV फाइल ही अपलोड करें।");
-                callback([]);
             }
         }
 
         // Campaign Side File Upload
         function processCampaignFile(event) {
             const file = event.target.files[0];
-            if (!file) return;
-            setUploadStatus('⏳ PDF/File process हो रहा है...', '#f59e0b');
+            if(!file) return;
             extractDataFromFile(file, (data) => {
                 let numbersStr = data.map(row => {
                     let phone = row.length >= 2 ? String(row[1]) : String(row[0]);
                     return phone ? phone.replace(/\D/g, '').slice(-10) : '';
                 }).filter(n => n.length === 10).join('\n');
-
+                
                 let existing = document.getElementById('numbers').value;
                 document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
-                const count = numbersStr ? numbersStr.split('\n').filter(Boolean).length : 0;
-                setUploadStatus(`✅ ${count} numbers निकाले गए`, '#10b981');
-                alert(`✅ फाइल से ${count} नंबर निकाल लिए गए!`);
-                document.getElementById('campaignFileInput').value = '';
-            }, (page, total) => {
-                setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b');
+                alert(`✅ फाइल से नंबर निकाल लिए गए!\n\nअब नीचे "Scan & Clean" बटन दबाओ — Invalid + Duplicate हट जाएँगे, सिर्फ Valid WhatsApp numbers रहेंगे।`);
+                document.getElementById('campaignFileInput').value = ''; // Reset input
             });
         }
 
@@ -399,36 +345,29 @@
         function processContactFile() {
             const file = document.getElementById('contactFileInput').files[0];
             const g = document.getElementById('groupSelect').value;
-            if (!file || !g) return alert("कृपया फाइल और ग्रुप दोनों सेलेक्ट करें!");
-
-            setUploadStatus('⏳ File process हो रहा है...', '#f59e0b');
+            if(!file || !g) return alert("कृपया फाइल और ग्रुप दोनों सेलेक्ट करें!");
+            
             extractDataFromFile(file, (data) => {
-                if (!allContacts[g]) allContacts[g] = [];
-                const existing = new Set(allContacts[g].map(c => c.phone));
                 let added = 0;
                 data.forEach(row => {
-                    if (!row || row.length === 0) return;
+                    if(!row || row.length === 0) return;
                     let name = row.length >= 2 ? String(row[0]).trim() : 'Customer';
                     let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]);
                     let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
-                    if (phone.length === 10 && !existing.has(phone)) {
+                    
+                    if(phone.length === 10) {
                         allContacts[g].push({ name: name, phone: phone });
-                        existing.add(phone);
                         added++;
                     }
                 });
-
-                if (added > 0) {
+                
+                if(added > 0) {
                     saveContactsToAPI();
-                    setUploadStatus(`✅ ${added} numbers add हो गए (Total: ${allContacts[g].length})`, '#10b981');
-                    alert(`✅ फाइल से ${added} नंबर जोड़ दिए गए!`);
+                    alert(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए! तुरंत लिस्ट में देखें।\n\nअब "Scan & Clean Group" दबाकर Invalid + Duplicate हटा सकते हो।`);
                 } else {
-                    setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444');
-                    alert("फाइल में कोई नया सही मोबाइल नंबर नहीं मिला।");
+                    alert("फाइल में कोई सही मोबाइल नंबर नहीं मिला।");
                 }
                 document.getElementById('contactFileInput').value = '';
-            }, (page, total) => {
-                setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b');
             });
         }
 
@@ -540,20 +479,10 @@
             const g = document.getElementById('groupSelect').value;
             const div = document.getElementById('contactManagerDiv');
             const tbody = document.getElementById('contactTableBody');
-            if (!g) { div.style.display = 'none'; return; }
+            if(!g) { div.style.display = 'none'; return; }
             div.style.display = 'block';
-            const list = allContacts[g] || [];
-            // Large lists: only show first 100 (warna browser hang)
-            const MAX_SHOW = 100;
-            const show = list.slice(0, MAX_SHOW);
-            let html = '';
-            for (let i = 0; i < show.length; i++) {
-                html += `<tr><td>${show[i].name}</td><td>${show[i].phone}</td></tr>`;
-            }
-            if (list.length > MAX_SHOW) {
-                html += `<tr><td colspan="2" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW} numbers (कुल ${list.length})</td></tr>`;
-            }
-            tbody.innerHTML = html;
+            tbody.innerHTML = '';
+            allContacts[g].forEach(c => tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone}</td></tr>`);
         }
         function addSingleContact() {
             const g = document.getElementById('groupSelect').value;
@@ -691,25 +620,15 @@
                 </div>`;
 
                 if (data.numbers && data.numbers.length) {
-                    const processed = data.numbers.filter(n => n.status && !String(n.status).includes('Pending'));
-                    const pending = data.numbers.filter(n => n.status && String(n.status).includes('Pending'));
-                    // Latest processed first + a few upcoming pending
-                    const showProcessed = processed.slice(-40).reverse();
-                    const showPending = pending.slice(0, 10);
-                    html += `<p style="font-size:12px; color:#64748b; margin-bottom:8px;">Sent/Failed: ${processed.length} | Pending: ${pending.length}</p>`;
-                    if (showProcessed.length) {
-                        html += `<p style="font-size:12px; font-weight:600; color:#10b981; margin:8px 0 4px;">✅ Recently Sent / Failed</p>`;
-                        showProcessed.forEach(item => {
-                            let color = String(item.status).includes('Sent') ? '#10b981' : '#ef4444';
-                            html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
-                        });
+                    // Show last 50 for performance
+                    const list = data.numbers.length > 50 ? data.numbers.slice(-50) : data.numbers;
+                    if (data.numbers.length > 50) {
+                        html += `<p style="font-size:12px; color:#64748b;">Showing last 50 of ${data.numbers.length}...</p>`;
                     }
-                    if (showPending.length) {
-                        html += `<p style="font-size:12px; font-weight:600; color:#f59e0b; margin:12px 0 4px;">⏳ Pending (next up)</p>`;
-                        showPending.forEach(item => {
-                            html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:#f59e0b; font-weight:bold;">${item.status}</span></div>`;
-                        });
-                    }
+                    list.forEach(item => {
+                        let color = item.status.includes('Sent') ? '#10b981' : (item.status.includes('Invalid') ? '#ef4444' : '#f59e0b');
+                        html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
+                    });
                 }
 
                 document.getElementById('liveList').innerHTML = html || 'कोई एक्टिव कैंपेन नहीं है।';
