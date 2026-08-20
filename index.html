@@ -261,6 +261,12 @@
         let allContacts = {}; 
 
         window.onload = () => {
+            // Auto-set today date on dashboard filter
+            const df = document.getElementById('dateFilter');
+            if (df && !df.value) {
+                const t = new Date();
+                df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+            }
             fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
@@ -271,6 +277,7 @@
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
                 });
                 fetchLiveStatus();
+                fetchStats(); // dashboard live update during campaign
             }, 3000);
         }
 
@@ -620,15 +627,25 @@
                 </div>`;
 
                 if (data.numbers && data.numbers.length) {
-                    // Show last 50 for performance
-                    const list = data.numbers.length > 50 ? data.numbers.slice(-50) : data.numbers;
-                    if (data.numbers.length > 50) {
-                        html += `<p style="font-size:12px; color:#64748b;">Showing last 50 of ${data.numbers.length}...</p>`;
+                    const processed = data.numbers.filter(n => n.status && !String(n.status).includes('Pending'));
+                    const pending = data.numbers.filter(n => n.status && String(n.status).includes('Pending'));
+                    // Latest processed first + a few upcoming pending
+                    const showProcessed = processed.slice(-40).reverse();
+                    const showPending = pending.slice(0, 10);
+                    html += `<p style="font-size:12px; color:#64748b; margin-bottom:8px;">Sent/Failed: ${processed.length} | Pending: ${pending.length}</p>`;
+                    if (showProcessed.length) {
+                        html += `<p style="font-size:12px; font-weight:600; color:#10b981; margin:8px 0 4px;">✅ Recently Sent / Failed</p>`;
+                        showProcessed.forEach(item => {
+                            let color = String(item.status).includes('Sent') ? '#10b981' : '#ef4444';
+                            html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
+                        });
                     }
-                    list.forEach(item => {
-                        let color = item.status.includes('Sent') ? '#10b981' : (item.status.includes('Invalid') ? '#ef4444' : '#f59e0b');
-                        html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
-                    });
+                    if (showPending.length) {
+                        html += `<p style="font-size:12px; font-weight:600; color:#f59e0b; margin:12px 0 4px;">⏳ Pending (next up)</p>`;
+                        showPending.forEach(item => {
+                            html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:#f59e0b; font-weight:bold;">${item.status}</span></div>`;
+                        });
+                    }
                 }
 
                 document.getElementById('liveList').innerHTML = html || 'कोई एक्टिव कैंपेन नहीं है।';
