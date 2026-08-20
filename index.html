@@ -113,11 +113,13 @@
             <h2 class="section-title">New Marketing Campaign</h2>
             
             <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
-                <label style="color: #2563eb;">📂 सेव किया हुआ टेम्प्लेट चुनें:</label>
-                <select id="templateDropdown" onchange="applySelectedTemplate()">
-                    <option value="">-- नया कस्टम मैसेज बनाएँ --</option>
+                <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (Rotation):</label>
+                <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">Desktop: Ctrl/Cmd दबाकर कई टेम्प्लेट सेलेक्ट करें। Mobile: एक-एक करके tap करके चुनें। नंबर्स पर बारी-बारी से अलग टेम्प्लेट का मैसेज जाएगा (last के बाद first पर वापस)।</p>
+                <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()">
+                    <option value="">-- कोई टेम्प्लेट नहीं (कस्टम मैसेज) --</option>
                 </select>
-                <img id="imagePreview" src="" alt="Preview">
+                <div id="selectedTemplatesPreview" style="margin-top:10px; font-size:13px; color:#2563eb;"></div>
+                <img id="imagePreview" src="" alt="Preview" style="max-width:100px; max-height:100px; border-radius:8px; display:none; margin-top:10px;">
             </div>
 
             <div class="form-group" style="background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
@@ -252,7 +254,7 @@
     <!-- JAVASCRIPT LOGIC -->
     <script>
         let allTemplates = [];
-        let selectedTemplateBase64 = null;
+        let selectedTemplatesList = []; // multi-template rotation list
         let allContacts = {}; 
 
         window.onload = () => {
@@ -414,16 +416,22 @@
         }
 
 
-        // --- TEMPLATE LOGIC ---
+        // --- TEMPLATE LOGIC (Multi-select + Rotation) ---
         function fetchTemplates() { fetch('/api/templates').then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }); }
         function renderTemplates() {
             const drop = document.getElementById('templateDropdown');
-            drop.innerHTML = '<option value="">-- नया कस्टम मैसेज बनाएँ --</option>';
+            const prevSelected = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
+            drop.innerHTML = '';
             document.getElementById('templateListArea').innerHTML = '';
             allTemplates.forEach(t => {
-                drop.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name;
+                if (prevSelected.includes(t.id)) opt.selected = true;
+                drop.appendChild(opt);
                 document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${t.message.substring(0, 40)}...</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
             });
+            applySelectedTemplates();
         }
         function saveNewTemplate() {
             const name = document.getElementById('newTplName').value, msg = document.getElementById('newTplMsg').value, img = document.getElementById('newTplImage').files[0];
@@ -433,14 +441,33 @@
             else fetch('/api/templates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, name, message:msg, imageBase64:null})}).then(()=>fetchTemplates());
         }
         function deleteTemplate(id) { fetch('/api/templates/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})}).then(()=>fetchTemplates()); }
-        function applySelectedTemplate() {
-            const id = document.getElementById('templateDropdown').value, p = document.getElementById('imagePreview');
-            if(!id) { selectedTemplateBase64 = null; document.getElementById('message').value = ''; p.style.display = 'none'; return; }
-            const t = allTemplates.find(x => x.id === id);
-            document.getElementById('message').value = t.message;
-            if(t.imageBase64) { selectedTemplateBase64 = t.imageBase64; p.src = t.imageBase64; p.style.display = 'block'; } else { selectedTemplateBase64 = null; p.style.display = 'none'; }
+        function applySelectedTemplates() {
+            const drop = document.getElementById('templateDropdown');
+            const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
+            selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean);
+            const preview = document.getElementById('selectedTemplatesPreview');
+            const p = document.getElementById('imagePreview');
+            if (selectedTemplatesList.length === 0) {
+                preview.innerHTML = 'कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा।';
+                p.style.display = 'none';
+                return;
+            }
+            preview.innerHTML = `✅ ${selectedTemplatesList.length} टेम्प्लेट चुने: <b>${selectedTemplatesList.map(t => t.name).join(' → ')}</b> (Rotation mode)`;
+            // show first selected template image as preview
+            if (selectedTemplatesList[0].imageBase64) {
+                p.src = selectedTemplatesList[0].imageBase64;
+                p.style.display = 'block';
+            } else {
+                p.style.display = 'none';
+            }
         }
-        function clearTemplateSelection() { document.getElementById('templateDropdown').value = ""; document.getElementById('imagePreview').style.display = 'none'; selectedTemplateBase64 = null; }
+        function clearTemplateSelection() {
+            const drop = document.getElementById('templateDropdown');
+            Array.from(drop.options).forEach(o => o.selected = false);
+            selectedTemplatesList = [];
+            document.getElementById('imagePreview').style.display = 'none';
+            document.getElementById('selectedTemplatesPreview').innerHTML = '';
+        }
 
         // --- SEND LOGIC ---
         function toggleTargetInput() {
@@ -478,31 +505,62 @@
                 finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
             }
 
+            // Refresh selected templates from dropdown (in case list changed)
+            applySelectedTemplates();
+
             const msg = document.getElementById('message').value;
             const imgFile = document.getElementById('imageFile').files[0];
             
+            // If multi-templates selected → use rotation (ignore single custom image for campaign)
+            if (selectedTemplatesList.length > 0) {
+                doSend(finalNumbers, msg, null, selectedTemplatesList);
+                return;
+            }
+
+            // Fallback: single custom message + optional image
             if (imgFile) { 
                 const reader = new FileReader(); 
-                reader.onload = (e) => { doSend(finalNumbers, msg, e.target.result); }; 
+                reader.onload = (e) => { doSend(finalNumbers, msg, e.target.result, []); }; 
                 reader.readAsDataURL(imgFile); 
-            } else if (selectedTemplateBase64) {
-                doSend(finalNumbers, msg, selectedTemplateBase64);
             } else { 
-                doSend(finalNumbers, msg, null); 
+                doSend(finalNumbers, msg, null, []); 
             }
         }
         
-        function doSend(numsObjArray, msg, imgBase64) {
+        function doSend(numsObjArray, msg, imgBase64, templatesArr) {
             const minD = document.getElementById('minDelay').value;
             const maxD = document.getElementById('maxDelay').value;
             if (parseInt(minD) >= parseInt(maxD)) return alert('⚠️ एरर: अधिकतम समय ज़्यादा होना चाहिए!');
             if (numsObjArray.length === 0) return alert('⚠️ नंबर लिस्ट खाली है!');
             
+            if ((!templatesArr || templatesArr.length === 0) && !msg && !imgBase64) {
+                return alert('⚠️ या तो टेम्प्लेट चुनें या मैसेज/इमेज डालें!');
+            }
+
             document.getElementById('sendBtn').disabled = true;
             document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
 
-            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64 }) })
-            .then(() => { showSection('liveTrackingSec', document.getElementById('liveTrackMenuBtn')); fetchLiveStatus(); });
+            // Send templates array for rotation (each item: {name, message, imageBase64})
+            const payload = {
+                numbers: numsObjArray,
+                message: msg,
+                minDelay: minD,
+                maxDelay: maxD,
+                imageBase64: imgBase64,
+                templates: (templatesArr || []).map(t => ({
+                    name: t.name,
+                    message: t.message,
+                    imageBase64: t.imageBase64 || null
+                }))
+            };
+
+            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            .then(() => {
+                // switch to live tracking
+                const liveBtn = document.querySelector('.sidebar-btn[onclick*="liveTrackingSec"]');
+                showSection('liveTrackingSec', liveBtn || document.querySelectorAll('.sidebar-btn')[4]);
+                fetchLiveStatus();
+            });
         }
         
         function getPairingCode() { fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('pairPhone').value }) }).then(r => r.json()).then(d => { document.getElementById('pairingCodeDisplay').style.display = 'block'; document.getElementById('pairingCodeDisplay').innerText = d.code; }); }
@@ -511,3 +569,4 @@
     </script>
 </body>
 </html>
+
