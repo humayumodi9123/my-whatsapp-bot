@@ -105,40 +105,80 @@ app.post('/pair-code', async (req, res) => {
     res.json({ success: true, code: await sock.requestPairingCode(phone) });
 });
 
-// 🚀 UPDATED SEND ROUTE (Personalized Message Support)
+// 🚀 UPDATED SEND ROUTE (Multi-Template Rotation + Personalized Message)
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     
-    // numbers array will now contain objects: [{phone: "91...", name: "Rahul"}, ...]
-    const { numbers, message, minDelay, maxDelay, imageBase64 } = req.body;
+    // numbers: [{phone, name}, ...]
+    // templates: [{name, message, imageBase64}, ...]  → round-robin rotation
+    const { numbers, message, minDelay, maxDelay, imageBase64, templates } = req.body;
     
-    liveCampaign = { isActive: true, total: numbers.length, sent: 0, failed: 0, pending: numbers.length, numbers: numbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' })) };
+    const useRotation = Array.isArray(templates) && templates.length > 0;
+    
+    liveCampaign = {
+        isActive: true,
+        total: numbers.length,
+        sent: 0,
+        failed: 0,
+        pending: numbers.length,
+        numbers: numbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' }))
+    };
     res.json({ success: true }); 
     
-    let minD = parseInt(minDelay) || 10; let maxD = parseInt(maxDelay) || 20;
-    let sentCount = 0; let failedCount = 0;
+    let minD = parseInt(minDelay) || 10;
+    let maxD = parseInt(maxDelay) || 20;
+    let sentCount = 0;
+    let failedCount = 0;
 
     for (let i = 0; i < numbers.length; i++) {
         let contact = numbers[i];
-        let num = contact.phone.replace(/[^0-9]/g, '');
-        let customerName = contact.name || 'Customer'; // अगर नाम नहीं है तो 'Customer' लिखेगा
+        let num = String(contact.phone).replace(/[^0-9]/g, '');
+        let customerName = contact.name || 'Customer';
 
         try {
             if (!num.startsWith('91')) num = '91' + num;
             const jid = num + '@s.whatsapp.net';
             
-            // 🏷️ PERSONALIZED MESSAGE LOGIC
-            let finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : '';
+            let finalMessage = '';
+            let finalImageBase64 = null;
+            let tplName = '';
 
-            let messageOptions = imageBase64 ? { image: Buffer.from(imageBase64.split(',')[1], 'base64'), caption: finalMessage } : { text: finalMessage };
+            if (useRotation) {
+                // Round-robin: index 0,1,2... then back to 0
+                const tpl = templates[i % templates.length];
+                tplName = tpl.name || '';
+                finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
+                finalImageBase64 = tpl.imageBase64 || null;
+            } else {
+                // Single custom message / image
+                finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : '';
+                finalImageBase64 = imageBase64 || null;
+            }
+
+            let messageOptions;
+            if (finalImageBase64) {
+                const base64Data = finalImageBase64.includes(',') ? finalImageBase64.split(',')[1] : finalImageBase64;
+                messageOptions = { image: Buffer.from(base64Data, 'base64'), caption: finalMessage };
+            } else {
+                messageOptions = { text: finalMessage || ' ' };
+            }
             
             await sock.sendMessage(jid, messageOptions);
-            sentCount++; liveCampaign.sent++; liveCampaign.pending--; liveCampaign.numbers[i].status = 'Sent ✅';
-            addHistory(num, finalMessage || "Media Sent"); 
+            sentCount++;
+            liveCampaign.sent++;
+            liveCampaign.pending--;
+            liveCampaign.numbers[i].status = useRotation ? `Sent ✅ (${tplName})` : 'Sent ✅';
+            addHistory(num, finalMessage || (tplName ? `[${tplName}] Media` : "Media Sent")); 
             
-            if (i < numbers.length - 1) await new Promise(resolve => setTimeout(resolve, (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000));
+            if (i < numbers.length - 1) {
+                const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
         } catch (e) { 
-            failedCount++; liveCampaign.failed++; liveCampaign.pending--; liveCampaign.numbers[i].status = 'Invalid ❌';
+            failedCount++;
+            liveCampaign.failed++;
+            liveCampaign.pending--;
+            liveCampaign.numbers[i].status = 'Invalid ❌';
         }
     }
     liveCampaign.isActive = false;
