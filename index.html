@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Marketing Dashboard Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <!-- PDF Library -->
+    
+    <!-- PDF & Excel/CSV Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
-    <!-- CSV Library (PapaParse) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';</script>
 
     <style>
         :root { --primary: #2563eb; --secondary: #1e293b; --bg-color: #f1f5f9; --card-bg: #ffffff; --text-main: #334155; --text-muted: #64748b; --border-color: #e2e8f0; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
@@ -55,8 +57,19 @@
         #imagePreview { max-width: 100px; max-height: 100px; border-radius: 8px; display: none; margin-top: 10px; }
 
         .contact-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        .contact-table th, .contact-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        .contact-table th, .contact-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
         .contact-table th { background: #f8fafc; color: var(--secondary); }
+        
+        /* Auto Reply Switch CSS */
+        .switch-wrapper { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+        .switch-text h3 { margin: 0 0 5px 0; color: var(--secondary); font-size: 17px; }
+        .switch-text p { margin: 0; color: var(--text-muted); font-size: 13px; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(22px); }
 
         @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid, .delay-box { flex-direction: column; } }
     </style>
@@ -107,12 +120,11 @@
                 <img id="imagePreview" src="" alt="Preview">
             </div>
 
-            <!-- नया: Target Selection (Group vs Manual) -->
             <div class="form-group" style="background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
                 <label>🎯 किसे मैसेज भेजना है?</label>
                 <select id="targetType" onchange="toggleTargetInput()">
                     <option value="group">Contact Book (Group) से चुनें</option>
-                    <option value="manual">मैन्युअल नंबर टाइप करें (बिना नाम के)</option>
+                    <option value="manual">मैन्युअल नंबर / फाइल अपलोड करें</option>
                 </select>
                 
                 <div id="groupTargetDiv" style="margin-top: 15px;">
@@ -122,19 +134,22 @@
                 </div>
 
                 <div id="manualTargetDiv" style="display: none; margin-top: 15px;">
-                    <textarea id="numbers" placeholder="919876543210&#10;918888888888" style="height:100px;"></textarea>
+                    <!-- Excel/PDF Upload in Campaign -->
+                    <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #10b981; margin-bottom: 10px;">
+                        <label style="color: #10b981;">📄 PDF या Excel (CSV) फाइल से नंबर निकालें:</label>
+                        <input type="file" id="campaignFileInput" accept=".csv, .xlsx, .xls, .pdf" onchange="processCampaignFile(event)">
+                        <p style="font-size:12px; color:var(--text-muted); margin-top:5px; margin-bottom: 0;">अपलोड करते ही सारे नंबर अपने आप नीचे बॉक्स में आ जाएँगे।</p>
+                    </div>
+
+                    <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें या ऊपर से फाइल अपलोड करें..." style="height:100px;"></textarea>
                     <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा।</p>
                 </div>
             </div>
 
-            <div class="form-group">
-                <label>प्रमोशनल डिज़ाइन / पोस्टर:</label>
-                <input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()">
-            </div>
+            <div class="form-group"><label>प्रमोशनल डिज़ाइन / पोस्टर:</label><input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()"></div>
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
                 <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
-                <p style="font-size:13px; color:#10b981; font-weight:600; margin-top:5px;">💡 टिप: ग्राहक का नाम ऑटोमैटिक जोड़ने के लिए मैसेज में <b>[Name]</b> लिखें।</p>
             </div>
 
             <div class="delay-box">
@@ -145,12 +160,12 @@
             <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
         </div>
 
-        <!-- 3. Contact Book / CSV Upload (नया सेक्शन) -->
+        <!-- 3. Contact Book & File Upload -->
         <div id="contactBook" class="content-section">
-            <h2 class="section-title">📇 Contact Book & CSV Upload</h2>
+            <h2 class="section-title">📇 Contact Book & List Upload</h2>
             
             <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                <input type="text" id="newGroupName" placeholder="नया ग्रुप बनाएं (उदा: VIP Clients)" style="flex: 1;">
+                <input type="text" id="newGroupName" placeholder="नया ग्रुप बनाएं (उदा: Retailers)" style="flex: 1;">
                 <button class="action-btn btn-primary btn-sm" style="width: auto;" onclick="createNewGroup()">+ Create</button>
             </div>
 
@@ -162,21 +177,18 @@
             </div>
 
             <div id="contactManagerDiv" style="display: none; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                <h3 style="margin-top:0;">Add Contacts to Group</h3>
                 
+                <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #2563eb; margin-bottom: 20px;">
+                    <label style="color: #2563eb;">📂 Excel, CSV या PDF फाइल अपलोड करें:</label>
+                    <input type="file" id="contactFileInput" accept=".csv, .xlsx, .xls, .pdf" style="margin-bottom: 10px;">
+                    <button class="action-btn btn-primary btn-sm" onclick="processContactFile()">Upload File</button>
+                    <p style="font-size:12px; color:var(--text-muted); margin-top:5px;">PDF से नंबर अपने आप निकाल लिए जाएँगे। Excel/CSV में पहला कॉलम नाम, दूसरा नंबर रखें।</p>
+                </div>
+
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                     <input type="text" id="addName" placeholder="Name" style="flex: 1;">
                     <input type="text" id="addPhone" placeholder="Mobile Number" style="flex: 1;">
-                    <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add</button>
-                </div>
-                
-                <div style="text-align: center; margin: 15px 0; color: #64748b;">OR</div>
-                
-                <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #2563eb;">
-                    <label style="color: #2563eb;">📂 Excel / CSV फाइल अपलोड करें:</label>
-                    <input type="file" id="csvFileInput" accept=".csv" style="margin-bottom: 10px;">
-                    <button class="action-btn btn-primary btn-sm" onclick="processCSV()">Upload Contacts</button>
-                    <p style="font-size:12px; color:var(--text-muted); margin-top:5px;">CSV फॉर्मेट: Column 1 (Name), Column 2 (Phone)</p>
+                    <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add 1 No.</button>
                 </div>
 
                 <table class="contact-table" id="contactTable">
@@ -193,25 +205,37 @@
                 <h3 style="margin-top:0;">Create New Template</h3>
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
                 <div class="form-group"><label>पोस्टर / फोटो:</label><input type="file" id="newTplImage" accept="image/*"></div>
-                <div class="form-group">
-                    <label>कैप्शन (मैसेज):</label>
-                    <textarea id="newTplMsg" style="height:80px;" placeholder="नमस्ते [Name], ..."></textarea>
-                </div>
+                <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;" placeholder="नमस्ते [Name], ..."></textarea></div>
                 <button class="action-btn btn-success" onclick="saveNewTemplate()">💾 Save Template</button>
             </div>
             <div id="templateListArea"></div>
         </div>
 
-        <!-- 5. Live Tracking & Device (Same as before) -->
+        <!-- 5. Live Tracking -->
         <div id="liveTrackingSec" class="content-section">
             <h2 class="section-title">📡 Live Campaign Monitor</h2>
             <div id="liveList" style="background:#fff; border-radius:12px; border:1px solid #e2e8f0; padding:15px; max-height:400px; overflow-y:auto;"></div>
         </div>
+
+        <!-- 6. Smart Auto Reply -->
         <div id="autoReply" class="content-section">
             <h2 class="section-title">Smart Auto-Reply</h2>
+            <!-- MISSING SWITCH ADDED HERE -->
+            <div class="switch-wrapper">
+                <div class="switch-text">
+                    <h3>Auto-Reply Assistant</h3>
+                    <p>ग्राहकों को अपने आप तुरंत जवाब भेजें।</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()">
+                    <span class="slider"></span>
+                </label>
+            </div>
             <div class="form-group"><label>वेलकम मैसेज सेट करें:</label><textarea id="editAutoReplyMsg" style="height:180px;"></textarea></div>
             <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
         </div>
+
+        <!-- Connect Device -->
         <div id="connectWp" class="content-section">
             <h2 class="section-title">Device Connection</h2>
             <div style="text-align: center; padding: 20px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1;">
@@ -229,7 +253,7 @@
     <script>
         let allTemplates = [];
         let selectedTemplateBase64 = null;
-        let allContacts = {}; // { "VIP": [{name, phone}] }
+        let allContacts = {}; 
 
         window.onload = () => {
             fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
@@ -237,6 +261,8 @@
                 fetch('/status').then(r => r.json()).then(d => {
                     if (d.connected) { document.getElementById('realQr').style.display = 'none'; document.getElementById('qrStatus').innerHTML = '✅ डिवाइस कनेक्टेड है!'; document.getElementById('qrStatus').style.color = '#10b981'; } 
                     else if (d.qrCode) { document.getElementById('realQr').src = d.qrCode; document.getElementById('realQr').style.display = 'block'; document.getElementById('qrStatus').innerHTML = 'QR स्कैन करें...'; document.getElementById('qrStatus').style.color = '#f59e0b'; }
+                    
+                    document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
                 });
                 fetchLiveStatus();
@@ -252,7 +278,141 @@
         }
 
         function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent || 0; document.getElementById('failedCount').innerText = d.failed || 0; }); }
+        
+        // Auto Reply Logic Fixed
+        function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ मैसेज अपडेट हो गया।')) }
+
+        // --- EXCEL & PDF EXTRACTOR LOGIC ---
+        function extractDataFromFile(file, callback) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext === 'pdf') {
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    const typedarray = new Uint8Array(e.target.result);
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    let fullText = "";
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        fullText += textContent.items.map(item => item.str).join(" ") + " ";
+                    }
+                    const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
+                    let matches = fullText.match(regex) || [];
+                    matches = matches.map(n => n.replace(/\D/g, '').slice(-10));
+                    matches = [...new Set(matches)]; // Remove duplicates
+                    callback(matches.map(num => ['Customer', num]));
+                };
+                reader.readAsArrayBuffer(file);
+            } else if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+                    callback(json);
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                alert("कृपया केवल PDF, Excel या CSV फाइल ही अपलोड करें।");
+            }
+        }
+
+        // Campaign Side File Upload
+        function processCampaignFile(event) {
+            const file = event.target.files[0];
+            if(!file) return;
+            extractDataFromFile(file, (data) => {
+                let numbersStr = data.map(row => {
+                    let phone = row.length >= 2 ? String(row[1]) : String(row[0]);
+                    return phone ? phone.replace(/\D/g, '').slice(-10) : '';
+                }).filter(n => n.length === 10).join('\n');
+                
+                let existing = document.getElementById('numbers').value;
+                document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
+                alert(`✅ फाइल से नंबर सफलतापूर्वक निकाल लिए गए हैं!`);
+                document.getElementById('campaignFileInput').value = ''; // Reset input
+            });
+        }
+
+        // Contact Book Side File Upload
+        function processContactFile() {
+            const file = document.getElementById('contactFileInput').files[0];
+            const g = document.getElementById('groupSelect').value;
+            if(!file || !g) return alert("कृपया फाइल और ग्रुप दोनों सेलेक्ट करें!");
+            
+            extractDataFromFile(file, (data) => {
+                let added = 0;
+                data.forEach(row => {
+                    if(!row || row.length === 0) return;
+                    let name = row.length >= 2 ? String(row[0]).trim() : 'Customer';
+                    let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]);
+                    let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
+                    
+                    if(phone.length === 10) {
+                        allContacts[g].push({ name: name, phone: phone });
+                        added++;
+                    }
+                });
+                
+                if(added > 0) {
+                    saveContactsToAPI();
+                    alert(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए! तुरंत लिस्ट में देखें।`);
+                } else {
+                    alert("फाइल में कोई सही मोबाइल नंबर नहीं मिला।");
+                }
+                document.getElementById('contactFileInput').value = '';
+            });
+        }
+
+
+        // --- CONTACT BOOK LOGIC ---
+        function fetchContacts() { fetch('/api/contacts').then(r => r.json()).then(data => { allContacts = data; updateGroupDropdowns(); renderGroupContacts(); }); }
+        function updateGroupDropdowns() {
+            const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
+            const prevG1 = g1.value; const prevG2 = g2.value; // Store previous selection
+            
+            g1.innerHTML = '<option value="">-- ग्रुप सेलेक्ट करें --</option>';
+            g2.innerHTML = '<option value="">-- ग्रुप चुनें --</option>';
+            Object.keys(allContacts).forEach(g => {
+                g1.innerHTML += `<option value="${g}">${g} (${allContacts[g].length})</option>`;
+                g2.innerHTML += `<option value="${g}">${g} (${allContacts[g].length} Contacts)</option>`;
+            });
+            
+            if(allContacts[prevG1]) g1.value = prevG1; // Restore selection
+            if(allContacts[prevG2]) g2.value = prevG2;
+        }
+        function createNewGroup() {
+            const name = document.getElementById('newGroupName').value.trim();
+            if(!name) return alert("ग्रुप का नाम डालें!");
+            if(allContacts[name]) return alert("यह ग्रुप पहले से है!");
+            allContacts[name] = [];
+            saveContactsToAPI();
+            document.getElementById('newGroupName').value = '';
+        }
+        function renderGroupContacts() {
+            const g = document.getElementById('groupSelect').value;
+            const div = document.getElementById('contactManagerDiv');
+            const tbody = document.getElementById('contactTableBody');
+            if(!g) { div.style.display = 'none'; return; }
+            div.style.display = 'block';
+            tbody.innerHTML = '';
+            allContacts[g].forEach(c => tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone}</td></tr>`);
+        }
+        function addSingleContact() {
+            const g = document.getElementById('groupSelect').value;
+            const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
+            if(!n || !p) return alert("नाम और नंबर दोनों डालें!");
+            allContacts[g].push({name: n, phone: p});
+            saveContactsToAPI();
+            document.getElementById('addName').value = ''; document.getElementById('addPhone').value = '';
+        }
+        function saveContactsToAPI() {
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) })
+            .then(() => { fetchContacts(); });
+        }
+
 
         // --- TEMPLATE LOGIC ---
         function fetchTemplates() { fetch('/api/templates').then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }); }
@@ -281,70 +441,6 @@
             if(t.imageBase64) { selectedTemplateBase64 = t.imageBase64; p.src = t.imageBase64; p.style.display = 'block'; } else { selectedTemplateBase64 = null; p.style.display = 'none'; }
         }
         function clearTemplateSelection() { document.getElementById('templateDropdown').value = ""; document.getElementById('imagePreview').style.display = 'none'; selectedTemplateBase64 = null; }
-
-        // --- CONTACT BOOK & CSV LOGIC ---
-        function fetchContacts() { 
-            fetch('/api/contacts').then(r => r.json()).then(data => { 
-                allContacts = data; 
-                updateGroupDropdowns(); 
-            }); 
-        }
-        function updateGroupDropdowns() {
-            const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
-            g1.innerHTML = '<option value="">-- ग्रुप सेलेक्ट करें --</option>';
-            g2.innerHTML = '<option value="">-- ग्रुप चुनें --</option>';
-            Object.keys(allContacts).forEach(g => {
-                g1.innerHTML += `<option value="${g}">${g} (${allContacts[g].length})</option>`;
-                g2.innerHTML += `<option value="${g}">${g} (${allContacts[g].length} Contacts)</option>`;
-            });
-        }
-        function createNewGroup() {
-            const name = document.getElementById('newGroupName').value.trim();
-            if(!name) return alert("ग्रुप का नाम डालें!");
-            if(allContacts[name]) return alert("यह ग्रुप पहले से है!");
-            allContacts[name] = [];
-            saveContactsToAPI();
-            document.getElementById('newGroupName').value = '';
-        }
-        function renderGroupContacts() {
-            const g = document.getElementById('groupSelect').value;
-            const div = document.getElementById('contactManagerDiv');
-            const tbody = document.getElementById('contactTableBody');
-            if(!g) { div.style.display = 'none'; return; }
-            div.style.display = 'block';
-            tbody.innerHTML = '';
-            allContacts[g].forEach(c => tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone}</td></tr>`);
-        }
-        function addSingleContact() {
-            const g = document.getElementById('groupSelect').value;
-            const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
-            if(!n || !p) return alert("नाम और नंबर दोनों डालें!");
-            allContacts[g].push({name: n, phone: p});
-            saveContactsToAPI();
-            document.getElementById('addName').value = ''; document.getElementById('addPhone').value = '';
-        }
-        function processCSV() {
-            const file = document.getElementById('csvFileInput').files[0];
-            const g = document.getElementById('groupSelect').value;
-            if(!file || !g) return alert("फाइल और ग्रुप दोनों सेलेक्ट करें!");
-            
-            Papa.parse(file, {
-                header: false, skipEmptyLines: true,
-                complete: function(results) {
-                    results.data.forEach(row => {
-                        if(row.length >= 2) {
-                            allContacts[g].push({ name: row[0].trim(), phone: row[1].trim() });
-                        }
-                    });
-                    saveContactsToAPI();
-                    alert("✅ CSV अपलोड हो गई!");
-                }
-            });
-        }
-        function saveContactsToAPI() {
-            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) })
-            .then(() => { fetchContacts(); setTimeout(renderGroupContacts, 200); });
-        }
 
         // --- SEND LOGIC ---
         function toggleTargetInput() {
@@ -376,7 +472,7 @@
             if(targetType === 'group') {
                 const g = document.getElementById('campaignGroupDropdown').value;
                 if(!g || !allContacts[g]) return alert("कृपया एक ग्रुप चुनें!");
-                finalNumbers = allContacts[g]; // Array of {name, phone}
+                finalNumbers = allContacts[g];
             } else {
                 const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
                 finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
