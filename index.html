@@ -582,13 +582,55 @@
             document.getElementById('manualTargetDiv').style.display = (t === 'manual') ? 'block' : 'none';
         }
 
+        function formatCountdown(iso) {
+            if (!iso) return '';
+            const left = new Date(iso).getTime() - Date.now();
+            if (left <= 0) return '00:00:00';
+            const h = Math.floor(left / 3600000);
+            const m = Math.floor((left % 3600000) / 60000);
+            const s = Math.floor((left % 60000) / 1000);
+            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+        }
+
         function fetchLiveStatus() {
             fetch('/api/live-status').then(r => r.json()).then(data => {
-                let html = `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Total: ${data.total || 0}</span><span style="color:#10b981;">Sent: ${data.sent || 0}</span><span style="color:#ef4444;">Failed: ${data.failed || 0}</span></div>`;
-                if(data.numbers) data.numbers.forEach(item => {
-                    let color = item.status.includes('Sent') ? '#10b981' : (item.status.includes('Invalid') ? '#ef4444' : '#f59e0b');
-                    html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
-                });
+                let html = '';
+
+                // Rest / Night banner
+                if (data.isActive && (data.status === 'resting' || data.status === 'night_rest')) {
+                    const cd = formatCountdown(data.resumeAt);
+                    const isNight = data.status === 'night_rest';
+                    html += `<div style="background:${isNight ? '#1e293b' : '#fef3c7'}; color:${isNight ? '#f8fafc' : '#92400e'}; padding:16px; border-radius:12px; margin-bottom:15px; text-align:center;">
+                        <div style="font-size:18px; font-weight:700; margin-bottom:6px;">${isNight ? '🌙 Night Rest' : '⏸️ Batch Rest'}</div>
+                        <div style="font-size:13px; margin-bottom:8px;">${data.restReason || ''}</div>
+                        <div style="font-size:28px; font-weight:800; letter-spacing:2px;">⏳ ${cd}</div>
+                        <div style="font-size:12px; margin-top:4px; opacity:0.85;">बचे समय में फिर से messages शुरू होंगे</div>
+                    </div>`;
+                } else if (data.isActive && data.status === 'sending') {
+                    html += `<div style="background:#ecfdf5; color:#065f46; padding:10px 14px; border-radius:10px; margin-bottom:12px; font-size:13px; font-weight:600;">
+                        🚀 Sending... | Batch size: हर ${data.batchSize || 50} msgs → 2 hrs rest | Account age: ${data.accountAgeDays || 0} दिन | Window: 8 AM – 10 PM IST
+                    </div>`;
+                }
+
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px; flex-wrap:wrap; gap:8px;">
+                    <span>Total: ${data.total || 0}</span>
+                    <span style="color:#10b981;">Sent: ${data.sent || 0}</span>
+                    <span style="color:#ef4444;">Failed: ${data.failed || 0}</span>
+                    <span style="color:#f59e0b;">Pending: ${data.pending || 0}</span>
+                </div>`;
+
+                if (data.numbers && data.numbers.length) {
+                    // Show last 50 for performance
+                    const list = data.numbers.length > 50 ? data.numbers.slice(-50) : data.numbers;
+                    if (data.numbers.length > 50) {
+                        html += `<p style="font-size:12px; color:#64748b;">Showing last 50 of ${data.numbers.length}...</p>`;
+                    }
+                    list.forEach(item => {
+                        let color = item.status.includes('Sent') ? '#10b981' : (item.status.includes('Invalid') ? '#ef4444' : '#f59e0b');
+                        html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
+                    });
+                }
+
                 document.getElementById('liveList').innerHTML = html || 'कोई एक्टिव कैंपेन नहीं है।';
                 if (!data.isActive && data.total > 0 && data.pending === 0) {
                     document.getElementById('sendBtn').disabled = false;
