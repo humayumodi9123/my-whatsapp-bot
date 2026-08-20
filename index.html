@@ -23,73 +23,40 @@
         .sidebar-btn:hover { background: #f8fafc; color: var(--secondary); transform: translateX(5px); }
         .sidebar-btn.active { background: #eff6ff; color: var(--primary); border-left: 4px solid var(--primary); }
         
-        /* Perfect Scroll Fix */
         .main-content { margin-top: 65px; padding: 20px; width: 100%; height: calc(100vh - 65px); box-sizing: border-box; overflow-y: auto; padding-bottom: 120px; scrollbar-width: thin; }
-        
         .content-section { display: none; max-width: 850px; margin: 0 auto; background: var(--card-bg); padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid rgba(255, 255, 255, 0.5); animation: fadeIn 0.4s ease-out; }
         .content-section.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         h2.section-title { color: var(--secondary); font-weight: 700; font-size: 22px; margin-top: 0; margin-bottom: 25px; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; }
         
-        /* Stats */
         .stats-grid { display: flex; gap: 15px; margin-top: 20px; }
-        .stat-card { flex: 1; background: #ffffff; padding: 20px; border-radius: 16px; text-align: center; border: 1px solid var(--border-color); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); }
+        .stat-card { flex: 1; background: #ffffff; padding: 20px; border-radius: 16px; text-align: center; border: 1px solid var(--border-color); }
         .stat-card.success { border-bottom: 4px solid var(--success); }
         .stat-card.failed { border-bottom: 4px solid var(--danger); }
-        .stat-card h3 { margin: 0 0 10px 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .stat-card h3 { margin: 0 0 10px 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; }
         .stat-card .number { font-size: 36px; font-weight: 700; }
-        .number.green { color: var(--success); }
-        .number.red { color: var(--danger); }
+        .number.green { color: var(--success); } .number.red { color: var(--danger); }
         
         .form-group { margin-bottom: 20px; }
         label { font-weight: 600; color: var(--text-main); font-size: 14px; display: block; margin-bottom: 8px; }
-        textarea, input[type="number"], input[type="text"], input[type="date"], input[type="file"] { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
-        textarea:focus, input[type="number"]:focus, input[type="text"]:focus { outline: none; border-color: var(--primary); background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+        textarea, input, select { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
+        textarea:focus, input:focus, select:focus { outline: none; border-color: var(--primary); background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
         
-        .action-btn { width: 100%; padding: 16px; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+        .action-btn { width: 100%; padding: 16px; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
         .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); }
         .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
         .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
         
         .delay-box { display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
-        .switch-wrapper { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
-        .switch-text h3 { margin: 0 0 5px 0; color: var(--secondary); font-size: 17px; }
-        .switch-text p { margin: 0; color: var(--text-muted); font-size: 13px; }
-        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
-        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
-        input:checked + .slider { background-color: var(--success); }
-        input:checked + .slider:before { transform: translateX(22px); }
         
-        .qr-container { text-align: center; padding: 20px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1; }
-        #pairingCodeDisplay { font-size: 26px; font-weight: 800; color: var(--primary); text-align: center; margin-top: 25px; letter-spacing: 4px; background: #eff6ff; padding: 15px 10px; border-radius: 12px; display: none; }
+        /* Template List CSS */
+        .template-item { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }
+        .template-info strong { color: var(--primary); font-size: 16px; display: block; margin-bottom: 4px; }
+        .template-info span { color: var(--text-muted); font-size: 13px; }
+        .del-btn { background: #fee2e2; color: var(--danger); border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        #imagePreview { max-width: 100px; max-height: 100px; border-radius: 8px; display: none; margin-top: 10px; }
 
-        /* Live Tracking CSS */
-        .live-tracker { margin-top: 10px; background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
-        .live-header { background: #f8fafc; padding: 15px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
-        .live-header h3 { margin: 0; color: var(--secondary); font-size: 16px; }
-        .live-badges { display: flex; gap: 8px; flex-wrap: wrap; }
-        .badge { padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; }
-        .b-total { background: #e2e8f0; color: var(--secondary); }
-        .b-sent { background: #d1fae5; color: var(--success); }
-        .b-failed { background: #fee2e2; color: var(--danger); }
-        .b-pending { background: #fef3c7; color: var(--warning); }
-        .live-list { max-height: 400px; overflow-y: auto; padding: 10px; }
-        .live-item { display: flex; justify-content: space-between; padding: 12px 15px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-        .live-item:last-child { border-bottom: none; }
-        .status-sent { color: var(--success); font-weight: 600; }
-        .status-pending { color: var(--warning); font-weight: 600; }
-        .status-failed { color: var(--danger); font-weight: 600; }
-
-        @media (max-width: 768px) { 
-            .content-section { padding: 20px; } 
-            .stats-grid { flex-direction: column; }
-            .delay-box { flex-direction: row; } 
-            .download-buttons { flex-direction: column; } 
-            .live-header { flex-direction: column; gap: 10px; align-items: flex-start; } 
-            .brand-title { font-size: 18px; }
-        }
+        @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid, .delay-box { flex-direction: column; } }
     </style>
 </head>
 <body>
@@ -103,154 +70,116 @@
         <div class="sidebar-menu">
             <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
             <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
-            <button class="sidebar-btn" id="liveTrackMenuBtn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
+            <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Template Manager</button>
+            <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
             <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
             <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
         </div>
     </div>
 
     <div class="main-content">
-        <!-- Dashboard -->
+        <!-- 1. Dashboard -->
         <div id="dashboard" class="content-section active">
             <h2 class="section-title">Overview & Analytics</h2>
-            <div class="form-group">
-                <label>फ़िल्टर (तारीख चुनें):</label>
-                <input type="date" id="dateFilter" onchange="fetchStats()">
-            </div>
+            <div class="form-group"><label>फ़िल्टर (तारीख चुनें):</label><input type="date" id="dateFilter" onchange="fetchStats()"></div>
             <div class="stats-grid">
-                <div class="stat-card success">
-                    <h3>✅ Messages Sent</h3>
-                    <div class="number green" id="sentCount">0</div>
-                </div>
-                <div class="stat-card failed">
-                    <h3>❌ Failed Delivery</h3>
-                    <div class="number red" id="failedCount">0</div>
-                </div>
+                <div class="stat-card success"><h3>✅ Messages Sent</h3><div class="number green" id="sentCount">0</div></div>
+                <div class="stat-card failed"><h3>❌ Failed Delivery</h3><div class="number red" id="failedCount">0</div></div>
             </div>
-            <div class="download-buttons" style="display: flex; gap: 15px; margin-top: 25px;">
+            <div style="display: flex; gap: 15px; margin-top: 25px;">
                 <button class="action-btn btn-success" style="flex: 1;" onclick="downloadHistory()">📥 CSV Download</button>
                 <button class="action-btn btn-danger" style="flex: 1;" onclick="downloadPDF()">📄 PDF Download</button>
             </div>
         </div>
 
-        <!-- Campaign Sender -->
+        <!-- 2. Campaign Sender -->
         <div id="sendMsg" class="content-section">
             <h2 class="section-title">New Marketing Campaign</h2>
+            
+            <!-- नया: Dropdown Template Selection -->
+            <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
+                <label style="color: #2563eb;">📂 सेव किया हुआ टेम्प्लेट चुनें (Optional):</label>
+                <select id="templateDropdown" onchange="applySelectedTemplate()">
+                    <option value="">-- नया कस्टम मैसेज बनाएँ --</option>
+                </select>
+                <img id="imagePreview" src="" alt="Preview">
+            </div>
+
             <div class="form-group">
                 <label>ग्राहक के मोबाइल नंबर (एक लाइन में एक):</label>
                 <textarea id="numbers" placeholder="919876543210&#10;918888888888" style="height:120px;"></textarea>
             </div>
             <div class="form-group">
-                <label>प्रमोशनल डिज़ाइन / पोस्टर (Optional):</label>
-                <input type="file" id="imageFile" accept="image/*">
+                <label>प्रमोशनल डिज़ाइन / पोस्टर (यहाँ से नया डालें):</label>
+                <input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()">
             </div>
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
-                <textarea id="message" placeholder="यहाँ अपना शानदार मैसेज टाइप करें..." style="height:120px;"></textarea>
+                <textarea id="message" placeholder="यहाँ अपना शानदार मैसेज टाइप करें..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
             </div>
 
             <div class="delay-box">
-                <div style="flex: 1;">
-                    <label>कम से कम समय (Sec):</label>
-                    <input type="number" id="minDelay" value="15" min="5">
-                </div>
-                <div style="flex: 1;">
-                    <label>अधिकतम समय (Sec):</label>
-                    <input type="number" id="maxDelay" value="45" min="10">
-                </div>
+                <div style="flex: 1;"><label>कम से कम समय (Sec):</label><input type="number" id="minDelay" value="15" min="5"></div>
+                <div style="flex: 1;"><label>अधिकतम समय (Sec):</label><input type="number" id="maxDelay" value="45" min="10"></div>
             </div>
 
             <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
-            <p style="font-size: 13px; color: #64748b; text-align:center; margin-top:15px; font-weight: 600;">
-                <span style="color:#2563eb;">🛡️ Anti-Ban System Active:</span> बॉट अपने आप रैंडम समय लेगा।
-            </p>
         </div>
 
-        <!-- Live Tracking -->
+        <!-- 3. Template Manager (नया सेक्शन) -->
+        <div id="templateSec" class="content-section">
+            <h2 class="section-title">📝 Template Manager</h2>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
+                <h3 style="margin-top:0;">Create New Template</h3>
+                <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
+                <div class="form-group"><label>पोस्टर / फोटो:</label><input type="file" id="newTplImage" accept="image/*"></div>
+                <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
+                <button class="action-btn btn-success" onclick="saveNewTemplate()">💾 Save Template</button>
+            </div>
+            <h3>Saved Templates</h3>
+            <div id="templateListArea"></div>
+        </div>
+
+        <!-- 4. Live Tracking -->
         <div id="liveTrackingSec" class="content-section">
             <h2 class="section-title">📡 Live Campaign Monitor</h2>
-            <div id="liveTrackingContainer" class="live-tracker">
-                <div class="live-header">
-                    <h3>Current Status</h3>
-                    <div class="live-badges">
-                        <span class="badge b-total" id="liveTotal">Total: 0</span>
-                        <span class="badge b-sent" id="liveSent">Sent: 0</span>
-                        <span class="badge b-failed" id="liveFailed">Failed: 0</span>
-                        <span class="badge b-pending" id="livePending">Pending: 0</span>
-                    </div>
-                </div>
-                <div class="live-list" id="liveList">
-                    <div style="text-align:center; padding:30px; color:#64748b; font-size:15px;">
-                        अभी कोई कैंपेन नहीं चल रहा है।<br><br>नया कैंपेन शुरू करने के लिए <b>Campaign Sender</b> मेनू में जाएँ।
-                    </div>
-                </div>
-            </div>
+            <div id="liveList" style="background:#fff; border-radius:12px; border:1px solid #e2e8f0; padding:15px; max-height:400px; overflow-y:auto;"></div>
         </div>
 
-        <!-- Auto Reply Settings -->
+        <!-- 5. Auto Reply Settings -->
         <div id="autoReply" class="content-section">
             <h2 class="section-title">Smart Auto-Reply</h2>
-            <div class="switch-wrapper">
-                <div class="switch-text">
-                    <h3>Auto-Reply Assistant</h3>
-                    <p>ग्राहकों को अपने आप तुरंत जवाब भेजें।</p>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()">
-                    <span class="slider"></span>
-                </label>
-            </div>
-            <div class="form-group">
-                <label>वेलकम मैसेज सेट करें:</label>
-                <textarea id="editAutoReplyMsg" style="height:180px;"></textarea>
-            </div>
+            <div class="form-group"><label>वेलकम मैसेज सेट करें:</label><textarea id="editAutoReplyMsg" style="height:180px;"></textarea></div>
             <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
         </div>
 
-        <!-- Connect WhatsApp -->
+        <!-- 6. Connect WhatsApp -->
         <div id="connectWp" class="content-section">
             <h2 class="section-title">Device Connection</h2>
-            <div class="qr-container">
-                <img id="realQr" style="max-width:100%; margin:0 auto; border-radius:12px; display: none;">
-                <p id="qrStatus" style="font-size: 15px; color: #64748b; font-weight: 600; margin-top: 15px;">Checking status...</p>
-                <hr style="margin:20px 0; border:0; border-top: 1px dashed #cbd5e1;">
-                <h3 style="color: var(--secondary); font-size: 15px; margin-bottom: 15px;">या Pairing Code से कनेक्ट करें</h3>
-                <div class="form-group">
-                    <input type="text" id="pairPhone" placeholder="WhatsApp Number (e.g. 919876543210)" style="text-align:center; font-size:18px; letter-spacing: 1px;">
-                </div>
-                <button class="action-btn btn-primary" onclick="getPairingCode()">📲 Get 8-Digit Code</button>
-                <div id="pairingCodeDisplay"></div>
+            <div style="text-align: center; padding: 20px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1;">
+                <img id="realQr" style="max-width:100%; border-radius:12px; display: none;">
+                <p id="qrStatus" style="font-weight: 600;">Checking status...</p>
+                <hr style="margin:20px 0;"><h3 style="font-size: 15px;">या Pairing Code से कनेक्ट करें</h3>
+                <input type="text" id="pairPhone" placeholder="WhatsApp Number" style="text-align:center; font-size:18px;">
+                <button class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode()">📲 Get 8-Digit Code</button>
+                <div id="pairingCodeDisplay" style="font-size:26px; font-weight:800; color:#2563eb; margin-top:15px; display:none;"></div>
             </div>
         </div>
     </div>
 
-    <!-- 🛠️ JAVASCRIPT LOGIC -->
+    <!-- JAVASCRIPT LOGIC -->
     <script>
+        let allTemplates = [];
+        let selectedTemplateBase64 = null;
+
         window.onload = () => {
-            fetchStats();
-            fetchLiveStatus();
-            
+            fetchStats(); fetchLiveStatus(); fetchTemplates();
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-                    const qrImg = document.getElementById('realQr');
-                    const qrStatus = document.getElementById('qrStatus');
-                    if (d.connected) { 
-                        qrImg.style.display = 'none'; 
-                        qrStatus.innerHTML = '✅ डिवाइस सफलतापूर्वक कनेक्टेड है!'; 
-                        qrStatus.style.color = '#10b981'; 
-                    } else if (d.qrCode) { 
-                        qrImg.src = d.qrCode; 
-                        qrImg.style.display = 'block'; 
-                        qrStatus.innerHTML = 'क्यूआर (QR) कोड स्कैन करें...'; 
-                        qrStatus.style.color = '#f59e0b'; 
-                    }
-                    document.getElementById('autoReplyToggle').checked = d.autoReply;
+                    if (d.connected) { document.getElementById('realQr').style.display = 'none'; document.getElementById('qrStatus').innerHTML = '✅ डिवाइस कनेक्टेड है!'; document.getElementById('qrStatus').style.color = '#10b981'; } 
+                    else if (d.qrCode) { document.getElementById('realQr').src = d.qrCode; document.getElementById('realQr').style.display = 'block'; document.getElementById('qrStatus').innerHTML = 'QR स्कैन करें...'; document.getElementById('qrStatus').style.color = '#f59e0b'; }
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
-                }).catch(() => { 
-                    document.getElementById('qrStatus').innerHTML = '❌ सर्वर ऑफलाइन है'; 
-                    document.getElementById('qrStatus').style.color = '#ef4444'; 
                 });
-                
                 fetchLiveStatus();
             }, 3000);
         }
@@ -263,125 +192,142 @@
             if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
         }
 
-        function fetchStats() { 
-            fetch('/api/stats?date=' + document.getElementById('dateFilter').value)
-            .then(r => r.json()).then(d => { 
-                document.getElementById('sentCount').innerText = d.sent || 0; 
-                document.getElementById('failedCount').innerText = d.failed || 0; 
-            }).catch(e=>console.log(e)); 
+        function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent || 0; document.getElementById('failedCount').innerText = d.failed || 0; }); }
+        function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ मैसेज अपडेट हो गया।')) }
+
+        // --- TEMPLATE LOGIC ---
+        function fetchTemplates() {
+            fetch('/api/templates').then(r => r.json()).then(data => {
+                allTemplates = data;
+                renderTemplates();
+            });
         }
 
-        function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
-        function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ शानदार! मैसेज सफलतापूर्वक अपडेट हो गया।')) }
-        
-        function downloadHistory() { 
-            fetch('/api/history').then(r => r.json()).then(data => { 
-                if(!data || data.length === 0) { alert('⚠️ कोई डेटा नहीं है!'); return; } 
-                let csv = 'Mobile Number,Date & Time\n'; 
-                data.forEach(row => { csv += `"${row.number}","${row.date}"\n`; }); 
-                const blob = new Blob([csv], { type: 'text/csv' }); 
-                const url = window.URL.createObjectURL(blob); 
-                const a = document.createElement('a'); 
-                a.setAttribute('href', url); 
-                a.setAttribute('download', 'Website_Banane_Wala_Report.csv'); 
-                a.click(); 
-            }); 
-        }
-        
-        function downloadPDF() { 
-            fetch('/api/history').then(r => r.json()).then(data => { 
-                if(!data || data.length === 0) { alert('⚠️ कोई डेटा नहीं है!'); return; } 
-                const { jsPDF } = window.jspdf; const doc = new jsPDF(); 
-                doc.setFontSize(16); doc.setTextColor(37, 99, 235); 
-                doc.text("Website Banane Wala - Report", 14, 20); 
-                const tableColumn = ["Mobile Number", "Date & Time"]; const tableRows = []; 
-                data.forEach(row => { tableRows.push([row.number, row.date]); }); 
-                doc.autoTable({ head: [tableColumn], body: tableRows, startY: 30, theme: 'grid', styles: { fontSize: 10, cellPadding: 4 }, headStyles: { fillColor: [37, 99, 235], textColor: 255 } }); 
-                doc.save('Website_Banane_Wala_Report.pdf'); 
-            }); 
+        function renderTemplates() {
+            // Update Dropdown
+            const drop = document.getElementById('templateDropdown');
+            drop.innerHTML = '<option value="">-- नया कस्टम मैसेज बनाएँ --</option>';
+            
+            // Update List
+            const listArea = document.getElementById('templateListArea');
+            listArea.innerHTML = '';
+
+            allTemplates.forEach(t => {
+                drop.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+                
+                listArea.innerHTML += `
+                    <div class="template-item">
+                        <div class="template-info">
+                            <strong>${t.name}</strong>
+                            <span>${t.message.substring(0, 40)}...</span>
+                        </div>
+                        <button class="del-btn" onclick="deleteTemplate('${t.id}')">Delete</button>
+                    </div>`;
+            });
         }
 
+        function saveNewTemplate() {
+            const name = document.getElementById('newTplName').value;
+            const msg = document.getElementById('newTplMsg').value;
+            const imgFile = document.getElementById('newTplImage').files[0];
+
+            if(!name || !msg) { alert("नाम और मैसेज डालना ज़रूरी है!"); return; }
+
+            const id = 'tpl_' + Date.now();
+            if (imgFile) {
+                const reader = new FileReader();
+                reader.onload = (e) => { sendTemplateToAPI({ id, name, message: msg, imageBase64: e.target.result }); };
+                reader.readAsDataURL(imgFile);
+            } else {
+                sendTemplateToAPI({ id, name, message: msg, imageBase64: null });
+            }
+        }
+
+        function sendTemplateToAPI(tplData) {
+            fetch('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(tplData) })
+            .then(() => { alert("✅ टेम्प्लेट सेव हो गया!"); document.getElementById('newTplName').value=''; document.getElementById('newTplMsg').value=''; document.getElementById('newTplImage').value=''; fetchTemplates(); });
+        }
+
+        function deleteTemplate(id) {
+            fetch('/api/templates/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id}) }).then(() => fetchTemplates());
+        }
+
+        function applySelectedTemplate() {
+            const selectedId = document.getElementById('templateDropdown').value;
+            const preview = document.getElementById('imagePreview');
+            if(!selectedId) {
+                selectedTemplateBase64 = null;
+                document.getElementById('message').value = '';
+                preview.style.display = 'none';
+                return;
+            }
+            const tpl = allTemplates.find(t => t.id === selectedId);
+            document.getElementById('message').value = tpl.message;
+            if(tpl.imageBase64) {
+                selectedTemplateBase64 = tpl.imageBase64;
+                preview.src = tpl.imageBase64;
+                preview.style.display = 'block';
+            } else {
+                selectedTemplateBase64 = null;
+                preview.style.display = 'none';
+            }
+        }
+
+        function clearTemplateSelection() {
+            document.getElementById('templateDropdown').value = "";
+            document.getElementById('imagePreview').style.display = 'none';
+            selectedTemplateBase64 = null;
+        }
+
+        // --- SEND LOGIC ---
         function fetchLiveStatus() {
             fetch('/api/live-status').then(r => r.json()).then(data => {
-                if (!data || data.total === 0) {
-                    document.getElementById('liveList').innerHTML = '<div style="text-align:center; padding:30px; color:#64748b; font-size:15px;">अभी कोई कैंपेन नहीं चल रहा है।<br><br>नया कैंपेन शुरू करने के लिए <b>Campaign Sender</b> मेनू में जाएँ।</div>';
-                    document.getElementById('liveTotal').innerText = `Total: 0`; 
-                    document.getElementById('liveSent').innerText = `Sent: 0`; 
-                    document.getElementById('liveFailed').innerText = `Failed: 0`; 
-                    document.getElementById('livePending').innerText = `Pending: 0`;
-                    return;
-                }
-                
-                document.getElementById('liveTotal').innerText = `Total: ${data.total}`;
-                document.getElementById('liveSent').innerText = `Sent: ${data.sent}`;
-                document.getElementById('liveFailed').innerText = `Failed: ${data.failed}`;
-                document.getElementById('livePending').innerText = `Pending: ${data.pending}`;
-                
-                let html = '';
-                data.numbers.forEach(item => {
-                    let statusClass = 'status-pending';
-                    if(item.status.includes('Sent')) statusClass = 'status-sent';
-                    else if(item.status.includes('Invalid') || item.status.includes('Failed')) statusClass = 'status-failed';
-                    
-                    html += `<div class="live-item"><span>📱 ${item.phone}</span><span class="${statusClass}">${item.status}</span></div>`;
+                let html = `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Total: ${data.total || 0}</span><span style="color:#10b981;">Sent: ${data.sent || 0}</span><span style="color:#ef4444;">Failed: ${data.failed || 0}</span></div>`;
+                if(data.numbers) data.numbers.forEach(item => {
+                    let color = item.status.includes('Sent') ? '#10b981' : (item.status.includes('Invalid') ? '#ef4444' : '#f59e0b');
+                    html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
                 });
-                
-                document.getElementById('liveList').innerHTML = html;
-                
+                document.getElementById('liveList').innerHTML = html || 'कोई एक्टिव कैंपेन नहीं है।';
                 if (!data.isActive && data.total > 0 && data.pending === 0) {
                     document.getElementById('sendBtn').disabled = false;
                     document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign';
                     fetchStats(); 
                 }
-            }).catch(e => console.log("Live Tracking status unavailable"));
+            });
         }
 
         async function startSending() {
             const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
             const msg = document.getElementById('message').value;
-            const img = document.getElementById('imageFile').files[0];
-            let imgBase64 = null;
+            const imgFile = document.getElementById('imageFile').files[0];
             
-            if (img) { 
+            if (imgFile) { 
                 const reader = new FileReader(); 
-                reader.onload = (e) => { imgBase64 = e.target.result; doSend(nums, msg, imgBase64); }; 
-                reader.readAsDataURL(img); 
-            } else { doSend(nums, msg, null); }
+                reader.onload = (e) => { doSend(nums, msg, e.target.result); }; 
+                reader.readAsDataURL(imgFile); 
+            } else if (selectedTemplateBase64) {
+                doSend(nums, msg, selectedTemplateBase64);
+            } else { 
+                doSend(nums, msg, null); 
+            }
         }
         
-        function doSend(nums, msg, img) {
+        function doSend(nums, msg, imgBase64) {
             const minD = document.getElementById('minDelay').value;
             const maxD = document.getElementById('maxDelay').value;
-            if (parseInt(minD) >= parseInt(maxD)) { alert('⚠️ एरर: अधिकतम समय, कम से कम समय से ज़्यादा होना चाहिए!'); return; }
-            if (nums.length === 0) { alert('⚠️ कृपया मोबाइल नंबर दर्ज करें!'); return; }
+            if (parseInt(minD) >= parseInt(maxD)) { alert('⚠️ एरर: अधिकतम समय ज़्यादा होना चाहिए!'); return; }
+            if (nums.length === 0) { alert('⚠️ नंबर डालें!'); return; }
             
-            const btn = document.getElementById('sendBtn');
-            btn.disabled = true;
-            btn.innerHTML = '⏳ Campaign Running...';
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
 
-            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: nums, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: img }) })
-            .then(() => {
-                const trackMenuBtn = document.getElementById('liveTrackMenuBtn');
-                showSection('liveTrackingSec', trackMenuBtn);
-                fetchLiveStatus(); 
-            }).catch(() => { alert("Error connecting to server."); });
+            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: nums, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64 }) })
+            .then(() => { showSection('liveTrackingSec', document.getElementById('liveTrackMenuBtn')); fetchLiveStatus(); });
         }
         
-        function getPairingCode() { 
-            const phone = document.getElementById('pairPhone').value;
-            if(!phone) { alert("कृपया मोबाइल नंबर डालें!"); return; }
-            
-            fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone }) }).then(r => r.json()).then(d => { 
-                if(d.success) {
-                    const codeDisplay = document.getElementById('pairingCodeDisplay'); 
-                    codeDisplay.style.display = 'block'; 
-                    codeDisplay.innerText = d.code; 
-                } else {
-                    alert("कोड जनरेट करने में समस्या आई।");
-                }
-            });
-        }
+        function getPairingCode() { fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('pairPhone').value }) }).then(r => r.json()).then(d => { document.getElementById('pairingCodeDisplay').style.display = 'block'; document.getElementById('pairingCodeDisplay').innerText = d.code; }); }
+        function downloadHistory() { fetch('/api/history').then(r => r.json()).then(data => { let csv = 'Mobile Number,Date & Time\n'; data.forEach(row => { csv += `"${row.number}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Report.csv'); a.click(); }); }
+        function downloadPDF() { fetch('/api/history').then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Report", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.number, row.date]); }); doc.autoTable({ head: [["Mobile Number", "Date & Time"]], body: tableRows, startY: 30 }); doc.save('Report.pdf'); }); }
     </script>
 </body>
 </html>
-
