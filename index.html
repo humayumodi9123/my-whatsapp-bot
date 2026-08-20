@@ -116,10 +116,8 @@
                 <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (Rotation):</label>
                 <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">Desktop: Ctrl/Cmd दबाकर कई टेम्प्लेट सेलेक्ट करें। Mobile: एक-एक करके tap करके चुनें। नंबर्स पर बारी-बारी से अलग टेम्प्लेट का मैसेज जाएगा (last के बाद first पर वापस)।</p>
                 <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()">
-                    <option value="">-- कोई टेम्प्लेट नहीं (कस्टम मैसेज) --</option>
                 </select>
-                <div id="selectedTemplatesPreview" style="margin-top:10px; font-size:13px; color:#2563eb;"></div>
-                <img id="imagePreview" src="" alt="Preview" style="max-width:100px; max-height:100px; border-radius:8px; display:none; margin-top:10px;">
+                <div id="selectedTemplatesPreview" style="margin-top:12px;"></div>
             </div>
 
             <div class="form-group" style="background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
@@ -446,26 +444,50 @@
             const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
             selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean);
             const preview = document.getElementById('selectedTemplatesPreview');
-            const p = document.getElementById('imagePreview');
+
             if (selectedTemplatesList.length === 0) {
-                preview.innerHTML = 'कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा।';
-                p.style.display = 'none';
+                preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा।</p>';
                 return;
             }
-            preview.innerHTML = `✅ ${selectedTemplatesList.length} टेम्प्लेट चुने: <b>${selectedTemplatesList.map(t => t.name).join(' → ')}</b> (Rotation mode)`;
-            // show first selected template image as preview
-            if (selectedTemplatesList[0].imageBase64) {
-                p.src = selectedTemplatesList[0].imageBase64;
-                p.style.display = 'block';
-            } else {
-                p.style.display = 'none';
-            }
+
+            let html = `<p style="font-size:13px; color:#2563eb; font-weight:600; margin:0 0 10px 0;">✅ ${selectedTemplatesList.length} टेम्प्लेट चुने (Rotation order):</p>`;
+            html += `<div style="display:flex; flex-direction:column; gap:12px;">`;
+
+            selectedTemplatesList.forEach((t, idx) => {
+                const hasMedia = t.imageBase64 && t.imageBase64.length > 20;
+                const isVideo = hasMedia && (t.imageBase64.startsWith('data:video') || (t.imageBase64.includes('video')));
+                let mediaHtml = '';
+                if (hasMedia) {
+                    if (isVideo) {
+                        mediaHtml = `<video src="${t.imageBase64}" controls style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0;"></video>`;
+                    } else {
+                        mediaHtml = `<img src="${t.imageBase64}" alt="${t.name}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0; object-fit:cover;">`;
+                    }
+                } else {
+                    mediaHtml = `<div style="width:80px; height:80px; background:#f1f5f9; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#94a3b8; text-align:center;">No Media</div>`;
+                }
+
+                const msgPreview = (t.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                html += `
+                <div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;">
+                    <div style="flex-shrink:0;">
+                        <div style="font-size:11px; font-weight:700; color:#2563eb; margin-bottom:4px;">#${idx + 1}</div>
+                        ${mediaHtml}
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}</div>
+                        <div style="font-size:12px; color:#475569; white-space:pre-wrap; word-break:break-word; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${msgPreview || '(कोई मैसेज नहीं)'}</div>
+                    </div>
+                </div>`;
+            });
+
+            html += `</div>`;
+            preview.innerHTML = html;
         }
         function clearTemplateSelection() {
             const drop = document.getElementById('templateDropdown');
             Array.from(drop.options).forEach(o => o.selected = false);
             selectedTemplatesList = [];
-            document.getElementById('imagePreview').style.display = 'none';
             document.getElementById('selectedTemplatesPreview').innerHTML = '';
         }
 
