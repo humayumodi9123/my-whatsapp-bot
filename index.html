@@ -113,8 +113,8 @@
             <h2 class="section-title">New Marketing Campaign</h2>
             
             <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
-                <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (Rotation):</label>
-                <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">Desktop: Ctrl/Cmd दबाकर कई टेम्प्लेट सेलेक्ट करें। Mobile: एक-एक करके tap करके चुनें। नंबर्स पर बारी-बारी से अलग टेम्प्लेट का मैसेज जाएगा (last के बाद first पर वापस)।</p>
+                <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (AI Smart Mix):</label>
+                <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">Desktop: Ctrl/Cmd दबाकर कई टेम्प्लेट सेलेक्ट करें। Mobile: एक-एक करके tap करके चुनें। <b>AI Smart Mix:</b> नंबर्स पर templates random order में जाएँगे — series/pattern नहीं बनेगा, हर template लगभग बराबर इस्तेमाल होगा।</p>
                 <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()">
                 </select>
                 <div id="selectedTemplatesPreview" style="margin-top:12px;"></div>
@@ -450,7 +450,7 @@
                 return;
             }
 
-            let html = `<p style="font-size:13px; color:#2563eb; font-weight:600; margin:0 0 10px 0;">✅ ${selectedTemplatesList.length} टेम्प्लेट चुने (Rotation order):</p>`;
+            let html = `<p style="font-size:13px; color:#2563eb; font-weight:600; margin:0 0 10px 0;">✅ ${selectedTemplatesList.length} टेम्प्लेट चुने (AI Smart Mix — random, no series):</p>`;
             html += `<div style="display:flex; flex-direction:column; gap:12px;">`;
 
             selectedTemplatesList.forEach((t, idx) => {
@@ -591,4 +591,3 @@
     </script>
 </body>
 </html>
-
