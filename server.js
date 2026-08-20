@@ -105,6 +105,91 @@ app.post('/pair-code', async (req, res) => {
     res.json({ success: true, code: await sock.requestPairingCode(phone) });
 });
 
+// ✅ Validate numbers: remove duplicates + keep only real WhatsApp numbers
+app.post('/api/validate-numbers', async (req, res) => {
+    if (!isConnected || !sock) {
+        return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है! Pehle device connect karo.' });
+    }
+
+    // numbers: [{ phone, name }] or ["98...", "97..."]
+    let raw = req.body.numbers || [];
+    if (!Array.isArray(raw) || raw.length === 0) {
+        return res.json({ success: true, valid: [], invalid: 0, duplicatesRemoved: 0, total: 0 });
+    }
+
+    // Normalize + dedupe (keep first name for each unique 10-digit)
+    const seen = new Map(); // key: last 10 digits → { phone, name }
+    let duplicatesRemoved = 0;
+
+    for (const item of raw) {
+        let phoneStr = typeof item === 'string' ? item : String(item.phone || '');
+        let name = typeof item === 'object' && item.name ? String(item.name).trim() : 'Customer';
+        let digits = phoneStr.replace(/\D/g, '');
+        if (digits.length < 10) continue;
+        let last10 = digits.slice(-10);
+        // Indian mobile: starts with 6-9
+        if (!/^[6-9]\d{9}$/.test(last10)) continue;
+
+        if (seen.has(last10)) {
+            duplicatesRemoved++;
+            continue;
+        }
+        seen.set(last10, { phone: last10, name: name || 'Customer' });
+    }
+
+    const uniqueList = Array.from(seen.values());
+    const valid = [];
+    let invalidCount = 0;
+
+    // Check in batches (Baileys onWhatsApp)
+    const BATCH = 30;
+    for (let i = 0; i < uniqueList.length; i += BATCH) {
+        const batch = uniqueList.slice(i, i + BATCH);
+        try {
+            // Pass full JIDs
+            const jids = batch.map(c => '91' + c.phone + '@s.whatsapp.net');
+            const results = await sock.onWhatsApp(...jids);
+            const existSet = new Set();
+            if (Array.isArray(results)) {
+                results.forEach(r => {
+                    if (r && (r.exists === true || r.exists === undefined) && r.jid) {
+                        const p = String(r.jid).split('@')[0].replace(/\D/g, '').slice(-10);
+                        existSet.add(p);
+                    }
+                });
+            }
+            batch.forEach(c => {
+                if (existSet.has(c.phone)) valid.push(c);
+                else invalidCount++;
+            });
+        } catch (e) {
+            // Fallback: one-by-one
+            for (const c of batch) {
+                try {
+                    const r = await sock.onWhatsApp('91' + c.phone + '@s.whatsapp.net');
+                    const ok = Array.isArray(r) && r[0] && r[0].exists !== false;
+                    if (ok) valid.push(c);
+                    else invalidCount++;
+                } catch (e2) {
+                    invalidCount++;
+                }
+            }
+        }
+        if (i + BATCH < uniqueList.length) {
+            await new Promise(r => setTimeout(r, 400));
+        }
+    }
+
+    res.json({
+        success: true,
+        valid,
+        invalid: invalidCount,
+        duplicatesRemoved,
+        total: raw.length,
+        validCount: valid.length
+    });
+});
+
 // 🚀 UPDATED SEND ROUTE (Smart Random Template Mix — no sequential series)
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
