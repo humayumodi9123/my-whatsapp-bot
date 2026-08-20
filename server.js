@@ -18,9 +18,80 @@ let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़�
 const statsFile = __dirname + '/stats.json';
 const historyFile = __dirname + '/history.json';
 const templatesFile = __dirname + '/templates.json';
-const contactsFile = __dirname + '/contacts.json'; // नया: Contacts/Groups सेव करने के लिए
+const contactsFile = __dirname + '/contacts.json';
+const connectionMetaFile = __dirname + '/connection_meta.json'; // first connected time
 
-let liveCampaign = { isActive: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [] };
+let liveCampaign = {
+    isActive: false,
+    total: 0,
+    sent: 0,
+    failed: 0,
+    pending: 0,
+    numbers: [],
+    status: 'idle', // idle | sending | resting | night_rest
+    restReason: '',
+    resumeAt: null,       // ISO timestamp
+    batchSize: 50,
+    accountAgeDays: 0
+};
+
+// --- Time helpers (IST = Asia/Kolkata) ---
+function getISTNow() {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+}
+function getAccountAgeDays() {
+    const meta = getJson(connectionMetaFile);
+    if (!meta || !meta.firstConnectedAt) return 0;
+    const first = new Date(meta.firstConnectedAt);
+    const now = new Date();
+    return Math.floor((now - first) / (1000 * 60 * 60 * 24));
+}
+function getBatchSize() {
+    // < 3 days connected → every 50 msgs rest; >= 3 days → every 100
+    return getAccountAgeDays() >= 3 ? 100 : 50;
+}
+function isWithinSendWindow() {
+    // Send only 08:00 – 22:00 IST (8 AM to 10 PM)
+    const ist = getISTNow();
+    const h = ist.getHours();
+    return h >= 8 && h < 22;
+}
+function msUntilNext8AM_IST() {
+    const ist = getISTNow();
+    const h = ist.getHours();
+    const m = ist.getMinutes();
+    const s = ist.getSeconds();
+    const msSinceMidnight = ((h * 60 + m) * 60 + s) * 1000;
+    const eightAM = 8 * 60 * 60 * 1000;
+    if (h >= 8 && h < 22) return 0;
+    if (h < 8) return eightAM - msSinceMidnight; // same morning
+    // 10 PM onwards → next day 8 AM
+    const msUntilMidnight = 24 * 60 * 60 * 1000 - msSinceMidnight;
+    return msUntilMidnight + eightAM;
+}
+async function smartSleep(ms, reason) {
+    const resumeAt = new Date(Date.now() + ms);
+    liveCampaign.status = (reason.includes('Night') || reason.includes('रात') || reason.includes('Night Rest')) ? 'night_rest' : 'resting';
+    liveCampaign.restReason = reason;
+    liveCampaign.resumeAt = resumeAt.toISOString();
+    const step = 5000;
+    let left = ms;
+    while (left > 0) {
+        await new Promise(r => setTimeout(r, Math.min(step, left)));
+        left = resumeAt.getTime() - Date.now();
+        liveCampaign.resumeAt = resumeAt.toISOString();
+    }
+    liveCampaign.status = 'sending';
+    liveCampaign.restReason = '';
+    liveCampaign.resumeAt = null;
+}
+async function waitForSendWindow() {
+    if (isWithinSendWindow()) return;
+    const waitMs = msUntilNext8AM_IST();
+    if (waitMs > 0) {
+        await smartSleep(waitMs, 'Night Rest (10 PM – 8 AM IST) — बाकी नंबर्स अगली सुबह 8 बजे से भेजेंगे');
+    }
+}
 
 // Data Management Functions
 function getJson(file) { try { return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : null; } catch(e) { return null; } }
@@ -57,7 +128,16 @@ async function connectToWhatsApp() {
             isConnected = false;
             if(shouldReconnect) setTimeout(connectToWhatsApp, 3000);
             else { fs.rmSync('auth_info_baileys', { recursive: true, force: true }); connectToWhatsApp(); }
-        } else if(connection === 'open') { isConnected = true; qrCodeData = null; }
+        } else if(connection === 'open') {
+            isConnected = true;
+            qrCodeData = null;
+            // Save first connected time (for account age / batch size)
+            const meta = getJson(connectionMetaFile) || {};
+            if (!meta.firstConnectedAt) {
+                meta.firstConnectedAt = new Date().toISOString();
+                saveJson(connectionMetaFile, meta);
+            }
+        }
     });
     sock.ev.on('creds.update', saveCreds);
 
@@ -228,22 +308,51 @@ app.post('/send', async (req, res) => {
         }
     }
     
+    const ageDays = getAccountAgeDays();
+    const batchSize = getBatchSize(); // 50 if < 3 days, else 100
+
     liveCampaign = {
         isActive: true,
         total: numbers.length,
         sent: 0,
         failed: 0,
         pending: numbers.length,
-        numbers: numbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' }))
+        numbers: numbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' })),
+        status: 'sending',
+        restReason: '',
+        resumeAt: null,
+        batchSize,
+        accountAgeDays: ageDays
     };
-    res.json({ success: true }); 
+    res.json({ success: true, batchSize, accountAgeDays: ageDays }); 
     
     let minD = parseInt(minDelay) || 10;
     let maxD = parseInt(maxDelay) || 20;
     let sentCount = 0;
     let failedCount = 0;
+    let sentInCurrentBatch = 0;
 
     for (let i = 0; i < numbers.length; i++) {
+        // 1) Only send between 8 AM – 10 PM IST
+        await waitForSendWindow();
+
+        // 2) After every batchSize successful-ish attempts, rest 2 hours
+        //    (count processed messages in batch, not only sent)
+        if (sentInCurrentBatch >= batchSize && i < numbers.length) {
+            sentInCurrentBatch = 0;
+            const twoHours = 2 * 60 * 60 * 1000;
+            await smartSleep(
+                twoHours,
+                `Batch Rest — हर ${batchSize} msgs के बाद 2 घंटे आराम (Account age: ${ageDays} दिन)`
+            );
+            // After long rest, ensure still in send window
+            await waitForSendWindow();
+        }
+
+        liveCampaign.status = 'sending';
+        liveCampaign.restReason = '';
+        liveCampaign.resumeAt = null;
+
         let contact = numbers[i];
         let num = String(contact.phone).replace(/[^0-9]/g, '');
         let customerName = contact.name || 'Customer';
@@ -257,13 +366,11 @@ app.post('/send', async (req, res) => {
             let tplName = '';
 
             if (useRotation) {
-                // Random mixed order (no sequential series)
                 const tpl = templates[shuffledTemplateOrder[i]];
                 tplName = tpl.name || '';
                 finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
                 finalImageBase64 = tpl.imageBase64 || null;
             } else {
-                // Single custom message / image
                 finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : '';
                 finalImageBase64 = imageBase64 || null;
             }
@@ -282,6 +389,7 @@ app.post('/send', async (req, res) => {
             liveCampaign.pending--;
             liveCampaign.numbers[i].status = useRotation ? `Sent ✅ (${tplName})` : 'Sent ✅';
             addHistory(num, finalMessage || (tplName ? `[${tplName}] Media` : "Media Sent")); 
+            sentInCurrentBatch++;
             
             if (i < numbers.length - 1) {
                 const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
@@ -292,9 +400,13 @@ app.post('/send', async (req, res) => {
             liveCampaign.failed++;
             liveCampaign.pending--;
             liveCampaign.numbers[i].status = 'Invalid ❌';
+            sentInCurrentBatch++; // still counts toward batch rest
         }
     }
     liveCampaign.isActive = false;
+    liveCampaign.status = 'idle';
+    liveCampaign.restReason = '';
+    liveCampaign.resumeAt = null;
     saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
 });
 
