@@ -389,8 +389,6 @@ app.post('/send', async (req, res) => {
             liveCampaign.pending--;
             liveCampaign.numbers[i].status = useRotation ? `Sent ✅ (${tplName})` : 'Sent ✅';
             addHistory(num, finalMessage || (tplName ? `[${tplName}] Media` : "Media Sent")); 
-            // Live dashboard update (incremental)
-            saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
             sentInCurrentBatch++;
             
             if (i < numbers.length - 1) {
@@ -402,7 +400,6 @@ app.post('/send', async (req, res) => {
             liveCampaign.failed++;
             liveCampaign.pending--;
             liveCampaign.numbers[i].status = 'Invalid ❌';
-            saveStats(new Date().toLocaleDateString('en-CA'), 0, 1);
             sentInCurrentBatch++; // still counts toward batch rest
         }
     }
@@ -410,6 +407,8 @@ app.post('/send', async (req, res) => {
     liveCampaign.status = 'idle';
     liveCampaign.restReason = '';
     liveCampaign.resumeAt = null;
+    saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
 });
 
 app.listen(process.env.PORT || 10000, '0.0.0.0', () => console.log(`Server started`));
+
