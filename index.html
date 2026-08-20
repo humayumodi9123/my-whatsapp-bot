@@ -296,55 +296,102 @@
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ मैसेज अपडेट हो गया।')) }
 
         // --- EXCEL & PDF EXTRACTOR LOGIC ---
-        function extractDataFromFile(file, callback) {
+        function setUploadStatus(msg, color) {
+            let el = document.getElementById('uploadStatusMsg');
+            if (!el) {
+                el = document.createElement('p');
+                el.id = 'uploadStatusMsg';
+                el.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;';
+                const box = document.getElementById('contactFileInput') || document.getElementById('campaignFileInput');
+                if (box && box.parentNode) box.parentNode.appendChild(el);
+            }
+            el.style.display = msg ? 'block' : 'none';
+            el.style.color = color || '#f59e0b';
+            el.innerHTML = msg || '';
+        }
+
+        // Non-blocking PDF extract — page by page, UI nahi atakti
+        function extractDataFromFile(file, callback, onProgress) {
             const ext = file.name.split('.').pop().toLowerCase();
             if (ext === 'pdf') {
                 const reader = new FileReader();
+                reader.onerror = () => {
+                    alert('PDF read error — file corrupt ho sakti hai.');
+                    callback([]);
+                };
                 reader.onload = async function(e) {
-                    const typedarray = new Uint8Array(e.target.result);
-                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                    let fullText = "";
-                    for (let i = 1; i <= pdf.numPages; i++) {
-                        const page = await pdf.getPage(i);
-                        const textContent = await page.getTextContent();
-                        fullText += textContent.items.map(item => item.str).join(" ") + " ";
+                    try {
+                        const typedarray = new Uint8Array(e.target.result);
+                        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+                        const total = pdf.numPages;
+                        const phoneSet = new Set();
+                        const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
+
+                        for (let i = 1; i <= total; i++) {
+                            if (onProgress) onProgress(i, total);
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            const pageText = textContent.items.map(item => item.str).join(' ');
+                            let m;
+                            regex.lastIndex = 0;
+                            while ((m = regex.exec(pageText)) !== null) {
+                                const num = m[0].replace(/\D/g, '').slice(-10);
+                                if (num.length === 10) phoneSet.add(num);
+                            }
+                            // Har 3 page baad UI ko breathe do (hang nahi hoga)
+                            if (i % 3 === 0) {
+                                await new Promise(r => setTimeout(r, 0));
+                            }
+                        }
+                        const result = Array.from(phoneSet).map(num => ['Customer', num]);
+                        callback(result);
+                    } catch (err) {
+                        console.error(err);
+                        alert('PDF process error: ' + (err.message || 'unknown'));
+                        callback([]);
                     }
-                    const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
-                    let matches = fullText.match(regex) || [];
-                    matches = matches.map(n => n.replace(/\D/g, '').slice(-10));
-                    matches = [...new Set(matches)]; // Remove duplicates
-                    callback(matches.map(num => ['Customer', num]));
                 };
                 reader.readAsArrayBuffer(file);
             } else if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, {type: 'array'});
-                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
-                    callback(json);
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                        callback(json);
+                    } catch (err) {
+                        alert('Excel/CSV read error');
+                        callback([]);
+                    }
                 };
                 reader.readAsArrayBuffer(file);
             } else {
                 alert("कृपया केवल PDF, Excel या CSV फाइल ही अपलोड करें।");
+                callback([]);
             }
         }
 
         // Campaign Side File Upload
         function processCampaignFile(event) {
             const file = event.target.files[0];
-            if(!file) return;
+            if (!file) return;
+            setUploadStatus('⏳ PDF/File process हो रहा है...', '#f59e0b');
             extractDataFromFile(file, (data) => {
                 let numbersStr = data.map(row => {
                     let phone = row.length >= 2 ? String(row[1]) : String(row[0]);
                     return phone ? phone.replace(/\D/g, '').slice(-10) : '';
                 }).filter(n => n.length === 10).join('\n');
-                
+
                 let existing = document.getElementById('numbers').value;
                 document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
-                alert(`✅ फाइल से नंबर निकाल लिए गए!\n\nअब नीचे "Scan & Clean" बटन दबाओ — Invalid + Duplicate हट जाएँगे, सिर्फ Valid WhatsApp numbers रहेंगे।`);
-                document.getElementById('campaignFileInput').value = ''; // Reset input
+                const count = numbersStr ? numbersStr.split('\n').filter(Boolean).length : 0;
+                setUploadStatus(`✅ ${count} numbers निकाले गए`, '#10b981');
+                alert(`✅ फाइल से ${count} नंबर निकाल लिए गए!`);
+                document.getElementById('campaignFileInput').value = '';
+            }, (page, total) => {
+                setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b');
             });
         }
 
@@ -352,29 +399,36 @@
         function processContactFile() {
             const file = document.getElementById('contactFileInput').files[0];
             const g = document.getElementById('groupSelect').value;
-            if(!file || !g) return alert("कृपया फाइल और ग्रुप दोनों सेलेक्ट करें!");
-            
+            if (!file || !g) return alert("कृपया फाइल और ग्रुप दोनों सेलेक्ट करें!");
+
+            setUploadStatus('⏳ File process हो रहा है...', '#f59e0b');
             extractDataFromFile(file, (data) => {
+                if (!allContacts[g]) allContacts[g] = [];
+                const existing = new Set(allContacts[g].map(c => c.phone));
                 let added = 0;
                 data.forEach(row => {
-                    if(!row || row.length === 0) return;
+                    if (!row || row.length === 0) return;
                     let name = row.length >= 2 ? String(row[0]).trim() : 'Customer';
                     let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]);
                     let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
-                    
-                    if(phone.length === 10) {
+                    if (phone.length === 10 && !existing.has(phone)) {
                         allContacts[g].push({ name: name, phone: phone });
+                        existing.add(phone);
                         added++;
                     }
                 });
-                
-                if(added > 0) {
+
+                if (added > 0) {
                     saveContactsToAPI();
-                    alert(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए! तुरंत लिस्ट में देखें।\n\nअब "Scan & Clean Group" दबाकर Invalid + Duplicate हटा सकते हो।`);
+                    setUploadStatus(`✅ ${added} numbers add हो गए (Total: ${allContacts[g].length})`, '#10b981');
+                    alert(`✅ फाइल से ${added} नंबर जोड़ दिए गए!`);
                 } else {
-                    alert("फाइल में कोई सही मोबाइल नंबर नहीं मिला।");
+                    setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444');
+                    alert("फाइल में कोई नया सही मोबाइल नंबर नहीं मिला।");
                 }
                 document.getElementById('contactFileInput').value = '';
+            }, (page, total) => {
+                setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b');
             });
         }
 
@@ -486,10 +540,20 @@
             const g = document.getElementById('groupSelect').value;
             const div = document.getElementById('contactManagerDiv');
             const tbody = document.getElementById('contactTableBody');
-            if(!g) { div.style.display = 'none'; return; }
+            if (!g) { div.style.display = 'none'; return; }
             div.style.display = 'block';
-            tbody.innerHTML = '';
-            allContacts[g].forEach(c => tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone}</td></tr>`);
+            const list = allContacts[g] || [];
+            // Large lists: only show first 100 (warna browser hang)
+            const MAX_SHOW = 100;
+            const show = list.slice(0, MAX_SHOW);
+            let html = '';
+            for (let i = 0; i < show.length; i++) {
+                html += `<tr><td>${show[i].name}</td><td>${show[i].phone}</td></tr>`;
+            }
+            if (list.length > MAX_SHOW) {
+                html += `<tr><td colspan="2" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW} numbers (कुल ${list.length})</td></tr>`;
+            }
+            tbody.innerHTML = html;
         }
         function addSingleContact() {
             const g = document.getElementById('groupSelect').value;
@@ -734,4 +798,3 @@
     </script>
 </body>
 </html>
-
