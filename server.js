@@ -105,15 +105,43 @@ app.post('/pair-code', async (req, res) => {
     res.json({ success: true, code: await sock.requestPairingCode(phone) });
 });
 
-// 🚀 UPDATED SEND ROUTE (Multi-Template Rotation + Personalized Message)
+// 🚀 UPDATED SEND ROUTE (Smart Random Template Mix — no sequential series)
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     
     // numbers: [{phone, name}, ...]
-    // templates: [{name, message, imageBase64}, ...]  → round-robin rotation
+    // templates: [{name, message, imageBase64}, ...]  → AI-style random mix (no series pattern)
     const { numbers, message, minDelay, maxDelay, imageBase64, templates } = req.body;
     
     const useRotation = Array.isArray(templates) && templates.length > 0;
+    
+    // Smart shuffle: fair distribution + random order so consecutive numbers don't get sequential templates
+    let shuffledTemplateOrder = [];
+    if (useRotation) {
+        const n = numbers.length;
+        const tCount = templates.length;
+        // Build list so each template is used roughly equally
+        for (let i = 0; i < n; i++) {
+            shuffledTemplateOrder.push(i % tCount);
+        }
+        // Fisher-Yates shuffle → random order, no series
+        for (let i = shuffledTemplateOrder.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffledTemplateOrder[i], shuffledTemplateOrder[j]] = [shuffledTemplateOrder[j], shuffledTemplateOrder[i]];
+        }
+        // Extra pass: reduce consecutive same-template runs (looks more natural)
+        for (let i = 1; i < shuffledTemplateOrder.length; i++) {
+            if (shuffledTemplateOrder[i] === shuffledTemplateOrder[i - 1] && tCount > 1) {
+                // swap with a later different index if possible
+                for (let k = i + 1; k < shuffledTemplateOrder.length; k++) {
+                    if (shuffledTemplateOrder[k] !== shuffledTemplateOrder[i - 1]) {
+                        [shuffledTemplateOrder[i], shuffledTemplateOrder[k]] = [shuffledTemplateOrder[k], shuffledTemplateOrder[i]];
+                        break;
+                    }
+                }
+            }
+        }
+    }
     
     liveCampaign = {
         isActive: true,
@@ -144,8 +172,8 @@ app.post('/send', async (req, res) => {
             let tplName = '';
 
             if (useRotation) {
-                // Round-robin: index 0,1,2... then back to 0
-                const tpl = templates[i % templates.length];
+                // Random mixed order (no sequential series)
+                const tpl = templates[shuffledTemplateOrder[i]];
                 tplName = tpl.name || '';
                 finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
                 finalImageBase64 = tpl.imageBase64 || null;
