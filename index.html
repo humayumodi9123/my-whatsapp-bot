@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Marketing Dashboard Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- PDF Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <!-- CSV Library (PapaParse) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
     <style>
         :root { --primary: #2563eb; --secondary: #1e293b; --bg-color: #f1f5f9; --card-bg: #ffffff; --text-main: #334155; --text-muted: #64748b; --border-color: #e2e8f0; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
@@ -46,15 +49,14 @@
         .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); }
         .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
         .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-        
+        .btn-sm { padding: 10px 15px; font-size: 14px; border-radius: 8px; }
+
         .delay-box { display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
-        
-        /* Template List CSS */
-        .template-item { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }
-        .template-info strong { color: var(--primary); font-size: 16px; display: block; margin-bottom: 4px; }
-        .template-info span { color: var(--text-muted); font-size: 13px; }
-        .del-btn { background: #fee2e2; color: var(--danger); border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; }
         #imagePreview { max-width: 100px; max-height: 100px; border-radius: 8px; display: none; margin-top: 10px; }
+
+        .contact-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .contact-table th, .contact-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        .contact-table th { background: #f8fafc; color: var(--secondary); }
 
         @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid, .delay-box { flex-direction: column; } }
     </style>
@@ -70,6 +72,7 @@
         <div class="sidebar-menu">
             <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
             <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
+            <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contact Book</button>
             <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Template Manager</button>
             <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
             <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
@@ -96,26 +99,42 @@
         <div id="sendMsg" class="content-section">
             <h2 class="section-title">New Marketing Campaign</h2>
             
-            <!-- नया: Dropdown Template Selection -->
             <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
-                <label style="color: #2563eb;">📂 सेव किया हुआ टेम्प्लेट चुनें (Optional):</label>
+                <label style="color: #2563eb;">📂 सेव किया हुआ टेम्प्लेट चुनें:</label>
                 <select id="templateDropdown" onchange="applySelectedTemplate()">
                     <option value="">-- नया कस्टम मैसेज बनाएँ --</option>
                 </select>
                 <img id="imagePreview" src="" alt="Preview">
             </div>
 
-            <div class="form-group">
-                <label>ग्राहक के मोबाइल नंबर (एक लाइन में एक):</label>
-                <textarea id="numbers" placeholder="919876543210&#10;918888888888" style="height:120px;"></textarea>
+            <!-- नया: Target Selection (Group vs Manual) -->
+            <div class="form-group" style="background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <label>🎯 किसे मैसेज भेजना है?</label>
+                <select id="targetType" onchange="toggleTargetInput()">
+                    <option value="group">Contact Book (Group) से चुनें</option>
+                    <option value="manual">मैन्युअल नंबर टाइप करें (बिना नाम के)</option>
+                </select>
+                
+                <div id="groupTargetDiv" style="margin-top: 15px;">
+                    <select id="campaignGroupDropdown">
+                        <option value="">-- ग्रुप चुनें --</option>
+                    </select>
+                </div>
+
+                <div id="manualTargetDiv" style="display: none; margin-top: 15px;">
+                    <textarea id="numbers" placeholder="919876543210&#10;918888888888" style="height:100px;"></textarea>
+                    <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा।</p>
+                </div>
             </div>
+
             <div class="form-group">
-                <label>प्रमोशनल डिज़ाइन / पोस्टर (यहाँ से नया डालें):</label>
+                <label>प्रमोशनल डिज़ाइन / पोस्टर:</label>
                 <input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()">
             </div>
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
-                <textarea id="message" placeholder="यहाँ अपना शानदार मैसेज टाइप करें..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
+                <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
+                <p style="font-size:13px; color:#10b981; font-weight:600; margin-top:5px;">💡 टिप: ग्राहक का नाम ऑटोमैटिक जोड़ने के लिए मैसेज में <b>[Name]</b> लिखें।</p>
             </div>
 
             <div class="delay-box">
@@ -126,34 +145,73 @@
             <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
         </div>
 
-        <!-- 3. Template Manager (नया सेक्शन) -->
+        <!-- 3. Contact Book / CSV Upload (नया सेक्शन) -->
+        <div id="contactBook" class="content-section">
+            <h2 class="section-title">📇 Contact Book & CSV Upload</h2>
+            
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <input type="text" id="newGroupName" placeholder="नया ग्रुप बनाएं (उदा: VIP Clients)" style="flex: 1;">
+                <button class="action-btn btn-primary btn-sm" style="width: auto;" onclick="createNewGroup()">+ Create</button>
+            </div>
+
+            <div class="form-group">
+                <label>ग्रुप चुनें:</label>
+                <select id="groupSelect" onchange="renderGroupContacts()">
+                    <option value="">-- ग्रुप सेलेक्ट करें --</option>
+                </select>
+            </div>
+
+            <div id="contactManagerDiv" style="display: none; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <h3 style="margin-top:0;">Add Contacts to Group</h3>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <input type="text" id="addName" placeholder="Name" style="flex: 1;">
+                    <input type="text" id="addPhone" placeholder="Mobile Number" style="flex: 1;">
+                    <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add</button>
+                </div>
+                
+                <div style="text-align: center; margin: 15px 0; color: #64748b;">OR</div>
+                
+                <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #2563eb;">
+                    <label style="color: #2563eb;">📂 Excel / CSV फाइल अपलोड करें:</label>
+                    <input type="file" id="csvFileInput" accept=".csv" style="margin-bottom: 10px;">
+                    <button class="action-btn btn-primary btn-sm" onclick="processCSV()">Upload Contacts</button>
+                    <p style="font-size:12px; color:var(--text-muted); margin-top:5px;">CSV फॉर्मेट: Column 1 (Name), Column 2 (Phone)</p>
+                </div>
+
+                <table class="contact-table" id="contactTable">
+                    <thead><tr><th>Name</th><th>Phone Number</th></tr></thead>
+                    <tbody id="contactTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 4. Template Manager -->
         <div id="templateSec" class="content-section">
             <h2 class="section-title">📝 Template Manager</h2>
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
                 <h3 style="margin-top:0;">Create New Template</h3>
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
                 <div class="form-group"><label>पोस्टर / फोटो:</label><input type="file" id="newTplImage" accept="image/*"></div>
-                <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
+                <div class="form-group">
+                    <label>कैप्शन (मैसेज):</label>
+                    <textarea id="newTplMsg" style="height:80px;" placeholder="नमस्ते [Name], ..."></textarea>
+                </div>
                 <button class="action-btn btn-success" onclick="saveNewTemplate()">💾 Save Template</button>
             </div>
-            <h3>Saved Templates</h3>
             <div id="templateListArea"></div>
         </div>
 
-        <!-- 4. Live Tracking -->
+        <!-- 5. Live Tracking & Device (Same as before) -->
         <div id="liveTrackingSec" class="content-section">
             <h2 class="section-title">📡 Live Campaign Monitor</h2>
             <div id="liveList" style="background:#fff; border-radius:12px; border:1px solid #e2e8f0; padding:15px; max-height:400px; overflow-y:auto;"></div>
         </div>
-
-        <!-- 5. Auto Reply Settings -->
         <div id="autoReply" class="content-section">
             <h2 class="section-title">Smart Auto-Reply</h2>
             <div class="form-group"><label>वेलकम मैसेज सेट करें:</label><textarea id="editAutoReplyMsg" style="height:180px;"></textarea></div>
             <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
         </div>
-
-        <!-- 6. Connect WhatsApp -->
         <div id="connectWp" class="content-section">
             <h2 class="section-title">Device Connection</h2>
             <div style="text-align: center; padding: 20px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1;">
@@ -171,9 +229,10 @@
     <script>
         let allTemplates = [];
         let selectedTemplateBase64 = null;
+        let allContacts = {}; // { "VIP": [{name, phone}] }
 
         window.onload = () => {
-            fetchStats(); fetchLiveStatus(); fetchTemplates();
+            fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
                     if (d.connected) { document.getElementById('realQr').style.display = 'none'; document.getElementById('qrStatus').innerHTML = '✅ डिवाइस कनेक्टेड है!'; document.getElementById('qrStatus').style.color = '#10b981'; } 
@@ -196,90 +255,104 @@
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ मैसेज अपडेट हो गया।')) }
 
         // --- TEMPLATE LOGIC ---
-        function fetchTemplates() {
-            fetch('/api/templates').then(r => r.json()).then(data => {
-                allTemplates = data;
-                renderTemplates();
-            });
-        }
-
+        function fetchTemplates() { fetch('/api/templates').then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }); }
         function renderTemplates() {
-            // Update Dropdown
             const drop = document.getElementById('templateDropdown');
             drop.innerHTML = '<option value="">-- नया कस्टम मैसेज बनाएँ --</option>';
-            
-            // Update List
-            const listArea = document.getElementById('templateListArea');
-            listArea.innerHTML = '';
-
+            document.getElementById('templateListArea').innerHTML = '';
             allTemplates.forEach(t => {
                 drop.innerHTML += `<option value="${t.id}">${t.name}</option>`;
-                
-                listArea.innerHTML += `
-                    <div class="template-item">
-                        <div class="template-info">
-                            <strong>${t.name}</strong>
-                            <span>${t.message.substring(0, 40)}...</span>
-                        </div>
-                        <button class="del-btn" onclick="deleteTemplate('${t.id}')">Delete</button>
-                    </div>`;
+                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${t.message.substring(0, 40)}...</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
             });
         }
-
         function saveNewTemplate() {
-            const name = document.getElementById('newTplName').value;
-            const msg = document.getElementById('newTplMsg').value;
-            const imgFile = document.getElementById('newTplImage').files[0];
-
-            if(!name || !msg) { alert("नाम और मैसेज डालना ज़रूरी है!"); return; }
-
+            const name = document.getElementById('newTplName').value, msg = document.getElementById('newTplMsg').value, img = document.getElementById('newTplImage').files[0];
+            if(!name || !msg) return alert("नाम और मैसेज ज़रूरी है!");
             const id = 'tpl_' + Date.now();
-            if (imgFile) {
-                const reader = new FileReader();
-                reader.onload = (e) => { sendTemplateToAPI({ id, name, message: msg, imageBase64: e.target.result }); };
-                reader.readAsDataURL(imgFile);
-            } else {
-                sendTemplateToAPI({ id, name, message: msg, imageBase64: null });
-            }
+            if(img) { const r = new FileReader(); r.onload = e => fetch('/api/templates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, name, message:msg, imageBase64:e.target.result})}).then(()=>fetchTemplates()); r.readAsDataURL(img); }
+            else fetch('/api/templates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, name, message:msg, imageBase64:null})}).then(()=>fetchTemplates());
         }
-
-        function sendTemplateToAPI(tplData) {
-            fetch('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(tplData) })
-            .then(() => { alert("✅ टेम्प्लेट सेव हो गया!"); document.getElementById('newTplName').value=''; document.getElementById('newTplMsg').value=''; document.getElementById('newTplImage').value=''; fetchTemplates(); });
-        }
-
-        function deleteTemplate(id) {
-            fetch('/api/templates/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id}) }).then(() => fetchTemplates());
-        }
-
+        function deleteTemplate(id) { fetch('/api/templates/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})}).then(()=>fetchTemplates()); }
         function applySelectedTemplate() {
-            const selectedId = document.getElementById('templateDropdown').value;
-            const preview = document.getElementById('imagePreview');
-            if(!selectedId) {
-                selectedTemplateBase64 = null;
-                document.getElementById('message').value = '';
-                preview.style.display = 'none';
-                return;
-            }
-            const tpl = allTemplates.find(t => t.id === selectedId);
-            document.getElementById('message').value = tpl.message;
-            if(tpl.imageBase64) {
-                selectedTemplateBase64 = tpl.imageBase64;
-                preview.src = tpl.imageBase64;
-                preview.style.display = 'block';
-            } else {
-                selectedTemplateBase64 = null;
-                preview.style.display = 'none';
-            }
+            const id = document.getElementById('templateDropdown').value, p = document.getElementById('imagePreview');
+            if(!id) { selectedTemplateBase64 = null; document.getElementById('message').value = ''; p.style.display = 'none'; return; }
+            const t = allTemplates.find(x => x.id === id);
+            document.getElementById('message').value = t.message;
+            if(t.imageBase64) { selectedTemplateBase64 = t.imageBase64; p.src = t.imageBase64; p.style.display = 'block'; } else { selectedTemplateBase64 = null; p.style.display = 'none'; }
         }
+        function clearTemplateSelection() { document.getElementById('templateDropdown').value = ""; document.getElementById('imagePreview').style.display = 'none'; selectedTemplateBase64 = null; }
 
-        function clearTemplateSelection() {
-            document.getElementById('templateDropdown').value = "";
-            document.getElementById('imagePreview').style.display = 'none';
-            selectedTemplateBase64 = null;
+        // --- CONTACT BOOK & CSV LOGIC ---
+        function fetchContacts() { 
+            fetch('/api/contacts').then(r => r.json()).then(data => { 
+                allContacts = data; 
+                updateGroupDropdowns(); 
+            }); 
+        }
+        function updateGroupDropdowns() {
+            const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
+            g1.innerHTML = '<option value="">-- ग्रुप सेलेक्ट करें --</option>';
+            g2.innerHTML = '<option value="">-- ग्रुप चुनें --</option>';
+            Object.keys(allContacts).forEach(g => {
+                g1.innerHTML += `<option value="${g}">${g} (${allContacts[g].length})</option>`;
+                g2.innerHTML += `<option value="${g}">${g} (${allContacts[g].length} Contacts)</option>`;
+            });
+        }
+        function createNewGroup() {
+            const name = document.getElementById('newGroupName').value.trim();
+            if(!name) return alert("ग्रुप का नाम डालें!");
+            if(allContacts[name]) return alert("यह ग्रुप पहले से है!");
+            allContacts[name] = [];
+            saveContactsToAPI();
+            document.getElementById('newGroupName').value = '';
+        }
+        function renderGroupContacts() {
+            const g = document.getElementById('groupSelect').value;
+            const div = document.getElementById('contactManagerDiv');
+            const tbody = document.getElementById('contactTableBody');
+            if(!g) { div.style.display = 'none'; return; }
+            div.style.display = 'block';
+            tbody.innerHTML = '';
+            allContacts[g].forEach(c => tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone}</td></tr>`);
+        }
+        function addSingleContact() {
+            const g = document.getElementById('groupSelect').value;
+            const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
+            if(!n || !p) return alert("नाम और नंबर दोनों डालें!");
+            allContacts[g].push({name: n, phone: p});
+            saveContactsToAPI();
+            document.getElementById('addName').value = ''; document.getElementById('addPhone').value = '';
+        }
+        function processCSV() {
+            const file = document.getElementById('csvFileInput').files[0];
+            const g = document.getElementById('groupSelect').value;
+            if(!file || !g) return alert("फाइल और ग्रुप दोनों सेलेक्ट करें!");
+            
+            Papa.parse(file, {
+                header: false, skipEmptyLines: true,
+                complete: function(results) {
+                    results.data.forEach(row => {
+                        if(row.length >= 2) {
+                            allContacts[g].push({ name: row[0].trim(), phone: row[1].trim() });
+                        }
+                    });
+                    saveContactsToAPI();
+                    alert("✅ CSV अपलोड हो गई!");
+                }
+            });
+        }
+        function saveContactsToAPI() {
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) })
+            .then(() => { fetchContacts(); setTimeout(renderGroupContacts, 200); });
         }
 
         // --- SEND LOGIC ---
+        function toggleTargetInput() {
+            const t = document.getElementById('targetType').value;
+            document.getElementById('groupTargetDiv').style.display = (t === 'group') ? 'block' : 'none';
+            document.getElementById('manualTargetDiv').style.display = (t === 'manual') ? 'block' : 'none';
+        }
+
         function fetchLiveStatus() {
             fetch('/api/live-status').then(r => r.json()).then(data => {
                 let html = `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Total: ${data.total || 0}</span><span style="color:#10b981;">Sent: ${data.sent || 0}</span><span style="color:#ef4444;">Failed: ${data.failed || 0}</span></div>`;
@@ -297,31 +370,42 @@
         }
 
         async function startSending() {
-            const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
+            let finalNumbers = [];
+            const targetType = document.getElementById('targetType').value;
+            
+            if(targetType === 'group') {
+                const g = document.getElementById('campaignGroupDropdown').value;
+                if(!g || !allContacts[g]) return alert("कृपया एक ग्रुप चुनें!");
+                finalNumbers = allContacts[g]; // Array of {name, phone}
+            } else {
+                const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
+                finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
+            }
+
             const msg = document.getElementById('message').value;
             const imgFile = document.getElementById('imageFile').files[0];
             
             if (imgFile) { 
                 const reader = new FileReader(); 
-                reader.onload = (e) => { doSend(nums, msg, e.target.result); }; 
+                reader.onload = (e) => { doSend(finalNumbers, msg, e.target.result); }; 
                 reader.readAsDataURL(imgFile); 
             } else if (selectedTemplateBase64) {
-                doSend(nums, msg, selectedTemplateBase64);
+                doSend(finalNumbers, msg, selectedTemplateBase64);
             } else { 
-                doSend(nums, msg, null); 
+                doSend(finalNumbers, msg, null); 
             }
         }
         
-        function doSend(nums, msg, imgBase64) {
+        function doSend(numsObjArray, msg, imgBase64) {
             const minD = document.getElementById('minDelay').value;
             const maxD = document.getElementById('maxDelay').value;
-            if (parseInt(minD) >= parseInt(maxD)) { alert('⚠️ एरर: अधिकतम समय ज़्यादा होना चाहिए!'); return; }
-            if (nums.length === 0) { alert('⚠️ नंबर डालें!'); return; }
+            if (parseInt(minD) >= parseInt(maxD)) return alert('⚠️ एरर: अधिकतम समय ज़्यादा होना चाहिए!');
+            if (numsObjArray.length === 0) return alert('⚠️ नंबर लिस्ट खाली है!');
             
             document.getElementById('sendBtn').disabled = true;
             document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
 
-            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: nums, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64 }) })
+            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64 }) })
             .then(() => { showSection('liveTrackingSec', document.getElementById('liveTrackMenuBtn')); fetchLiveStatus(); });
         }
         
