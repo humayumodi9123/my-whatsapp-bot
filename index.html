@@ -138,11 +138,13 @@
                     <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #10b981; margin-bottom: 10px;">
                         <label style="color: #10b981;">📄 PDF या Excel (CSV) फाइल से नंबर निकालें:</label>
                         <input type="file" id="campaignFileInput" accept=".csv, .xlsx, .xls, .pdf" onchange="processCampaignFile(event)">
-                        <p style="font-size:12px; color:var(--text-muted); margin-top:5px; margin-bottom: 0;">अपलोड करते ही सारे नंबर अपने आप नीचे बॉक्स में आ जाएँगे।</p>
+                        <p style="font-size:12px; color:var(--text-muted); margin-top:5px; margin-bottom: 0;">अपलोड करते ही सारे नंबर नीचे बॉक्स में आ जाएँगे।</p>
                     </div>
 
                     <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें या ऊपर से फाइल अपलोड करें..." style="height:100px;"></textarea>
                     <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा।</p>
+                    <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan & Clean — सिर्फ Valid WhatsApp Numbers रखो (Duplicate हटाओ)</button>
+                    <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
                 </div>
             </div>
 
@@ -190,6 +192,9 @@
                     <input type="text" id="addPhone" placeholder="Mobile Number" style="flex: 1;">
                     <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add 1 No.</button>
                 </div>
+
+                <button class="action-btn btn-success btn-sm" style="margin-bottom:12px;" id="scanContactBtn" onclick="scanContactGroup()">🔍 Scan & Clean Group — Invalid + Duplicate हटाओ (सिर्फ Valid WhatsApp)</button>
+                <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
 
                 <table class="contact-table" id="contactTable">
                     <thead><tr><th>Name</th><th>Phone Number</th></tr></thead>
@@ -331,7 +336,7 @@
                 
                 let existing = document.getElementById('numbers').value;
                 document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
-                alert(`✅ फाइल से नंबर सफलतापूर्वक निकाल लिए गए हैं!`);
+                alert(`✅ फाइल से नंबर निकाल लिए गए!\n\nअब नीचे "Scan & Clean" बटन दबाओ — Invalid + Duplicate हट जाएँगे, सिर्फ Valid WhatsApp numbers रहेंगे।`);
                 document.getElementById('campaignFileInput').value = ''; // Reset input
             });
         }
@@ -358,12 +363,91 @@
                 
                 if(added > 0) {
                     saveContactsToAPI();
-                    alert(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए! तुरंत लिस्ट में देखें।`);
+                    alert(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए! तुरंत लिस्ट में देखें।\n\nअब "Scan & Clean Group" दबाकर Invalid + Duplicate हटा सकते हो।`);
                 } else {
                     alert("फाइल में कोई सही मोबाइल नंबर नहीं मिला।");
                 }
                 document.getElementById('contactFileInput').value = '';
             });
+        }
+
+        // 🔍 Scan Campaign numbers — valid WhatsApp only + remove duplicates
+        async function scanCampaignNumbers() {
+            const ta = document.getElementById('numbers');
+            const status = document.getElementById('scanCampaignStatus');
+            const btn = document.getElementById('scanCampaignBtn');
+            const lines = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+            if (lines.length === 0) return alert('पहले नंबर डालो या फाइल अपलोड करो!');
+
+            const payload = lines.map(n => ({ phone: n, name: 'Customer' }));
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Scanning... (WhatsApp check)';
+            status.style.display = 'block';
+            status.style.color = '#f59e0b';
+            status.innerHTML = `⏳ ${payload.length} numbers check हो रहे हैं... थोड़ा समय लग सकता है।`;
+
+            try {
+                const r = await fetch('/api/validate-numbers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ numbers: payload })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    status.style.color = '#ef4444';
+                    status.innerHTML = '❌ ' + (d.error || 'Scan failed');
+                    return;
+                }
+                ta.value = (d.valid || []).map(c => c.phone).join('\n');
+                status.style.color = '#10b981';
+                status.innerHTML = `✅ Done! Total: ${d.total} → Valid WhatsApp: <b>${d.validCount}</b> | Invalid हटाए: ${d.invalid} | Duplicate हटाए: ${d.duplicatesRemoved}`;
+            } catch (e) {
+                status.style.color = '#ef4444';
+                status.innerHTML = '❌ Network error — server check करो।';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🔍 Scan & Clean — सिर्फ Valid WhatsApp Numbers रखो (Duplicate हटाओ)';
+            }
+        }
+
+        // 🔍 Scan Contact Group — valid WhatsApp only + remove duplicates
+        async function scanContactGroup() {
+            const g = document.getElementById('groupSelect').value;
+            const status = document.getElementById('scanContactStatus');
+            const btn = document.getElementById('scanContactBtn');
+            if (!g || !allContacts[g]) return alert('पहले ग्रुप चुनो!');
+            if (allContacts[g].length === 0) return alert('इस ग्रुप में कोई नंबर नहीं है!');
+
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Scanning...';
+            status.style.display = 'block';
+            status.style.color = '#f59e0b';
+            status.innerHTML = `⏳ ${allContacts[g].length} numbers check हो रहे हैं...`;
+
+            try {
+                const r = await fetch('/api/validate-numbers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ numbers: allContacts[g] })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    status.style.color = '#ef4444';
+                    status.innerHTML = '❌ ' + (d.error || 'Scan failed');
+                    return;
+                }
+                allContacts[g] = d.valid || [];
+                saveContactsToAPI();
+                renderGroupContacts();
+                status.style.color = '#10b981';
+                status.innerHTML = `✅ Done! Total: ${d.total} → Valid WhatsApp: <b>${d.validCount}</b> | Invalid हटाए: ${d.invalid} | Duplicate हटाए: ${d.duplicatesRemoved}`;
+            } catch (e) {
+                status.style.color = '#ef4444';
+                status.innerHTML = '❌ Network error — server check करो।';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🔍 Scan & Clean Group — Invalid + Duplicate हटाओ (सिर्फ Valid WhatsApp)';
+            }
         }
 
 
@@ -591,3 +675,4 @@
     </script>
 </body>
 </html>
+
