@@ -209,11 +209,12 @@
                     <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add 1 No.</button>
                 </div>
 
-                <button class="action-btn btn-success btn-sm" style="margin-bottom:12px;" id="scanContactBtn" onclick="scanContactGroup()">🔍 Scan & Clean Group — Invalid + Duplicate हटाओ (सिर्फ Valid WhatsApp)</button>
+                <div id="groupScanStats" style="background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; margin-bottom:12px; font-size:13px; display:none;"></div>
+                <button class="action-btn btn-success btn-sm" style="margin-bottom:12px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 20 (manual) — Auto bhi background mein chalega</button>
                 <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
 
                 <table class="contact-table" id="contactTable">
-                    <thead><tr><th>Name</th><th>Phone Number</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
                     <tbody id="contactTableBody"></tbody>
                 </table>
             </div>
@@ -652,26 +653,87 @@
             const g = document.getElementById('groupSelect').value;
             const div = document.getElementById('contactManagerDiv');
             const tbody = document.getElementById('contactTableBody');
+            const statsBox = document.getElementById('groupScanStats');
             if (!g) { div.style.display = 'none'; return; }
             div.style.display = 'block';
             const list = allContacts[g] || [];
-            // Large lists: only show first 100 (warna browser hang)
+            let valid = 0, invalid = 0, pending = 0;
+            list.forEach(c => {
+                if (c.waStatus === 'valid') valid++;
+                else if (c.waStatus === 'invalid') invalid++;
+                else pending++;
+            });
+            if (statsBox) {
+                statsBox.style.display = 'block';
+                statsBox.innerHTML = `
+                    <b>Group:</b> ${g}<br>
+                    Total: <b>${list.length}</b> &nbsp;|&nbsp;
+                    ✅ Valid: <b style="color:#10b981">${valid}</b> &nbsp;|&nbsp;
+                    ❌ Invalid: <b style="color:#ef4444">${invalid}</b> &nbsp;|&nbsp;
+                    ⏳ Pending scan: <b style="color:#f59e0b">${pending}</b>
+                    <div id="dailyScanQuota" style="margin-top:6px;color:#64748b;font-size:12px;"></div>`;
+                refreshScanProgress();
+            }
             const MAX_SHOW = 100;
             const show = list.slice(0, MAX_SHOW);
             let html = '';
             for (let i = 0; i < show.length; i++) {
-                html += `<tr><td>${show[i].name}</td><td>${show[i].phone}</td></tr>`;
+                const st = show[i].waStatus;
+                let badge = '<span style="color:#f59e0b">Pending</span>';
+                if (st === 'valid') badge = '<span style="color:#10b981">Valid ✅</span>';
+                if (st === 'invalid') badge = '<span style="color:#ef4444">Invalid ❌</span>';
+                html += `<tr><td>${show[i].name || 'Customer'}</td><td>${show[i].phone}</td><td>${badge}</td></tr>`;
             }
             if (list.length > MAX_SHOW) {
-                html += `<tr><td colspan="2" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW} numbers (कुल ${list.length})</td></tr>`;
+                html += `<tr><td colspan="3" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW} (कुल ${list.length})</td></tr>`;
             }
             tbody.innerHTML = html;
+        }
+        function refreshScanProgress() {
+            fetch('/api/scan-progress').then(r => r.json()).then(d => {
+                const el = document.getElementById('dailyScanQuota');
+                if (!el) return;
+                el.innerHTML = `Today auto-scan: <b>${d.todayScanned || 0}</b> / ${d.dailyScanLimit || 80} &nbsp;|&nbsp; Account age: ${d.accountAgeDays || 0} din &nbsp;|&nbsp; Window: ${d.window || '8AM-10PM'}`;
+            }).catch(() => {});
+        }
+        async function scanNextInGroup() {
+            const g = document.getElementById('groupSelect').value;
+            const status = document.getElementById('scanContactStatus');
+            const btn = document.getElementById('scanContactBtn');
+            if (!g) return alert('Group select karo!');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Scanning next 20...';
+            status.style.display = 'block';
+            status.style.color = '#f59e0b';
+            status.innerHTML = '⏳ Max 20, daily limit ke andar...';
+            try {
+                const r = await fetch('/api/scan-next', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group: g })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    status.style.color = '#ef4444';
+                    status.innerHTML = '❌ ' + (d.error || 'Failed');
+                    return;
+                }
+                status.style.color = '#10b981';
+                status.innerHTML = `✅ Scanned ${d.scanned}: Valid ${d.valid}, Invalid ${d.invalid}. Today: ${d.todayScanned}/${d.dailyScanLimit}`;
+                fetchContacts();
+            } catch (e) {
+                status.style.color = '#ef4444';
+                status.innerHTML = '❌ Network error';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🔍 Scan next 20 (manual) — Auto bhi background mein chalega';
+            }
         }
         function addSingleContact() {
             const g = document.getElementById('groupSelect').value;
             const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
             if(!n || !p) return alert("नाम और नंबर दोनों डालें!");
-            allContacts[g].push({name: n, phone: p});
+            allContacts[g].push({name: n, phone: p, waStatus: null});
             saveContactsToAPI();
             document.getElementById('addName').value = ''; document.getElementById('addPhone').value = '';
         }
@@ -913,4 +975,3 @@
     </script>
 </body>
 </html>
-
