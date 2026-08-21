@@ -3,7 +3,9 @@ const cors = require('cors');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
 const fs = require('fs');
-const { MongoClient } = require('mongodb');
+// Mongo optional — package na ho to bhi server chalega (local JSON files)
+let MongoClient = null;
+try { MongoClient = require('mongodb').MongoClient; } catch (e) { console.log('mongodb package not installed — using local files only'); }
 
 const app = express();
 app.use(cors());
@@ -39,9 +41,8 @@ let cache = {
 };
 
 async function initMongo() {
-    if (!MONGODB_URI) {
-        console.log('⚠️ MONGODB_URI not set — using local JSON files (data may reset on Render restart)');
-        // Load from files
+    if (!MONGODB_URI || !MongoClient) {
+        console.log('⚠️ MongoDB not used — local JSON files (data may reset on Render restart)');
         cache.contacts = getJsonFile(contactsFile) || {};
         cache.templates = getJsonFile(templatesFile) || [];
         cache.history = getJsonFile(historyFile) || [];
