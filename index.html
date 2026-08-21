@@ -111,10 +111,25 @@
         <!-- 2. Campaign Sender -->
         <div id="sendMsg" class="content-section">
             <h2 class="section-title">New Marketing Campaign</h2>
+
+            <!-- Anti-Ban AI Rules Panel -->
+            <div style="background: linear-gradient(135deg,#ecfdf5,#f0fdf4); border:1px solid #86efac; border-radius:14px; padding:16px; margin-bottom:20px;">
+                <div style="font-weight:700; color:#065f46; font-size:15px; margin-bottom:8px;">🛡️ Anti-Ban AI Rules (auto ON)</div>
+                <ul style="margin:0; padding-left:18px; font-size:12px; color:#166534; line-height:1.6;">
+                    <li>Scan: <b>max 20 numbers</b> ek baar</li>
+                    <li>Auto batch: <b>30 / 40 / 50</b> msgs → phir <b>2 hours rest</b></li>
+                    <li>Daily limit: naya account ~80, baad mein max ~200 / day</li>
+                    <li>Time window: <b>8 AM – 10 PM IST</b> only</li>
+                    <li>Min delay server pe <b>45 sec+</b> (neeche se kam bhi set karo to 45 lagega)</li>
+                    <li>Templates: risk / same text pe warning</li>
+                </ul>
+                <div id="antiBanStatus" style="margin-top:10px; font-size:12px; color:#047857;"></div>
+                <div id="templateRiskBox" style="margin-top:10px; display:none;"></div>
+            </div>
             
             <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
                 <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (AI Smart Mix):</label>
-                <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">Desktop: Ctrl/Cmd दबाकर कई टेम्प्लेट सेलेक्ट करें। Mobile: एक-एक करके tap करके चुनें। <b>AI Smart Mix:</b> नंबर्स पर templates random order में जाएँगे — series/pattern नहीं बनेगा, हर template लगभग बराबर इस्तेमाल होगा।</p>
+                <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">Desktop: Ctrl/Cmd दबाकर कई टेम्प्लेट सेलेक्ट करें। Mobile: एक-एक करके tap करके चुनें। <b>AI Smart Mix:</b> random mix — series nahi.</p>
                 <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()">
                 </select>
                 <div id="selectedTemplatesPreview" style="margin-top:12px;"></div>
@@ -143,7 +158,7 @@
 
                     <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें या ऊपर से फाइल अपलोड करें..." style="height:100px;"></textarea>
                     <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा।</p>
-                    <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan & Clean — सिर्फ Valid WhatsApp Numbers रखो (Duplicate हटाओ)</button>
+                    <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 20) + Clean Duplicates</button>
                     <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
                 </div>
             </div>
@@ -151,15 +166,16 @@
             <div class="form-group"><label>प्रमोशनल डिज़ाइन / पोस्टर:</label><input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()"></div>
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
-                <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
+                <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection(); analyzeCustomMessageRisk()"></textarea>
+                <div id="customMsgRisk" style="font-size:12px; margin-top:6px;"></div>
             </div>
 
             <div class="delay-box">
-                <div style="flex: 1;"><label>कम से कम समय (Sec):</label><input type="number" id="minDelay" value="15" min="5"></div>
-                <div style="flex: 1;"><label>अधिकतम समय (Sec):</label><input type="number" id="maxDelay" value="45" min="10"></div>
+                <div style="flex: 1;"><label>कम से कम समय (Sec):</label><input type="number" id="minDelay" value="60" min="45"></div>
+                <div style="flex: 1;"><label>अधिकतम समय (Sec):</label><input type="number" id="maxDelay" value="120" min="60"></div>
             </div>
 
-            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign</button>
+            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign (Anti-Ban Mode)</button>
         </div>
 
         <!-- 3. Contact Book & File Upload -->
@@ -261,6 +277,12 @@
         let allContacts = {}; 
 
         window.onload = () => {
+            // Auto-set today date on dashboard filter
+            const df = document.getElementById('dateFilter');
+            if (df && !df.value) {
+                const t = new Date();
+                df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+            }
             fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
@@ -271,6 +293,7 @@
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
                 });
                 fetchLiveStatus();
+                fetchStats(); // dashboard live update during campaign
             }, 3000);
         }
 
@@ -289,55 +312,102 @@
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ मैसेज अपडेट हो गया।')) }
 
         // --- EXCEL & PDF EXTRACTOR LOGIC ---
-        function extractDataFromFile(file, callback) {
+        function setUploadStatus(msg, color) {
+            let el = document.getElementById('uploadStatusMsg');
+            if (!el) {
+                el = document.createElement('p');
+                el.id = 'uploadStatusMsg';
+                el.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;';
+                const box = document.getElementById('contactFileInput') || document.getElementById('campaignFileInput');
+                if (box && box.parentNode) box.parentNode.appendChild(el);
+            }
+            el.style.display = msg ? 'block' : 'none';
+            el.style.color = color || '#f59e0b';
+            el.innerHTML = msg || '';
+        }
+
+        // Non-blocking PDF extract — page by page, UI nahi atakti
+        function extractDataFromFile(file, callback, onProgress) {
             const ext = file.name.split('.').pop().toLowerCase();
             if (ext === 'pdf') {
                 const reader = new FileReader();
+                reader.onerror = () => {
+                    alert('PDF read error — file corrupt ho sakti hai.');
+                    callback([]);
+                };
                 reader.onload = async function(e) {
-                    const typedarray = new Uint8Array(e.target.result);
-                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                    let fullText = "";
-                    for (let i = 1; i <= pdf.numPages; i++) {
-                        const page = await pdf.getPage(i);
-                        const textContent = await page.getTextContent();
-                        fullText += textContent.items.map(item => item.str).join(" ") + " ";
+                    try {
+                        const typedarray = new Uint8Array(e.target.result);
+                        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+                        const total = pdf.numPages;
+                        const phoneSet = new Set();
+                        const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
+
+                        for (let i = 1; i <= total; i++) {
+                            if (onProgress) onProgress(i, total);
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            const pageText = textContent.items.map(item => item.str).join(' ');
+                            let m;
+                            regex.lastIndex = 0;
+                            while ((m = regex.exec(pageText)) !== null) {
+                                const num = m[0].replace(/\D/g, '').slice(-10);
+                                if (num.length === 10) phoneSet.add(num);
+                            }
+                            // Har 3 page baad UI ko breathe do (hang nahi hoga)
+                            if (i % 3 === 0) {
+                                await new Promise(r => setTimeout(r, 0));
+                            }
+                        }
+                        const result = Array.from(phoneSet).map(num => ['Customer', num]);
+                        callback(result);
+                    } catch (err) {
+                        console.error(err);
+                        alert('PDF process error: ' + (err.message || 'unknown'));
+                        callback([]);
                     }
-                    const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
-                    let matches = fullText.match(regex) || [];
-                    matches = matches.map(n => n.replace(/\D/g, '').slice(-10));
-                    matches = [...new Set(matches)]; // Remove duplicates
-                    callback(matches.map(num => ['Customer', num]));
                 };
                 reader.readAsArrayBuffer(file);
             } else if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, {type: 'array'});
-                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
-                    callback(json);
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                        callback(json);
+                    } catch (err) {
+                        alert('Excel/CSV read error');
+                        callback([]);
+                    }
                 };
                 reader.readAsArrayBuffer(file);
             } else {
                 alert("कृपया केवल PDF, Excel या CSV फाइल ही अपलोड करें।");
+                callback([]);
             }
         }
 
         // Campaign Side File Upload
         function processCampaignFile(event) {
             const file = event.target.files[0];
-            if(!file) return;
+            if (!file) return;
+            setUploadStatus('⏳ PDF/File process हो रहा है...', '#f59e0b');
             extractDataFromFile(file, (data) => {
                 let numbersStr = data.map(row => {
                     let phone = row.length >= 2 ? String(row[1]) : String(row[0]);
                     return phone ? phone.replace(/\D/g, '').slice(-10) : '';
                 }).filter(n => n.length === 10).join('\n');
-                
+
                 let existing = document.getElementById('numbers').value;
                 document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
-                alert(`✅ फाइल से नंबर निकाल लिए गए!\n\nअब नीचे "Scan & Clean" बटन दबाओ — Invalid + Duplicate हट जाएँगे, सिर्फ Valid WhatsApp numbers रहेंगे।`);
-                document.getElementById('campaignFileInput').value = ''; // Reset input
+                const count = numbersStr ? numbersStr.split('\n').filter(Boolean).length : 0;
+                setUploadStatus(`✅ ${count} numbers निकाले गए`, '#10b981');
+                alert(`✅ फाइल से ${count} नंबर निकाल लिए गए!`);
+                document.getElementById('campaignFileInput').value = '';
+            }, (page, total) => {
+                setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b');
             });
         }
 
@@ -345,46 +415,126 @@
         function processContactFile() {
             const file = document.getElementById('contactFileInput').files[0];
             const g = document.getElementById('groupSelect').value;
-            if(!file || !g) return alert("कृपया फाइल और ग्रुप दोनों सेलेक्ट करें!");
-            
+            if (!file || !g) return alert("कृपया फाइल और ग्रुप दोनों सेलेक्ट करें!");
+
+            setUploadStatus('⏳ File process हो रहा है...', '#f59e0b');
             extractDataFromFile(file, (data) => {
+                if (!allContacts[g]) allContacts[g] = [];
+                const existing = new Set(allContacts[g].map(c => c.phone));
                 let added = 0;
                 data.forEach(row => {
-                    if(!row || row.length === 0) return;
+                    if (!row || row.length === 0) return;
                     let name = row.length >= 2 ? String(row[0]).trim() : 'Customer';
                     let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]);
                     let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
-                    
-                    if(phone.length === 10) {
+                    if (phone.length === 10 && !existing.has(phone)) {
                         allContacts[g].push({ name: name, phone: phone });
+                        existing.add(phone);
                         added++;
                     }
                 });
-                
-                if(added > 0) {
+
+                if (added > 0) {
                     saveContactsToAPI();
-                    alert(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए! तुरंत लिस्ट में देखें।\n\nअब "Scan & Clean Group" दबाकर Invalid + Duplicate हटा सकते हो।`);
+                    setUploadStatus(`✅ ${added} numbers add हो गए (Total: ${allContacts[g].length})`, '#10b981');
+                    alert(`✅ फाइल से ${added} नंबर जोड़ दिए गए!`);
                 } else {
-                    alert("फाइल में कोई सही मोबाइल नंबर नहीं मिला।");
+                    setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444');
+                    alert("फाइल में कोई नया सही मोबाइल नंबर नहीं मिला।");
                 }
                 document.getElementById('contactFileInput').value = '';
+            }, (page, total) => {
+                setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b');
             });
         }
 
-        // 🔍 Scan Campaign numbers — valid WhatsApp only + remove duplicates
+        // 🛡️ Template / message risk analyzer
+        function analyzeMessageRisk(text) {
+            const risks = [];
+            if (!text || !text.trim()) return risks;
+            const t = text.trim();
+            const upper = (t.match(/[A-Z]/g) || []).length;
+            const letters = (t.match(/[A-Za-z]/g) || []).length;
+            if (letters > 20 && upper / letters > 0.5) risks.push('Bahut zyada CAPITAL letters (spam lagta hai)');
+            const spamWords = ['free money', 'click now', 'limited offer', 'act now', 'winner', 'congratulations you won', 'urgent', '100% free', 'loan approved'];
+            const lower = t.toLowerCase();
+            spamWords.forEach(w => { if (lower.includes(w)) risks.push('Risky word: "' + w + '"'); });
+            if ((t.match(/!/g) || []).length >= 4) risks.push('Bahut zyada ! marks');
+            if ((t.match(/https?:\/\//gi) || []).length >= 3) risks.push('Bahut saare links');
+            if (t.length < 15) risks.push('Message bahut short hai');
+            if (t.length > 900) risks.push('Message bahut lamba hai');
+            return risks;
+        }
+        function similarity(a, b) {
+            const x = (a || '').toLowerCase().replace(/\s+/g, ' ').trim();
+            const y = (b || '').toLowerCase().replace(/\s+/g, ' ').trim();
+            if (!x || !y) return 0;
+            if (x === y) return 1;
+            const wa = new Set(x.split(' '));
+            const wb = new Set(y.split(' '));
+            let inter = 0;
+            wa.forEach(w => { if (wb.has(w)) inter++; });
+            return inter / Math.max(wa.size, wb.size);
+        }
+        function analyzeSelectedTemplatesRisk() {
+            const box = document.getElementById('templateRiskBox');
+            if (!box) return;
+            if (!selectedTemplatesList.length) {
+                box.style.display = 'none';
+                return;
+            }
+            let html = '';
+            let hasRisk = false;
+            selectedTemplatesList.forEach((t, i) => {
+                const risks = analyzeMessageRisk(t.message);
+                if (risks.length) {
+                    hasRisk = true;
+                    html += `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px;margin-bottom:6px;font-size:12px;color:#991b1b;"><b>⚠️ ${t.name}:</b> ${risks.join(' · ')}</div>`;
+                }
+            });
+            for (let i = 0; i < selectedTemplatesList.length; i++) {
+                for (let j = i + 1; j < selectedTemplatesList.length; j++) {
+                    const sim = similarity(selectedTemplatesList[i].message, selectedTemplatesList[j].message);
+                    if (sim >= 0.85) {
+                        hasRisk = true;
+                        html += `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px;margin-bottom:6px;font-size:12px;color:#9a3412;">⚠️ Templates almost SAME: <b>${selectedTemplatesList[i].name}</b> ≈ <b>${selectedTemplatesList[j].name}</b> (${Math.round(sim*100)}%). Alag messages rakho.</div>`;
+                    }
+                }
+            }
+            if (!hasRisk) {
+                html = `<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:8px;font-size:12px;color:#065f46;">✅ Templates OK — obvious spam pattern nahi mila.</div>`;
+            }
+            box.innerHTML = html;
+            box.style.display = 'block';
+        }
+        function analyzeCustomMessageRisk() {
+            const el = document.getElementById('customMsgRisk');
+            if (!el) return;
+            const risks = analyzeMessageRisk(document.getElementById('message').value);
+            if (!risks.length) { el.innerHTML = ''; return; }
+            el.innerHTML = `<span style="color:#dc2626;">⚠️ Risk: ${risks.join(' · ')}</span>`;
+        }
+
+        // 🔍 Scan Campaign — ANTI-BAN max 20
         async function scanCampaignNumbers() {
             const ta = document.getElementById('numbers');
             const status = document.getElementById('scanCampaignStatus');
             const btn = document.getElementById('scanCampaignBtn');
-            const lines = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+            let lines = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
             if (lines.length === 0) return alert('पहले नंबर डालो या फाइल अपलोड करो!');
+
+            if (lines.length > 20) {
+                const ok = confirm(`Anti-Ban: ek baar max 20 scan.\nAapke paas ${lines.length} hain.\n\nOK = pehle 20 scan karo\nCancel = band`);
+                if (!ok) return;
+                lines = lines.slice(0, 20);
+            }
 
             const payload = lines.map(n => ({ phone: n, name: 'Customer' }));
             btn.disabled = true;
-            btn.innerHTML = '⏳ Scanning... (WhatsApp check)';
+            btn.innerHTML = '⏳ Scanning (max 20)...';
             status.style.display = 'block';
             status.style.color = '#f59e0b';
-            status.innerHTML = `⏳ ${payload.length} numbers check हो रहे हैं... थोड़ा समय लग सकता है।`;
+            status.innerHTML = `⏳ ${payload.length} numbers check (Anti-Ban mode)...`;
 
             try {
                 const r = await fetch('/api/validate-numbers', {
@@ -398,15 +548,18 @@
                     status.innerHTML = '❌ ' + (d.error || 'Scan failed');
                     return;
                 }
-                ta.value = (d.valid || []).map(c => c.phone).join('\n');
+                // Keep remaining unscoped numbers + valid scanned
+                const rest = ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(20);
+                const validPhones = (d.valid || []).map(c => c.phone);
+                ta.value = validPhones.concat(rest).join('\n');
                 status.style.color = '#10b981';
-                status.innerHTML = `✅ Done! Total: ${d.total} → Valid WhatsApp: <b>${d.validCount}</b> | Invalid हटाए: ${d.invalid} | Duplicate हटाए: ${d.duplicatesRemoved}`;
+                status.innerHTML = `✅ Scan (max 20): Valid <b>${d.validCount}</b> | Invalid: ${d.invalid} | Dup: ${d.duplicatesRemoved}. Baaki list safe rakhi.`;
             } catch (e) {
                 status.style.color = '#ef4444';
-                status.innerHTML = '❌ Network error — server check करो।';
+                status.innerHTML = '❌ Network error — server / WhatsApp connection check karo.';
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '🔍 Scan & Clean — सिर्फ Valid WhatsApp Numbers रखो (Duplicate हटाओ)';
+                btn.innerHTML = '🔍 Scan (max 20) + Clean Duplicates';
             }
         }
 
@@ -418,17 +571,24 @@
             if (!g || !allContacts[g]) return alert('पहले ग्रुप चुनो!');
             if (allContacts[g].length === 0) return alert('इस ग्रुप में कोई नंबर नहीं है!');
 
+            let toScan = allContacts[g];
+            if (toScan.length > 20) {
+                const ok = confirm(`Anti-Ban: max 20 scan.\nGroup mein ${toScan.length} hain.\nOK = pehle 20 check, baaki group mein rehne do.`);
+                if (!ok) return;
+                toScan = toScan.slice(0, 20);
+            }
+
             btn.disabled = true;
-            btn.innerHTML = '⏳ Scanning...';
+            btn.innerHTML = '⏳ Scanning (max 20)...';
             status.style.display = 'block';
             status.style.color = '#f59e0b';
-            status.innerHTML = `⏳ ${allContacts[g].length} numbers check हो रहे हैं...`;
+            status.innerHTML = `⏳ ${toScan.length} numbers check (Anti-Ban)...`;
 
             try {
                 const r = await fetch('/api/validate-numbers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ numbers: allContacts[g] })
+                    body: JSON.stringify({ numbers: toScan })
                 });
                 const d = await r.json();
                 if (!d.success) {
@@ -436,17 +596,30 @@
                     status.innerHTML = '❌ ' + (d.error || 'Scan failed');
                     return;
                 }
-                allContacts[g] = d.valid || [];
+                const validSet = new Set((d.valid || []).map(c => c.phone));
+                const scannedPhones = new Set(toScan.map(c => c.phone));
+                // Remove invalid from the scanned portion; keep rest of group
+                const kept = allContacts[g].filter(c => {
+                    if (!scannedPhones.has(c.phone)) return true;
+                    return validSet.has(c.phone);
+                });
+                // Dedupe
+                const seen = new Set();
+                allContacts[g] = kept.filter(c => {
+                    if (seen.has(c.phone)) return false;
+                    seen.add(c.phone);
+                    return true;
+                });
                 saveContactsToAPI();
                 renderGroupContacts();
                 status.style.color = '#10b981';
-                status.innerHTML = `✅ Done! Total: ${d.total} → Valid WhatsApp: <b>${d.validCount}</b> | Invalid हटाए: ${d.invalid} | Duplicate हटाए: ${d.duplicatesRemoved}`;
+                status.innerHTML = `✅ Scan 20: Valid ${d.validCount} | Invalid ${d.invalid} | Group total ab: ${allContacts[g].length}`;
             } catch (e) {
                 status.style.color = '#ef4444';
                 status.innerHTML = '❌ Network error — server check करो।';
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '🔍 Scan & Clean Group — Invalid + Duplicate हटाओ (सिर्फ Valid WhatsApp)';
+                btn.innerHTML = '🔍 Scan Group (max 20) — Invalid हटाओ';
             }
         }
 
@@ -479,10 +652,20 @@
             const g = document.getElementById('groupSelect').value;
             const div = document.getElementById('contactManagerDiv');
             const tbody = document.getElementById('contactTableBody');
-            if(!g) { div.style.display = 'none'; return; }
+            if (!g) { div.style.display = 'none'; return; }
             div.style.display = 'block';
-            tbody.innerHTML = '';
-            allContacts[g].forEach(c => tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone}</td></tr>`);
+            const list = allContacts[g] || [];
+            // Large lists: only show first 100 (warna browser hang)
+            const MAX_SHOW = 100;
+            const show = list.slice(0, MAX_SHOW);
+            let html = '';
+            for (let i = 0; i < show.length; i++) {
+                html += `<tr><td>${show[i].name}</td><td>${show[i].phone}</td></tr>`;
+            }
+            if (list.length > MAX_SHOW) {
+                html += `<tr><td colspan="2" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW} numbers (कुल ${list.length})</td></tr>`;
+            }
+            tbody.innerHTML = html;
         }
         function addSingleContact() {
             const g = document.getElementById('groupSelect').value;
@@ -531,8 +714,11 @@
 
             if (selectedTemplatesList.length === 0) {
                 preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा।</p>';
+                const box = document.getElementById('templateRiskBox');
+                if (box) box.style.display = 'none';
                 return;
             }
+            analyzeSelectedTemplatesRisk();
 
             let html = `<p style="font-size:13px; color:#2563eb; font-weight:600; margin:0 0 10px 0;">✅ ${selectedTemplatesList.length} टेम्प्लेट चुने (AI Smart Mix — random, no series):</p>`;
             html += `<div style="display:flex; flex-direction:column; gap:12px;">`;
@@ -620,15 +806,25 @@
                 </div>`;
 
                 if (data.numbers && data.numbers.length) {
-                    // Show last 50 for performance
-                    const list = data.numbers.length > 50 ? data.numbers.slice(-50) : data.numbers;
-                    if (data.numbers.length > 50) {
-                        html += `<p style="font-size:12px; color:#64748b;">Showing last 50 of ${data.numbers.length}...</p>`;
+                    const processed = data.numbers.filter(n => n.status && !String(n.status).includes('Pending'));
+                    const pending = data.numbers.filter(n => n.status && String(n.status).includes('Pending'));
+                    // Latest processed first + a few upcoming pending
+                    const showProcessed = processed.slice(-40).reverse();
+                    const showPending = pending.slice(0, 10);
+                    html += `<p style="font-size:12px; color:#64748b; margin-bottom:8px;">Sent/Failed: ${processed.length} | Pending: ${pending.length}</p>`;
+                    if (showProcessed.length) {
+                        html += `<p style="font-size:12px; font-weight:600; color:#10b981; margin:8px 0 4px;">✅ Recently Sent / Failed</p>`;
+                        showProcessed.forEach(item => {
+                            let color = String(item.status).includes('Sent') ? '#10b981' : '#ef4444';
+                            html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
+                        });
                     }
-                    list.forEach(item => {
-                        let color = item.status.includes('Sent') ? '#10b981' : (item.status.includes('Invalid') ? '#ef4444' : '#f59e0b');
-                        html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:${color}; font-weight:bold;">${item.status}</span></div>`;
-                    });
+                    if (showPending.length) {
+                        html += `<p style="font-size:12px; font-weight:600; color:#f59e0b; margin:12px 0 4px;">⏳ Pending (next up)</p>`;
+                        showPending.forEach(item => {
+                            html += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span>📱 ${item.phone}</span><span style="color:#f59e0b; font-weight:bold;">${item.status}</span></div>`;
+                        });
+                    }
                 }
 
                 document.getElementById('liveList').innerHTML = html || 'कोई एक्टिव कैंपेन नहीं है।';
@@ -717,3 +913,4 @@
     </script>
 </body>
 </html>
+
