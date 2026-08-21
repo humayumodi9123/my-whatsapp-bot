@@ -196,6 +196,105 @@ function getTodaySentCount() {
     const stats = getStats();
     return (stats[today] && stats[today].sent) ? stats[today].sent : 0;
 }
+
+// Daily SCAN limit — progressive auto-scan
+// New account (<3 days): 80 scans/day
+// Older: up to 200/day, still in chunks of max 20 per tick
+function getDailyScanLimit() {
+    const age = getAccountAgeDays();
+    if (age < 3) return 80;
+    return 200;
+}
+function getTodayScanCount() {
+    const today = new Date().toLocaleDateString('en-CA');
+    const meta = getMeta();
+    if (!meta.scanByDate) meta.scanByDate = {};
+    return meta.scanByDate[today] || 0;
+}
+function addTodayScanCount(n) {
+    const today = new Date().toLocaleDateString('en-CA');
+    const meta = { ...getMeta() };
+    if (!meta.scanByDate) meta.scanByDate = {};
+    meta.scanByDate[today] = (meta.scanByDate[today] || 0) + n;
+    persist('meta', meta);
+}
+
+function getGroupScanStats(groupContacts) {
+    const list = groupContacts || [];
+    let pending = 0, valid = 0, invalid = 0, unscanned = 0;
+    list.forEach(c => {
+        if (c.waStatus === 'valid') valid++;
+        else if (c.waStatus === 'invalid') invalid++;
+        else { pending++; unscanned++; }
+    });
+    return { total: list.length, valid, invalid, pending, scanned: valid + invalid };
+}
+
+// Check one number on WhatsApp
+async function checkOneNumberOnWA(phone10) {
+    try {
+        const r = await sock.onWhatsApp('91' + phone10 + '@s.whatsapp.net');
+        return Array.isArray(r) && r[0] && r[0].exists !== false;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Auto progressive scan — runs in background
+let autoScanRunning = false;
+async function runAutoScanTick() {
+    if (autoScanRunning) return;
+    if (!isConnected || !sock) return;
+    if (liveCampaign && liveCampaign.isActive) return;
+    if (!isWithinSendWindow()) return;
+
+    const dailyLimit = getDailyScanLimit();
+    const used = getTodayScanCount();
+    if (used >= dailyLimit) return;
+
+    const chunk = Math.min(20, dailyLimit - used);
+    const contacts = getContacts();
+    const pendingItems = []; // { group, index, contact }
+
+    Object.keys(contacts).forEach(g => {
+        (contacts[g] || []).forEach((c, idx) => {
+            if (!c.waStatus || c.waStatus === 'pending') {
+                pendingItems.push({ group: g, index: idx, contact: c });
+            }
+        });
+    });
+
+    if (pendingItems.length === 0) return;
+
+    autoScanRunning = true;
+    const batch = pendingItems.slice(0, chunk);
+    let scannedNow = 0;
+
+    try {
+        for (const item of batch) {
+            const phone = String(item.contact.phone || '').replace(/\D/g, '').slice(-10);
+            if (phone.length !== 10) {
+                contacts[item.group][item.index].waStatus = 'invalid';
+                scannedNow++;
+                continue;
+            }
+            const ok = await checkOneNumberOnWA(phone);
+            contacts[item.group][item.index].waStatus = ok ? 'valid' : 'invalid';
+            contacts[item.group][item.index].phone = phone;
+            scannedNow++;
+            await new Promise(r => setTimeout(r, 1500)); // gap between checks
+        }
+        if (scannedNow > 0) {
+            addTodayScanCount(scannedNow);
+            await persist('contacts', contacts);
+            console.log(`Auto-scan: ${scannedNow} checked today=${getTodayScanCount()}/${dailyLimit}`);
+        }
+    } catch (e) {
+        console.error('Auto-scan error:', e.message);
+    } finally {
+        autoScanRunning = false;
+    }
+}
 function isWithinSendWindow() {
     const ist = getISTNow();
     const h = ist.getHours();
@@ -315,8 +414,83 @@ app.post('/api/templates/delete', async (req, res) => {
 // Contacts & Groups Routes (Mongo persistent)
 app.get('/api/contacts', (req, res) => res.json(getContacts()));
 app.post('/api/contacts', async (req, res) => {
-    await persist('contacts', req.body || {});
+    // Normalize: keep waStatus if present
+    const body = req.body || {};
+    Object.keys(body).forEach(g => {
+        if (!Array.isArray(body[g])) return;
+        body[g] = body[g].map(c => ({
+            name: c.name || 'Customer',
+            phone: String(c.phone || '').replace(/\D/g, '').slice(-10),
+            waStatus: c.waStatus || null // null = not scanned yet
+        }));
+    });
+    await persist('contacts', body);
     res.json({ success: true });
+});
+
+// Group scan progress + daily scan quota
+app.get('/api/scan-progress', (req, res) => {
+    const contacts = getContacts();
+    const groups = {};
+    Object.keys(contacts).forEach(g => {
+        groups[g] = getGroupScanStats(contacts[g]);
+    });
+    res.json({
+        groups,
+        todayScanned: getTodayScanCount(),
+        dailyScanLimit: getDailyScanLimit(),
+        accountAgeDays: getAccountAgeDays(),
+        autoScan: true,
+        window: '8 AM – 10 PM IST'
+    });
+});
+
+// Manual "scan next chunk" still limited to 20, marks waStatus
+app.post('/api/scan-next', async (req, res) => {
+    if (!isConnected || !sock) {
+        return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
+    }
+    const group = req.body.group;
+    const contacts = getContacts();
+    if (!group || !contacts[group]) {
+        return res.status(400).json({ success: false, error: 'Group select karo' });
+    }
+    const dailyLimit = getDailyScanLimit();
+    const used = getTodayScanCount();
+    if (used >= dailyLimit) {
+        return res.status(400).json({
+            success: false,
+            error: `Aaj ka scan limit (${dailyLimit}) pure. Kal auto continue hoga.`,
+            todayScanned: used,
+            dailyScanLimit: dailyLimit
+        });
+    }
+    const chunk = Math.min(20, dailyLimit - used);
+    let scanned = 0, valid = 0, invalid = 0;
+    for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
+        const c = contacts[group][i];
+        if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
+        const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
+        const ok = phone.length === 10 ? await checkOneNumberOnWA(phone) : false;
+        contacts[group][i].waStatus = ok ? 'valid' : 'invalid';
+        contacts[group][i].phone = phone;
+        if (ok) valid++; else invalid++;
+        scanned++;
+        await new Promise(r => setTimeout(r, 1500));
+    }
+    if (scanned > 0) {
+        addTodayScanCount(scanned);
+        await persist('contacts', contacts);
+    }
+    res.json({
+        success: true,
+        scanned,
+        valid,
+        invalid,
+        todayScanned: getTodayScanCount(),
+        dailyScanLimit: dailyLimit,
+        groupStats: getGroupScanStats(contacts[group])
+    });
 });
 
 app.post('/pair-code', async (req, res) => {
@@ -593,5 +767,9 @@ app.post('/send', async (req, res) => {
     connectToWhatsApp();
     app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
         console.log(`Server started | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'}`);
+        // Auto progressive scan every 3 minutes (max 20 per tick, daily limit enforced)
+        setInterval(() => { runAutoScanTick().catch(() => {}); }, 3 * 60 * 1000);
+        // First tick after 30s (wait for WA connect)
+        setTimeout(() => { runAutoScanTick().catch(() => {}); }, 30000);
     });
 })();
