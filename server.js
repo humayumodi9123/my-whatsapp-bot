@@ -3,6 +3,7 @@ const cors = require('cors');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
 const fs = require('fs');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 app.use(cors());
@@ -15,11 +16,139 @@ let sock;
 let isAutoReplyEnabled = true;
 let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n*1️⃣* - सर्विस और प्रोडक्ट\n*2️⃣* - प्राइस लिस्ट\n*3️⃣* - हमसे बात करने के लिए`;
 
+// Local file fallbacks (used only if MongoDB not configured)
 const statsFile = __dirname + '/stats.json';
 const historyFile = __dirname + '/history.json';
 const templatesFile = __dirname + '/templates.json';
 const contactsFile = __dirname + '/contacts.json';
-const connectionMetaFile = __dirname + '/connection_meta.json'; // first connected time
+const connectionMetaFile = __dirname + '/connection_meta.json';
+
+// ---------- MongoDB Persistent Store ----------
+const MONGODB_URI = process.env.MONGODB_URI || '';
+let mongoClient = null;
+let db = null;
+let useMongo = false;
+
+// In-memory cache (synced to Mongo or files)
+let cache = {
+    contacts: {},
+    templates: [],
+    history: [],
+    stats: {},
+    meta: {}
+};
+
+async function initMongo() {
+    if (!MONGODB_URI) {
+        console.log('⚠️ MONGODB_URI not set — using local JSON files (data may reset on Render restart)');
+        // Load from files
+        cache.contacts = getJsonFile(contactsFile) || {};
+        cache.templates = getJsonFile(templatesFile) || [];
+        cache.history = getJsonFile(historyFile) || [];
+        cache.stats = getJsonFile(statsFile) || {};
+        cache.meta = getJsonFile(connectionMetaFile) || {};
+        return;
+    }
+    try {
+        mongoClient = new MongoClient(MONGODB_URI);
+        await mongoClient.connect();
+        db = mongoClient.db('whatsapp_bot');
+        useMongo = true;
+        console.log('✅ MongoDB connected — data will persist across restarts');
+
+        // Load all into cache
+        const col = (name) => db.collection(name);
+        const contactsDoc = await col('contacts').findOne({ _id: 'main' });
+        const templatesDoc = await col('templates').findOne({ _id: 'main' });
+        const historyDoc = await col('history').findOne({ _id: 'main' });
+        const statsDoc = await col('stats').findOne({ _id: 'main' });
+        const metaDoc = await col('meta').findOne({ _id: 'main' });
+
+        cache.contacts = (contactsDoc && contactsDoc.data) ? contactsDoc.data : {};
+        cache.templates = (templatesDoc && templatesDoc.data) ? templatesDoc.data : [];
+        cache.history = (historyDoc && historyDoc.data) ? historyDoc.data : [];
+        cache.stats = (statsDoc && statsDoc.data) ? statsDoc.data : {};
+        cache.meta = (metaDoc && metaDoc.data) ? metaDoc.data : {};
+
+        // One-time migrate from local files if mongo empty
+        if (Object.keys(cache.contacts).length === 0 && fs.existsSync(contactsFile)) {
+            cache.contacts = getJsonFile(contactsFile) || {};
+            await persist('contacts', cache.contacts);
+        }
+        if (cache.templates.length === 0 && fs.existsSync(templatesFile)) {
+            cache.templates = getJsonFile(templatesFile) || [];
+            await persist('templates', cache.templates);
+        }
+        if (cache.history.length === 0 && fs.existsSync(historyFile)) {
+            cache.history = getJsonFile(historyFile) || [];
+            await persist('history', cache.history);
+        }
+        if (Object.keys(cache.stats).length === 0 && fs.existsSync(statsFile)) {
+            cache.stats = getJsonFile(statsFile) || {};
+            await persist('stats', cache.stats);
+        }
+        if (!cache.meta.firstConnectedAt && fs.existsSync(connectionMetaFile)) {
+            cache.meta = getJsonFile(connectionMetaFile) || {};
+            await persist('meta', cache.meta);
+        }
+    } catch (e) {
+        console.error('❌ MongoDB connect failed, falling back to files:', e.message);
+        useMongo = false;
+        cache.contacts = getJsonFile(contactsFile) || {};
+        cache.templates = getJsonFile(templatesFile) || [];
+        cache.history = getJsonFile(historyFile) || [];
+        cache.stats = getJsonFile(statsFile) || {};
+        cache.meta = getJsonFile(connectionMetaFile) || {};
+    }
+}
+
+async function persist(key, data) {
+    cache[key] = data;
+    if (useMongo && db) {
+        try {
+            await db.collection(key).updateOne(
+                { _id: 'main' },
+                { $set: { data, updatedAt: new Date() } },
+                { upsert: true }
+            );
+        } catch (e) {
+            console.error('Mongo persist error:', key, e.message);
+        }
+    } else {
+        const map = {
+            contacts: contactsFile,
+            templates: templatesFile,
+            history: historyFile,
+            stats: statsFile,
+            meta: connectionMetaFile
+        };
+        if (map[key]) saveJsonFile(map[key], data);
+    }
+}
+
+function getJsonFile(file) { try { return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : null; } catch(e) { return null; } }
+function saveJsonFile(file, data) { try { fs.writeFileSync(file, JSON.stringify(data, null, 2)); } catch(e) {} }
+
+// Sync wrappers used by rest of app
+function getStats() { return cache.stats || {}; }
+function saveStats(date, sent, failed) {
+    const stats = getStats();
+    if (!stats[date]) stats[date] = { sent: 0, failed: 0 };
+    stats[date].sent += sent;
+    stats[date].failed += failed;
+    persist('stats', stats); // fire-and-forget async
+}
+function getHistory() { return cache.history || []; }
+function addHistory(number, messageSent) {
+    let list = getHistory();
+    list.push({ number: number, message: messageSent, date: new Date().toLocaleString('en-IN') });
+    // keep last 50000 entries max
+    if (list.length > 50000) list = list.slice(-50000);
+    persist('history', list);
+}
+function getTemplates() { return cache.templates || []; }
+function getContacts() { return cache.contacts || {}; }
+function getMeta() { return cache.meta || {}; }
 
 let liveCampaign = {
     isActive: false,
@@ -28,9 +157,9 @@ let liveCampaign = {
     failed: 0,
     pending: 0,
     numbers: [],
-    status: 'idle', // idle | sending | resting | night_rest
+    status: 'idle',
     restReason: '',
-    resumeAt: null,       // ISO timestamp
+    resumeAt: null,
     batchSize: 50,
     accountAgeDays: 0
 };
@@ -40,18 +169,33 @@ function getISTNow() {
     return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
 }
 function getAccountAgeDays() {
-    const meta = getJson(connectionMetaFile);
+    const meta = getMeta();
     if (!meta || !meta.firstConnectedAt) return 0;
     const first = new Date(meta.firstConnectedAt);
     const now = new Date();
     return Math.floor((now - first) / (1000 * 60 * 60 * 24));
 }
 function getBatchSize() {
-    // < 3 days connected → every 50 msgs rest; >= 3 days → every 100
-    return getAccountAgeDays() >= 3 ? 100 : 50;
+    // Anti-ban: always 30–50 per batch (never 100+)
+    const age = getAccountAgeDays();
+    if (age < 3) return 30;   // new account: smaller batches
+    if (age < 7) return 40;
+    return 50;                // older: max 50
+}
+
+// Daily send limit (anti-ban)
+function getDailyLimit() {
+    const age = getAccountAgeDays();
+    if (age < 3) return 80;
+    if (age < 7) return 150;
+    return 200;
+}
+function getTodaySentCount() {
+    const today = new Date().toLocaleDateString('en-CA');
+    const stats = getStats();
+    return (stats[today] && stats[today].sent) ? stats[today].sent : 0;
 }
 function isWithinSendWindow() {
-    // Send only 08:00 – 22:00 IST (8 AM to 10 PM)
     const ist = getISTNow();
     const h = ist.getHours();
     return h >= 8 && h < 22;
@@ -64,8 +208,7 @@ function msUntilNext8AM_IST() {
     const msSinceMidnight = ((h * 60 + m) * 60 + s) * 1000;
     const eightAM = 8 * 60 * 60 * 1000;
     if (h >= 8 && h < 22) return 0;
-    if (h < 8) return eightAM - msSinceMidnight; // same morning
-    // 10 PM onwards → next day 8 AM
+    if (h < 8) return eightAM - msSinceMidnight;
     const msUntilMidnight = 24 * 60 * 60 * 1000 - msSinceMidnight;
     return msUntilMidnight + eightAM;
 }
@@ -93,28 +236,6 @@ async function waitForSendWindow() {
     }
 }
 
-// Data Management Functions
-function getJson(file) { try { return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : null; } catch(e) { return null; } }
-function saveJson(file, data) { fs.writeFileSync(file, JSON.stringify(data, null, 2)); }
-
-function getStats() { return getJson(statsFile) || {}; }
-function saveStats(date, sent, failed) {
-    const stats = getStats();
-    if (!stats[date]) stats[date] = { sent: 0, failed: 0 };
-    stats[date].sent += sent; stats[date].failed += failed;
-    saveJson(statsFile, stats);
-}
-
-function getHistory() { return getJson(historyFile) || []; }
-function addHistory(number, messageSent) {
-    let list = getHistory();
-    list.push({ number: number, message: messageSent, date: new Date().toLocaleString('en-IN') });
-    saveJson(historyFile, list);
-}
-
-function getTemplates() { return getJson(templatesFile) || []; }
-function getContacts() { return getJson(contactsFile) || {}; } // Format: { "VIP": [{name: "Rahul", phone: "9198..."}] }
-
 // WhatsApp Connection
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -131,11 +252,11 @@ async function connectToWhatsApp() {
         } else if(connection === 'open') {
             isConnected = true;
             qrCodeData = null;
-            // Save first connected time (for account age / batch size)
-            const meta = getJson(connectionMetaFile) || {};
+            // Save first connected time (for account age / batch size) — persists in Mongo
+            const meta = { ...getMeta() };
             if (!meta.firstConnectedAt) {
                 meta.firstConnectedAt = new Date().toISOString();
-                saveJson(connectionMetaFile, meta);
+                persist('meta', meta);
             }
         }
     });
@@ -161,31 +282,48 @@ async function connectToWhatsApp() {
         else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
     });
 }
-connectToWhatsApp();
 
 // Standard API Routes
-app.get('/status', (req, res) => res.json({ connected: isConnected, qrCode: qrCodeData, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage }));
+app.get('/status', (req, res) => res.json({
+    connected: isConnected,
+    qrCode: qrCodeData,
+    autoReply: isAutoReplyEnabled,
+    currentMsg: autoReplyMessage,
+    storage: useMongo ? 'mongodb' : 'local'
+}));
 app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enabled; res.json({ success: true }); });
 app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
 app.get('/api/history', (req, res) => res.json(getHistory()));
 app.get('/api/live-status', (req, res) => res.json(liveCampaign));
 
-// Template Routes
+// Template Routes (Mongo persistent)
 app.get('/api/templates', (req, res) => res.json(getTemplates()));
-app.post('/api/templates', (req, res) => { const t = getTemplates(); t.push(req.body); saveJson(templatesFile, t); res.json({ success: true }); });
-app.post('/api/templates/delete', (req, res) => { let t = getTemplates(); t = t.filter(x => x.id !== req.body.id); saveJson(templatesFile, t); res.json({ success: true }); });
+app.post('/api/templates', async (req, res) => {
+    const t = getTemplates();
+    t.push(req.body);
+    await persist('templates', t);
+    res.json({ success: true });
+});
+app.post('/api/templates/delete', async (req, res) => {
+    let t = getTemplates().filter(x => x.id !== req.body.id);
+    await persist('templates', t);
+    res.json({ success: true });
+});
 
-// Contacts & Groups Routes
+// Contacts & Groups Routes (Mongo persistent)
 app.get('/api/contacts', (req, res) => res.json(getContacts()));
-app.post('/api/contacts', (req, res) => { saveJson(contactsFile, req.body); res.json({ success: true }); });
+app.post('/api/contacts', async (req, res) => {
+    await persist('contacts', req.body || {});
+    res.json({ success: true });
+});
 
 app.post('/pair-code', async (req, res) => {
     let { phone } = req.body; phone = phone.replace(/[^0-9]/g, ''); if (!phone.startsWith('91')) phone = '91' + phone;
     res.json({ success: true, code: await sock.requestPairingCode(phone) });
 });
 
-// ✅ Validate numbers: remove duplicates + keep only real WhatsApp numbers
+// ✅ Validate numbers — ANTI-BAN: max 20 numbers per scan
 app.post('/api/validate-numbers', async (req, res) => {
     if (!isConnected || !sock) {
         return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है! Pehle device connect karo.' });
@@ -195,6 +333,17 @@ app.post('/api/validate-numbers', async (req, res) => {
     let raw = req.body.numbers || [];
     if (!Array.isArray(raw) || raw.length === 0) {
         return res.json({ success: true, valid: [], invalid: 0, duplicatesRemoved: 0, total: 0 });
+    }
+
+    // ANTI-BAN HARD LIMIT: max 20 per request
+    const MAX_SCAN = 20;
+    if (raw.length > MAX_SCAN) {
+        return res.status(400).json({
+            success: false,
+            error: `Anti-Ban: ek baar mein max ${MAX_SCAN} numbers scan allowed. Aapne ${raw.length} bheje. List chhoti karke phir try karo.`,
+            maxAllowed: MAX_SCAN,
+            received: raw.length
+        });
     }
 
     // Normalize + dedupe (keep first name for each unique 10-digit)
@@ -221,8 +370,8 @@ app.post('/api/validate-numbers', async (req, res) => {
     const valid = [];
     let invalidCount = 0;
 
-    // Check in batches (Baileys onWhatsApp)
-    const BATCH = 30;
+    // Check one-by-one with delay (safer than big batch)
+    const BATCH = 5;
     for (let i = 0; i < uniqueList.length; i += BATCH) {
         const batch = uniqueList.slice(i, i + BATCH);
         try {
@@ -256,7 +405,7 @@ app.post('/api/validate-numbers', async (req, res) => {
             }
         }
         if (i + BATCH < uniqueList.length) {
-            await new Promise(r => setTimeout(r, 400));
+            await new Promise(r => setTimeout(r, 2000)); // anti-ban gap between scan batches
         }
     }
 
@@ -270,34 +419,50 @@ app.post('/api/validate-numbers', async (req, res) => {
     });
 });
 
-// 🚀 UPDATED SEND ROUTE (Smart Random Template Mix — no sequential series)
+// 🚀 SEND ROUTE — Anti-Ban AI limits + Smart template mix
 app.post('/send', async (req, res) => {
     if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
     
     // numbers: [{phone, name}, ...]
     // templates: [{name, message, imageBase64}, ...]  → AI-style random mix (no series pattern)
     const { numbers, message, minDelay, maxDelay, imageBase64, templates } = req.body;
+
+    if (!Array.isArray(numbers) || numbers.length === 0) {
+        return res.status(400).json({ success: false, error: 'Number list empty!' });
+    }
+
+    // Anti-ban: daily limit
+    const dailyLimit = getDailyLimit();
+    const alreadySent = getTodaySentCount();
+    if (alreadySent >= dailyLimit) {
+        return res.status(400).json({
+            success: false,
+            error: `Anti-Ban: aaj ka limit (${dailyLimit}) pure ho chuke. Kal phir try karo. Aaj already sent: ${alreadySent}`
+        });
+    }
+    // Only process remaining quota for today (rest stay for next day via night window + user restart)
+    let numbersToSend = numbers;
+    const remainingQuota = dailyLimit - alreadySent;
+    if (numbers.length > remainingQuota) {
+        numbersToSend = numbers.slice(0, remainingQuota);
+    }
     
     const useRotation = Array.isArray(templates) && templates.length > 0;
     
     // Smart shuffle: fair distribution + random order so consecutive numbers don't get sequential templates
     let shuffledTemplateOrder = [];
     if (useRotation) {
-        const n = numbers.length;
+        const n = numbersToSend.length;
         const tCount = templates.length;
-        // Build list so each template is used roughly equally
         for (let i = 0; i < n; i++) {
             shuffledTemplateOrder.push(i % tCount);
         }
-        // Fisher-Yates shuffle → random order, no series
         for (let i = shuffledTemplateOrder.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [shuffledTemplateOrder[i], shuffledTemplateOrder[j]] = [shuffledTemplateOrder[j], shuffledTemplateOrder[i]];
         }
-        // Extra pass: reduce consecutive same-template runs (looks more natural)
         for (let i = 1; i < shuffledTemplateOrder.length; i++) {
             if (shuffledTemplateOrder[i] === shuffledTemplateOrder[i - 1] && tCount > 1) {
-                // swap with a later different index if possible
                 for (let k = i + 1; k < shuffledTemplateOrder.length; k++) {
                     if (shuffledTemplateOrder[k] !== shuffledTemplateOrder[i - 1]) {
                         [shuffledTemplateOrder[i], shuffledTemplateOrder[k]] = [shuffledTemplateOrder[k], shuffledTemplateOrder[i]];
@@ -309,36 +474,45 @@ app.post('/send', async (req, res) => {
     }
     
     const ageDays = getAccountAgeDays();
-    const batchSize = getBatchSize(); // 50 if < 3 days, else 100
+    const batchSize = getBatchSize(); // 30 / 40 / 50 anti-ban
 
     liveCampaign = {
         isActive: true,
-        total: numbers.length,
+        total: numbersToSend.length,
+        dailyLimit,
+        alreadySentToday: alreadySent,
         sent: 0,
         failed: 0,
-        pending: numbers.length,
-        numbers: numbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' })),
+        pending: numbersToSend.length,
+        numbers: numbersToSend.map(n => ({ phone: n.phone, status: 'Pending ⏳' })),
         status: 'sending',
         restReason: '',
         resumeAt: null,
         batchSize,
         accountAgeDays: ageDays
     };
-    res.json({ success: true, batchSize, accountAgeDays: ageDays }); 
+    res.json({
+        success: true,
+        batchSize,
+        accountAgeDays: ageDays,
+        dailyLimit,
+        willSend: numbersToSend.length,
+        skippedForDailyLimit: numbers.length - numbersToSend.length
+    }); 
     
-    let minD = parseInt(minDelay) || 10;
-    let maxD = parseInt(maxDelay) || 20;
+    // Anti-ban minimum delays
+    let minD = Math.max(45, parseInt(minDelay) || 45);
+    let maxD = Math.max(minD + 15, parseInt(maxDelay) || 90);
     let sentCount = 0;
     let failedCount = 0;
     let sentInCurrentBatch = 0;
 
-    for (let i = 0; i < numbers.length; i++) {
+    for (let i = 0; i < numbersToSend.length; i++) {
         // 1) Only send between 8 AM – 10 PM IST
         await waitForSendWindow();
 
-        // 2) After every batchSize successful-ish attempts, rest 2 hours
-        //    (count processed messages in batch, not only sent)
-        if (sentInCurrentBatch >= batchSize && i < numbers.length) {
+        // 2) After every batchSize, rest 2 hours
+        if (sentInCurrentBatch >= batchSize && i < numbersToSend.length) {
             sentInCurrentBatch = 0;
             const twoHours = 2 * 60 * 60 * 1000;
             await smartSleep(
@@ -353,7 +527,7 @@ app.post('/send', async (req, res) => {
         liveCampaign.restReason = '';
         liveCampaign.resumeAt = null;
 
-        let contact = numbers[i];
+        let contact = numbersToSend[i];
         let num = String(contact.phone).replace(/[^0-9]/g, '');
         let customerName = contact.name || 'Customer';
 
@@ -389,9 +563,11 @@ app.post('/send', async (req, res) => {
             liveCampaign.pending--;
             liveCampaign.numbers[i].status = useRotation ? `Sent ✅ (${tplName})` : 'Sent ✅';
             addHistory(num, finalMessage || (tplName ? `[${tplName}] Media` : "Media Sent")); 
+            // Live dashboard update (incremental)
+            saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
             sentInCurrentBatch++;
             
-            if (i < numbers.length - 1) {
+            if (i < numbersToSend.length - 1) {
                 const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
@@ -400,6 +576,7 @@ app.post('/send', async (req, res) => {
             liveCampaign.failed++;
             liveCampaign.pending--;
             liveCampaign.numbers[i].status = 'Invalid ❌';
+            saveStats(new Date().toLocaleDateString('en-CA'), 0, 1);
             sentInCurrentBatch++; // still counts toward batch rest
         }
     }
@@ -407,8 +584,13 @@ app.post('/send', async (req, res) => {
     liveCampaign.status = 'idle';
     liveCampaign.restReason = '';
     liveCampaign.resumeAt = null;
-    saveStats(new Date().toLocaleDateString('en-CA'), sentCount, failedCount);
 });
 
-app.listen(process.env.PORT || 10000, '0.0.0.0', () => console.log(`Server started`));
-
+// Boot: Mongo first, then WhatsApp, then HTTP
+(async () => {
+    await initMongo();
+    connectToWhatsApp();
+    app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
+        console.log(`Server started | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'}`);
+    });
+})();
