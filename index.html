@@ -175,7 +175,13 @@
                 <div style="flex: 1;"><label>अधिकतम समय (Sec):</label><input type="number" id="maxDelay" value="120" min="60"></div>
             </div>
 
-            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign (Anti-Ban Mode)</button>
+            <div class="form-group" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
+                <label>📱 Kis WhatsApp se bhejna hai? (multi select)</label>
+                <div id="campaignSessionPick" style="margin-top:8px;"></div>
+                <p style="font-size:12px; color:#64748b; margin:8px 0 0;">Har selected WA: 30 msgs → 2hr rest. Available WA queue se next number lega. Ek number pe sirf ek msg.</p>
+            </div>
+
+            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign (Multi-WA Anti-Ban)</button>
         </div>
 
         <!-- 3. Contact Book & File Upload -->
@@ -257,14 +263,19 @@
             <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
         </div>
 
-        <!-- Connect Device -->
+        <!-- Connect Device — Multi WhatsApp -->
         <div id="connectWp" class="content-section">
-            <h2 class="section-title">Device Connection</h2>
-            <div style="text-align: center; padding: 20px; background: #f8fafc; border-radius: 16px; border: 2px dashed #cbd5e1;">
-                <img id="realQr" style="max-width:100%; border-radius:12px; display: none;">
-                <p id="qrStatus" style="font-weight: 600;">Checking status...</p>
-                <hr style="margin:20px 0;"><h3 style="font-size: 15px;">या Pairing Code से कनेक्ट करें</h3>
-                <input type="text" id="pairPhone" placeholder="WhatsApp Number" style="text-align:center; font-size:18px;">
+            <h2 class="section-title">Multi WhatsApp Login</h2>
+            <p style="font-size:13px; color:#64748b;">Kai numbers connect karo. Send time pe select karoge — har WA 30 msgs ke baad 2hr rest, doosra WA continue.</p>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <input type="text" id="newSessionName" placeholder="Name (e.g. Business 2)" style="flex:1;">
+                <button class="action-btn btn-primary btn-sm" style="width:auto;" onclick="createWASession()">+ Add WhatsApp</button>
+            </div>
+            <div id="sessionsList"></div>
+            <div style="text-align: center; padding: 16px; background: #f8fafc; border-radius: 12px; margin-top:16px; border: 1px dashed #cbd5e1;">
+                <h3 style="font-size: 14px; margin-top:0;">Pairing Code (selected session)</h3>
+                <input type="text" id="pairPhone" placeholder="WhatsApp Number" style="text-align:center; font-size:16px;">
+                <input type="hidden" id="pairSessionId" value="">
                 <button class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode()">📲 Get 8-Digit Code</button>
                 <div id="pairingCodeDisplay" style="font-size:26px; font-weight:800; color:#2563eb; margin-top:15px; display:none;"></div>
             </div>
@@ -287,15 +298,66 @@
             fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
                 fetch('/status').then(r => r.json()).then(d => {
-                    if (d.connected) { document.getElementById('realQr').style.display = 'none'; document.getElementById('qrStatus').innerHTML = '✅ डिवाइस कनेक्टेड है!'; document.getElementById('qrStatus').style.color = '#10b981'; } 
-                    else if (d.qrCode) { document.getElementById('realQr').src = d.qrCode; document.getElementById('realQr').style.display = 'block'; document.getElementById('qrStatus').innerHTML = 'QR स्कैन करें...'; document.getElementById('qrStatus').style.color = '#f59e0b'; }
-                    
+                    renderSessionsUI(d.sessions || []);
                     document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
-                });
+                }).catch(() => {});
                 fetchLiveStatus();
-                fetchStats(); // dashboard live update during campaign
+                fetchStats();
             }, 3000);
+        }
+
+        function renderSessionsUI(list) {
+            const box = document.getElementById('sessionsList');
+            const pick = document.getElementById('campaignSessionPick');
+            if (box) {
+                if (!list.length) {
+                    box.innerHTML = '<p style="color:#64748b;">Koi session nahi — Add WhatsApp dabao.</p>';
+                } else {
+                    box.innerHTML = list.map(s => {
+                        const status = s.connected
+                            ? (s.resting ? `<span style="color:#f59e0b">⏸️ Resting until ${s.restUntil ? new Date(s.restUntil).toLocaleTimeString('en-IN') : ''}</span>` : '<span style="color:#10b981">✅ Connected</span>')
+                            : '<span style="color:#f59e0b">QR pending...</span>';
+                        const qr = (!s.connected && s.qrCode) ? `<img src="${s.qrCode}" style="max-width:180px;border-radius:8px;margin-top:8px;">` : '';
+                        return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:10px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+                                <strong>${s.name}</strong>
+                                <span style="font-size:12px;">${status}</span>
+                            </div>
+                            ${qr}
+                            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+                                <button class="action-btn btn-sm btn-primary" style="width:auto;" onclick="document.getElementById('pairSessionId').value='${s.id}'">Use for Pairing</button>
+                                <button class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession('${s.id}')">Delete</button>
+                            </div>
+                        </div>`;
+                    }).join('');
+                }
+            }
+            if (pick) {
+                const connected = list.filter(s => s.connected);
+                if (!connected.length) {
+                    pick.innerHTML = '<span style="color:#ef4444;font-size:13px;">Pehle Device Settings se WhatsApp connect karo.</span>';
+                } else {
+                    pick.innerHTML = connected.map(s =>
+                        `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;">
+                            <input type="checkbox" class="waSessionChk" value="${s.id}" checked> ${s.name}${s.resting ? ' (resting)' : ''}
+                        </label>`
+                    ).join('');
+                }
+            }
+        }
+        async function createWASession() {
+            const name = (document.getElementById('newSessionName').value || '').trim();
+            await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+            document.getElementById('newSessionName').value = '';
+            const r = await fetch('/api/sessions'); const d = await r.json();
+            renderSessionsUI(d.sessions || []);
+        }
+        async function deleteWASession(id) {
+            if (!confirm('Delete this WhatsApp session?')) return;
+            await fetch('/api/sessions/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+            const r = await fetch('/api/sessions'); const d = await r.json();
+            renderSessionsUI(d.sessions || []);
         }
 
         function showSection(id, btn) {
@@ -946,13 +1008,20 @@
             document.getElementById('sendBtn').disabled = true;
             document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
 
-            // Send templates array for rotation (each item: {name, message, imageBase64})
+            const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
+            if (!sessionIds.length) {
+                document.getElementById('sendBtn').disabled = false;
+                document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign (Multi-WA Anti-Ban)';
+                return alert('Kam se kam 1 connected WhatsApp select karo (Device Settings mein connect + checkbox).');
+            }
+
             const payload = {
                 numbers: numsObjArray,
                 message: msg,
                 minDelay: minD,
                 maxDelay: maxD,
                 imageBase64: imgBase64,
+                sessionIds,
                 templates: (templatesArr || []).map(t => ({
                     name: t.name,
                     message: t.message,
@@ -961,17 +1030,40 @@
             };
 
             fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-            .then(() => {
-                // switch to live tracking
+            .then(async (r) => {
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok || d.success === false) {
+                    alert(d.error || 'Send start failed');
+                    document.getElementById('sendBtn').disabled = false;
+                    document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign (Multi-WA Anti-Ban)';
+                    return;
+                }
                 const liveBtn = document.querySelector('.sidebar-btn[onclick*="liveTrackingSec"]');
                 showSection('liveTrackingSec', liveBtn || document.querySelectorAll('.sidebar-btn')[4]);
                 fetchLiveStatus();
+            })
+            .catch(() => {
+                document.getElementById('sendBtn').disabled = false;
+                document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign (Multi-WA Anti-Ban)';
             });
         }
         
-        function getPairingCode() { fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('pairPhone').value }) }).then(r => r.json()).then(d => { document.getElementById('pairingCodeDisplay').style.display = 'block'; document.getElementById('pairingCodeDisplay').innerText = d.code; }); }
+        function getPairingCode() {
+            fetch('/pair-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: document.getElementById('pairPhone').value,
+                    sessionId: document.getElementById('pairSessionId').value || undefined
+                })
+            }).then(r => r.json()).then(d => {
+                document.getElementById('pairingCodeDisplay').style.display = 'block';
+                document.getElementById('pairingCodeDisplay').innerText = d.code || (d.error || 'Error');
+            });
+        }
         function downloadHistory() { fetch('/api/history').then(r => r.json()).then(data => { let csv = 'Mobile Number,Date & Time\n'; data.forEach(row => { csv += `"${row.number}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Report.csv'); a.click(); }); }
         function downloadPDF() { fetch('/api/history').then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Report", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.number, row.date]); }); doc.autoTable({ head: [["Mobile Number", "Date & Time"]], body: tableRows, startY: 30 }); doc.save('Report.pdf'); }); }
     </script>
 </body>
 </html>
+
