@@ -12,11 +12,39 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
-let qrCodeData = null;
-let isConnected = false;
-let sock;
+// ---------- Multi WhatsApp Sessions ----------
+// sessions: Map id -> { id, name, sock, connected, qrCode, restUntil, sentInBatch, batchSize, authDir }
+const sessions = new Map();
+const SESSION_BATCH = 30;          // msgs per WA then 2hr rest
+const SESSION_REST_MS = 2 * 60 * 60 * 1000;
+
 let isAutoReplyEnabled = true;
 let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n*1️⃣* - सर्विस और प्रोडक्ट\n*2️⃣* - प्राइस लिस्ट\n*3️⃣* - हमसे बात करने के लिए`;
+
+function listSessionsPublic() {
+    return Array.from(sessions.values()).map(s => ({
+        id: s.id,
+        name: s.name,
+        connected: !!s.connected,
+        qrCode: s.qrCode || null,
+        restUntil: s.restUntil || null,
+        resting: !!(s.restUntil && Date.now() < s.restUntil),
+        sentInBatch: s.sentInBatch || 0,
+        batchSize: s.batchSize || SESSION_BATCH
+    }));
+}
+function anyConnected() {
+    return Array.from(sessions.values()).some(s => s.connected && s.sock);
+}
+function getFirstConnectedSock() {
+    for (const s of sessions.values()) {
+        if (s.connected && s.sock) return s.sock;
+    }
+    return null;
+}
+function getSession(id) {
+    return sessions.get(id) || null;
+}
 
 // Local file fallbacks (used only if MongoDB not configured)
 const statsFile = __dirname + '/stats.json';
@@ -232,6 +260,8 @@ function getGroupScanStats(groupContacts) {
 
 // Check one number on WhatsApp
 async function checkOneNumberOnWA(phone10) {
+    const sock = getFirstConnectedSock();
+    if (!sock) return false;
     try {
         const r = await sock.onWhatsApp('91' + phone10 + '@s.whatsapp.net');
         return Array.isArray(r) && r[0] && r[0].exists !== false;
@@ -244,7 +274,7 @@ async function checkOneNumberOnWA(phone10) {
 let autoScanRunning = false;
 async function runAutoScanTick() {
     if (autoScanRunning) return;
-    if (!isConnected || !sock) return;
+    if (!anyConnected()) return;
     if (liveCampaign && liveCampaign.isActive) return;
     if (!isWithinSendWindow()) return;
 
@@ -337,60 +367,141 @@ async function waitForSendWindow() {
 }
 
 // WhatsApp Connection
-async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-    sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
+async function startSession(sessionId, sessionName) {
+    const authDir = pathJoinAuth(sessionId);
+    const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    const sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
+
+    const session = sessions.get(sessionId) || {
+        id: sessionId,
+        name: sessionName || sessionId,
+        sock: null,
+        connected: false,
+        qrCode: null,
+        restUntil: null,
+        sentInBatch: 0,
+        batchSize: SESSION_BATCH,
+        authDir
+    };
+    session.sock = sock;
+    session.name = sessionName || session.name;
+    sessions.set(sessionId, session);
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
-        if(qr) qrCodeData = await qrcode.toDataURL(qr);
-        if(connection === 'close') {
+        const s = sessions.get(sessionId);
+        if (!s) return;
+        if (qr) s.qrCode = await qrcode.toDataURL(qr);
+        if (connection === 'close') {
+            s.connected = false;
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            isConnected = false;
-            if(shouldReconnect) setTimeout(connectToWhatsApp, 3000);
-            else { fs.rmSync('auth_info_baileys', { recursive: true, force: true }); connectToWhatsApp(); }
-        } else if(connection === 'open') {
-            isConnected = true;
-            qrCodeData = null;
-            // Save first connected time (for account age / batch size) — persists in Mongo
+            if (shouldReconnect) {
+                setTimeout(() => startSession(sessionId, s.name), 3000);
+            } else {
+                try { fs.rmSync(authDir, { recursive: true, force: true }); } catch (e) {}
+                s.qrCode = null;
+                setTimeout(() => startSession(sessionId, s.name), 2000);
+            }
+        } else if (connection === 'open') {
+            s.connected = true;
+            s.qrCode = null;
             const meta = { ...getMeta() };
             if (!meta.firstConnectedAt) {
                 meta.firstConnectedAt = new Date().toISOString();
                 persist('meta', meta);
             }
+            if (!meta.sessions) meta.sessions = [];
+            if (!meta.sessions.find(x => x.id === sessionId)) {
+                meta.sessions.push({ id: sessionId, name: s.name });
+                persist('meta', meta);
+            }
+            console.log(`Session connected: ${s.name} (${sessionId})`);
         }
     });
     sock.ev.on('creds.update', saveCreds);
 
-    // Auto-Reply
     sock.ev.on('messages.upsert', async (m) => {
         if (m.type !== 'notify' || !isAutoReplyEnabled) return;
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
-
         const jid = msg.key.remoteJid;
-        const phone = jid.split('@')[0]; 
+        const phone = jid.split('@')[0];
         const histList = getHistory();
-        if (!histList.find(c => c.number === phone)) return; 
-
+        if (!histList.find(c => c.number === phone)) return;
         const messageType = Object.keys(msg.message)[0];
         let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
-
-        if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplyMessage });
-        else if (text === '1') await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
-        else if (text === '2') await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
-        else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
+        try {
+            if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplyMessage });
+            else if (text === '1') await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
+            else if (text === '2') await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
+            else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
+        } catch (e) {}
     });
 }
 
+function pathJoinAuth(sessionId) {
+    return (__dirname + '/auth_sessions/' + sessionId).replace(/\\/g, '/');
+}
+
+async function bootstrapSessions() {
+    // Migrate old single auth if exists
+    const oldAuth = __dirname + '/auth_info_baileys';
+    const defaultId = 'wa_1';
+    if (fs.existsSync(oldAuth) && !fs.existsSync(pathJoinAuth(defaultId))) {
+        try {
+            fs.mkdirSync(__dirname + '/auth_sessions', { recursive: true });
+            fs.renameSync(oldAuth, pathJoinAuth(defaultId));
+        } catch (e) {}
+    }
+    const meta = getMeta();
+    let list = (meta.sessions && meta.sessions.length) ? meta.sessions : [{ id: defaultId, name: 'WhatsApp 1' }];
+    // Ensure at least one session slot
+    if (!list.length) list = [{ id: defaultId, name: 'WhatsApp 1' }];
+    for (const item of list) {
+        await startSession(item.id, item.name);
+    }
+}
+
 // Standard API Routes
-app.get('/status', (req, res) => res.json({
-    connected: isConnected,
-    qrCode: qrCodeData,
-    autoReply: isAutoReplyEnabled,
-    currentMsg: autoReplyMessage,
-    storage: useMongo ? 'mongodb' : 'local'
-}));
+app.get('/status', (req, res) => {
+    const list = listSessionsPublic();
+    const primary = list.find(s => s.connected) || list[0] || null;
+    res.json({
+        connected: anyConnected(),
+        qrCode: primary && !primary.connected ? primary.qrCode : null,
+        sessions: list,
+        autoReply: isAutoReplyEnabled,
+        currentMsg: autoReplyMessage,
+        storage: useMongo ? 'mongodb' : 'local'
+    });
+});
+
+app.get('/api/sessions', (req, res) => res.json({ sessions: listSessionsPublic() }));
+
+app.post('/api/sessions/create', async (req, res) => {
+    const name = (req.body && req.body.name) ? String(req.body.name).trim() : '';
+    const id = 'wa_' + Date.now();
+    const displayName = name || ('WhatsApp ' + (sessions.size + 1));
+    const meta = { ...getMeta() };
+    if (!meta.sessions) meta.sessions = [];
+    meta.sessions.push({ id, name: displayName });
+    await persist('meta', meta);
+    await startSession(id, displayName);
+    res.json({ success: true, session: { id, name: displayName } });
+});
+
+app.post('/api/sessions/delete', async (req, res) => {
+    const id = req.body && req.body.id;
+    if (!id || !sessions.has(id)) return res.status(400).json({ success: false, error: 'Session not found' });
+    const s = sessions.get(id);
+    try { if (s.sock) s.sock.end(); } catch (e) {}
+    sessions.delete(id);
+    try { fs.rmSync(pathJoinAuth(id), { recursive: true, force: true }); } catch (e) {}
+    const meta = { ...getMeta() };
+    meta.sessions = (meta.sessions || []).filter(x => x.id !== id);
+    await persist('meta', meta);
+    res.json({ success: true });
+});
 app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enabled; res.json({ success: true }); });
 app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
@@ -447,7 +558,7 @@ app.get('/api/scan-progress', (req, res) => {
 
 // Manual "scan next chunk" still limited to 20, marks waStatus
 app.post('/api/scan-next', async (req, res) => {
-    if (!isConnected || !sock) {
+    if (!anyConnected()) {
         return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
     }
     const group = req.body.group;
@@ -494,13 +605,17 @@ app.post('/api/scan-next', async (req, res) => {
 });
 
 app.post('/pair-code', async (req, res) => {
-    let { phone } = req.body; phone = phone.replace(/[^0-9]/g, ''); if (!phone.startsWith('91')) phone = '91' + phone;
-    res.json({ success: true, code: await sock.requestPairingCode(phone) });
+    let { phone, sessionId } = req.body || {};
+    phone = String(phone || '').replace(/[^0-9]/g, '');
+    if (!phone.startsWith('91')) phone = '91' + phone;
+    const s = sessionId ? getSession(sessionId) : Array.from(sessions.values()).find(x => x.sock);
+    if (!s || !s.sock) return res.status(400).json({ success: false, error: 'Session not ready' });
+    res.json({ success: true, code: await s.sock.requestPairingCode(phone) });
 });
 
 // ✅ Validate numbers — ANTI-BAN: max 20 numbers per scan
 app.post('/api/validate-numbers', async (req, res) => {
-    if (!isConnected || !sock) {
+    if (!anyConnected()) {
         return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है! Pehle device connect karo.' });
     }
 
@@ -552,7 +667,9 @@ app.post('/api/validate-numbers', async (req, res) => {
         try {
             // Pass full JIDs
             const jids = batch.map(c => '91' + c.phone + '@s.whatsapp.net');
-            const results = await sock.onWhatsApp(...jids);
+            const _sock = getFirstConnectedSock();
+            if (!_sock) throw new Error('no sock');
+            const results = await _sock.onWhatsApp(...jids);
             const existSet = new Set();
             if (Array.isArray(results)) {
                 results.forEach(r => {
@@ -570,7 +687,8 @@ app.post('/api/validate-numbers', async (req, res) => {
             // Fallback: one-by-one
             for (const c of batch) {
                 try {
-                    const r = await sock.onWhatsApp('91' + c.phone + '@s.whatsapp.net');
+                    const _sock2 = getFirstConnectedSock();
+                    const r = await _sock2.onWhatsApp('91' + c.phone + '@s.whatsapp.net');
                     const ok = Array.isArray(r) && r[0] && r[0].exists !== false;
                     if (ok) valid.push(c);
                     else invalidCount++;
@@ -594,167 +712,190 @@ app.post('/api/validate-numbers', async (req, res) => {
     });
 });
 
-// 🚀 SEND ROUTE — Anti-Ban AI limits + Smart template mix
+// 🚀 MULTI-WA SEND — each session 30 msgs → 2hr rest; one msg per number total
 app.post('/send', async (req, res) => {
-    if (!isConnected || !sock) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
-    
-    // numbers: [{phone, name}, ...]
-    // templates: [{name, message, imageBase64}, ...]  → AI-style random mix (no series pattern)
-    const { numbers, message, minDelay, maxDelay, imageBase64, templates } = req.body;
+    if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
+
+    const { numbers, message, minDelay, maxDelay, imageBase64, templates, sessionIds } = req.body;
 
     if (!Array.isArray(numbers) || numbers.length === 0) {
         return res.status(400).json({ success: false, error: 'Number list empty!' });
     }
 
-    // Anti-ban: daily limit
-    const dailyLimit = getDailyLimit();
+    // Selected sessions (or all connected)
+    let selectedIds = Array.isArray(sessionIds) && sessionIds.length
+        ? sessionIds
+        : Array.from(sessions.values()).filter(s => s.connected).map(s => s.id);
+    selectedIds = selectedIds.filter(id => {
+        const s = getSession(id);
+        return s && s.connected && s.sock;
+    });
+    if (!selectedIds.length) {
+        return res.status(400).json({ success: false, error: 'Koi connected WhatsApp select nahi hai' });
+    }
+
+    // Deduplicate numbers — ek number pe sirf ek msg
+    const seenPhone = new Set();
+    let uniqueNumbers = [];
+    for (const n of numbers) {
+        const p = String(n.phone || '').replace(/\D/g, '').slice(-10);
+        if (p.length === 10 && !seenPhone.has(p)) {
+            seenPhone.add(p);
+            uniqueNumbers.push({ phone: p, name: n.name || 'Customer' });
+        }
+    }
+
+    // Daily limit scales with number of selected WAs
+    const dailyLimit = getDailyLimit() * selectedIds.length;
     const alreadySent = getTodaySentCount();
     if (alreadySent >= dailyLimit) {
         return res.status(400).json({
             success: false,
-            error: `Anti-Ban: aaj ka limit (${dailyLimit}) pure ho chuke. Kal phir try karo. Aaj already sent: ${alreadySent}`
+            error: `Anti-Ban: aaj ka limit (${dailyLimit}) pure. Kal try karo.`
         });
     }
-    // Only process remaining quota for today (rest stay for next day via night window + user restart)
-    let numbersToSend = numbers;
     const remainingQuota = dailyLimit - alreadySent;
-    if (numbers.length > remainingQuota) {
-        numbersToSend = numbers.slice(0, remainingQuota);
+    if (uniqueNumbers.length > remainingQuota) {
+        uniqueNumbers = uniqueNumbers.slice(0, remainingQuota);
     }
-    
+
     const useRotation = Array.isArray(templates) && templates.length > 0;
-    
-    // Smart shuffle: fair distribution + random order so consecutive numbers don't get sequential templates
-    let shuffledTemplateOrder = [];
-    if (useRotation) {
-        const n = numbersToSend.length;
-        const tCount = templates.length;
-        for (let i = 0; i < n; i++) {
-            shuffledTemplateOrder.push(i % tCount);
-        }
-        for (let i = shuffledTemplateOrder.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffledTemplateOrder[i], shuffledTemplateOrder[j]] = [shuffledTemplateOrder[j], shuffledTemplateOrder[i]];
-        }
-        for (let i = 1; i < shuffledTemplateOrder.length; i++) {
-            if (shuffledTemplateOrder[i] === shuffledTemplateOrder[i - 1] && tCount > 1) {
-                for (let k = i + 1; k < shuffledTemplateOrder.length; k++) {
-                    if (shuffledTemplateOrder[k] !== shuffledTemplateOrder[i - 1]) {
-                        [shuffledTemplateOrder[i], shuffledTemplateOrder[k]] = [shuffledTemplateOrder[k], shuffledTemplateOrder[i]];
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    
-    const ageDays = getAccountAgeDays();
-    const batchSize = getBatchSize(); // 30 / 40 / 50 anti-ban
+    let tplIndex = 0;
 
     liveCampaign = {
         isActive: true,
-        total: numbersToSend.length,
+        total: uniqueNumbers.length,
         dailyLimit,
         alreadySentToday: alreadySent,
         sent: 0,
         failed: 0,
-        pending: numbersToSend.length,
-        numbers: numbersToSend.map(n => ({ phone: n.phone, status: 'Pending ⏳' })),
+        pending: uniqueNumbers.length,
+        numbers: uniqueNumbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' })),
         status: 'sending',
         restReason: '',
         resumeAt: null,
-        batchSize,
-        accountAgeDays: ageDays
+        batchSize: SESSION_BATCH,
+        accountAgeDays: getAccountAgeDays(),
+        sessions: selectedIds.map(id => {
+            const s = getSession(id);
+            return { id, name: s.name, resting: false };
+        })
     };
     res.json({
         success: true,
-        batchSize,
-        accountAgeDays: ageDays,
-        dailyLimit,
-        willSend: numbersToSend.length,
-        skippedForDailyLimit: numbers.length - numbersToSend.length
-    }); 
-    
-    // Anti-ban minimum delays
-    let minD = Math.max(45, parseInt(minDelay) || 45);
-    let maxD = Math.max(minD + 15, parseInt(maxDelay) || 90);
-    let sentCount = 0;
-    let failedCount = 0;
-    let sentInCurrentBatch = 0;
+        willSend: uniqueNumbers.length,
+        sessions: selectedIds.length,
+        batchPerSession: SESSION_BATCH
+    });
 
-    for (let i = 0; i < numbersToSend.length; i++) {
-        // 1) Only send between 8 AM – 10 PM IST
-        await waitForSendWindow();
+    const minD = Math.max(45, parseInt(minDelay) || 45);
+    const maxD = Math.max(minD + 15, parseInt(maxDelay) || 90);
 
-        // 2) After every batchSize, rest 2 hours
-        if (sentInCurrentBatch >= batchSize && i < numbersToSend.length) {
-            sentInCurrentBatch = 0;
-            const twoHours = 2 * 60 * 60 * 1000;
-            await smartSleep(
-                twoHours,
-                `Batch Rest — हर ${batchSize} msgs के बाद 2 घंटे आराम (Account age: ${ageDays} दिन)`
-            );
-            // After long rest, ensure still in send window
+    // Shared queue — shift is atomic enough in single-threaded node
+    const queue = uniqueNumbers.map((n, idx) => ({ ...n, idx }));
+
+    async function sessionWorker(sessionId) {
+        const s = getSession(sessionId);
+        if (!s) return;
+
+        while (queue.length > 0) {
+            // Wait while this session is resting
+            while (s.restUntil && Date.now() < s.restUntil) {
+                const left = s.restUntil - Date.now();
+                liveCampaign.status = 'resting';
+                liveCampaign.restReason = `${s.name}: 2hr rest after ${SESSION_BATCH} msgs`;
+                liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
+                await new Promise(r => setTimeout(r, Math.min(5000, left)));
+            }
+
+            if (!s.connected || !s.sock) {
+                await new Promise(r => setTimeout(r, 5000));
+                continue;
+            }
+
             await waitForSendWindow();
-        }
+            liveCampaign.status = 'sending';
+            liveCampaign.restReason = '';
+            liveCampaign.resumeAt = null;
 
-        liveCampaign.status = 'sending';
-        liveCampaign.restReason = '';
-        liveCampaign.resumeAt = null;
+            let batchCount = 0;
+            while (batchCount < SESSION_BATCH && queue.length > 0) {
+                if (!s.connected || !s.sock) break;
+                if (s.restUntil && Date.now() < s.restUntil) break;
 
-        let contact = numbersToSend[i];
-        let num = String(contact.phone).replace(/[^0-9]/g, '');
-        let customerName = contact.name || 'Customer';
+                const item = queue.shift();
+                if (!item) break;
 
-        try {
-            if (!num.startsWith('91')) num = '91' + num;
-            const jid = num + '@s.whatsapp.net';
-            
-            let finalMessage = '';
-            let finalImageBase64 = null;
-            let tplName = '';
+                let num = item.phone;
+                const customerName = item.name || 'Customer';
+                const idx = item.idx;
 
-            if (useRotation) {
-                const tpl = templates[shuffledTemplateOrder[i]];
-                tplName = tpl.name || '';
-                finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
-                finalImageBase64 = tpl.imageBase64 || null;
-            } else {
-                finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : '';
-                finalImageBase64 = imageBase64 || null;
+                try {
+                    if (!num.startsWith('91')) num = '91' + num;
+                    const jid = num + '@s.whatsapp.net';
+
+                    let finalMessage = '';
+                    let finalImageBase64 = null;
+                    let tplName = '';
+
+                    if (useRotation) {
+                        const tpl = templates[tplIndex % templates.length];
+                        tplIndex++;
+                        tplName = tpl.name || '';
+                        finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
+                        finalImageBase64 = tpl.imageBase64 || null;
+                    } else {
+                        finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : '';
+                        finalImageBase64 = imageBase64 || null;
+                    }
+
+                    let messageOptions;
+                    if (finalImageBase64) {
+                        const base64Data = finalImageBase64.includes(',') ? finalImageBase64.split(',')[1] : finalImageBase64;
+                        messageOptions = { image: Buffer.from(base64Data, 'base64'), caption: finalMessage };
+                    } else {
+                        messageOptions = { text: finalMessage || ' ' };
+                    }
+
+                    await s.sock.sendMessage(jid, messageOptions);
+                    liveCampaign.sent++;
+                    liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
+                    if (liveCampaign.numbers[idx]) {
+                        liveCampaign.numbers[idx].status = `Sent ✅ (${s.name}${tplName ? ' / ' + tplName : ''})`;
+                    }
+                    addHistory(num, finalMessage || 'Media Sent');
+                    saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
+                    batchCount++;
+                    s.sentInBatch = batchCount;
+
+                    const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
+                    await new Promise(r => setTimeout(r, delayMs));
+                } catch (e) {
+                    liveCampaign.failed++;
+                    liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
+                    if (liveCampaign.numbers[idx]) liveCampaign.numbers[idx].status = `Invalid ❌ (${s.name})`;
+                    saveStats(new Date().toLocaleDateString('en-CA'), 0, 1);
+                    batchCount++;
+                    s.sentInBatch = batchCount;
+                }
             }
 
-            let messageOptions;
-            if (finalImageBase64) {
-                const base64Data = finalImageBase64.includes(',') ? finalImageBase64.split(',')[1] : finalImageBase64;
-                messageOptions = { image: Buffer.from(base64Data, 'base64'), caption: finalMessage };
-            } else {
-                messageOptions = { text: finalMessage || ' ' };
+            // After 30 msgs from this WA → 2hr rest (if more work remains)
+            if (batchCount >= SESSION_BATCH && queue.length > 0) {
+                s.restUntil = Date.now() + SESSION_REST_MS;
+                s.sentInBatch = 0;
+                liveCampaign.status = 'resting';
+                liveCampaign.restReason = `${s.name}: ${SESSION_BATCH} msgs done → 2hr rest. Doosre WA se continue...`;
+                liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
+            } else if (queue.length === 0) {
+                break;
             }
-            
-            await sock.sendMessage(jid, messageOptions);
-            sentCount++;
-            liveCampaign.sent++;
-            liveCampaign.pending--;
-            liveCampaign.numbers[i].status = useRotation ? `Sent ✅ (${tplName})` : 'Sent ✅';
-            addHistory(num, finalMessage || (tplName ? `[${tplName}] Media` : "Media Sent")); 
-            // Live dashboard update (incremental)
-            saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
-            sentInCurrentBatch++;
-            
-            if (i < numbersToSend.length - 1) {
-                const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
-                await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-        } catch (e) { 
-            failedCount++;
-            liveCampaign.failed++;
-            liveCampaign.pending--;
-            liveCampaign.numbers[i].status = 'Invalid ❌';
-            saveStats(new Date().toLocaleDateString('en-CA'), 0, 1);
-            sentInCurrentBatch++; // still counts toward batch rest
         }
     }
+
+    // All selected WAs work in parallel; each takes next number from shared queue
+    await Promise.all(selectedIds.map(id => sessionWorker(id)));
+
     liveCampaign.isActive = false;
     liveCampaign.status = 'idle';
     liveCampaign.restReason = '';
@@ -764,12 +905,10 @@ app.post('/send', async (req, res) => {
 // Boot: Mongo first, then WhatsApp, then HTTP
 (async () => {
     await initMongo();
-    connectToWhatsApp();
+    await bootstrapSessions();
     app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
-        console.log(`Server started | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'}`);
-        // Auto progressive scan every 3 minutes (max 20 per tick, daily limit enforced)
+        console.log(`Server started | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'} | Multi-WA sessions`);
         setInterval(() => { runAutoScanTick().catch(() => {}); }, 3 * 60 * 1000);
-        // First tick after 30s (wait for WA connect)
         setTimeout(() => { runAutoScanTick().catch(() => {}); }, 30000);
     });
 })();
