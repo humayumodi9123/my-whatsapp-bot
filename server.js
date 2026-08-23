@@ -605,12 +605,54 @@ app.post('/api/scan-next', async (req, res) => {
 });
 
 app.post('/pair-code', async (req, res) => {
-    let { phone, sessionId } = req.body || {};
-    phone = String(phone || '').replace(/[^0-9]/g, '');
-    if (!phone.startsWith('91')) phone = '91' + phone;
-    const s = sessionId ? getSession(sessionId) : Array.from(sessions.values()).find(x => x.sock);
-    if (!s || !s.sock) return res.status(400).json({ success: false, error: 'Session not ready' });
-    res.json({ success: true, code: await s.sock.requestPairingCode(phone) });
+    try {
+        let { phone, sessionId } = req.body || {};
+        phone = String(phone || '').replace(/\D/g, '');
+        if (phone.length === 10) phone = '91' + phone;
+        if (!phone || phone.length < 11) {
+            return res.status(400).json({
+                success: false,
+                error: 'Sahi number daalo (e.g. 9876543210). Country code auto 91 lag jayega.'
+            });
+        }
+
+        let s = sessionId ? getSession(sessionId) : null;
+        // Prefer session jo abhi connected NAHI (QR pending)
+        if (!s || !s.sock) {
+            s = Array.from(sessions.values()).find(x => x.sock && !x.connected)
+                || Array.from(sessions.values()).find(x => x.sock);
+        }
+        if (!s || !s.sock) {
+            return res.status(400).json({
+                success: false,
+                error: 'Session ready nahi. Device Settings → Add WhatsApp, wait for QR, phir pairing try karo.'
+            });
+        }
+        if (s.connected) {
+            return res.status(400).json({
+                success: false,
+                error: `"${s.name}" already connected hai. Naya session Add karke uspe pairing use karo.`
+            });
+        }
+
+        // Baileys: number without + (e.g. 9198xxxxxxxx)
+        const code = await s.sock.requestPairingCode(phone);
+        const raw = String(code || '');
+        const formatted = raw.length === 8 ? raw.slice(0, 4) + '-' + raw.slice(4) : raw;
+        res.json({
+            success: true,
+            code: formatted,
+            raw,
+            sessionId: s.id,
+            sessionName: s.name
+        });
+    } catch (e) {
+        console.error('pair-code error:', e);
+        res.status(500).json({
+            success: false,
+            error: (e && e.message) ? e.message : 'Pairing code generate nahi hua. QR se connect karo ya 10 sec baad retry.'
+        });
+    }
 });
 
 // ✅ Validate numbers — ANTI-BAN: max 20 numbers per scan
