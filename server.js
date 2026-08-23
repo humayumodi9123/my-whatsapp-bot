@@ -606,51 +606,77 @@ app.post('/api/scan-next', async (req, res) => {
 
 app.post('/pair-code', async (req, res) => {
     try {
-        let { phone, sessionId } = req.body || {};
+        let { phone, sessionId, fresh } = req.body || {};
         phone = String(phone || '').replace(/\D/g, '');
+        if (phone.startsWith('0')) phone = phone.slice(1);
         if (phone.length === 10) phone = '91' + phone;
-        if (!phone || phone.length < 11) {
+        // 91 + 10 digits = 12
+        if (!phone || phone.length < 12) {
             return res.status(400).json({
                 success: false,
-                error: 'Sahi number daalo (e.g. 9876543210). Country code auto 91 lag jayega.'
+                error: 'Sahi 10-digit Indian number daalo (e.g. 8852882349).'
             });
         }
 
         let s = sessionId ? getSession(sessionId) : null;
-        // Prefer session jo abhi connected NAHI (QR pending)
         if (!s || !s.sock) {
             s = Array.from(sessions.values()).find(x => x.sock && !x.connected)
                 || Array.from(sessions.values()).find(x => x.sock);
         }
-        if (!s || !s.sock) {
+        if (!s) {
             return res.status(400).json({
                 success: false,
-                error: 'Session ready nahi. Device Settings → Add WhatsApp, wait for QR, phir pairing try karo.'
+                error: 'Session nahi mili. Pehle + Add WhatsApp karo.'
             });
         }
         if (s.connected) {
             return res.status(400).json({
                 success: false,
-                error: `"${s.name}" already connected hai. Naya session Add karke uspe pairing use karo.`
+                error: `"${s.name}" already connected. Naya session add karke pairing try karo.`
             });
         }
 
-        // Baileys: number without + (e.g. 9198xxxxxxxx)
+        // Fresh start: clear auth + restart socket (pairing ke liye clean state)
+        if (fresh || req.body.forceFresh) {
+            try { if (s.sock) s.sock.end(undefined); } catch (e) {}
+            try { fs.rmSync(pathJoinAuth(s.id), { recursive: true, force: true }); } catch (e) {}
+            await startSession(s.id, s.name);
+            // Wait until sock exists + a bit for WA handshake / QR
+            for (let i = 0; i < 20; i++) {
+                await new Promise(r => setTimeout(r, 500));
+                s = getSession(sessionId || s.id);
+                if (s && s.sock && (s.qrCode || !s.connected)) break;
+            }
+        }
+
+        s = getSession(s.id);
+        if (!s || !s.sock) {
+            return res.status(400).json({ success: false, error: 'Socket ready nahi — 5 sec baad phir try.' });
+        }
+
+        // Small delay helps Baileys registration state
+        await new Promise(r => setTimeout(r, 1500));
+
+        // Baileys expects digits only with country code, no +
         const code = await s.sock.requestPairingCode(phone);
-        const raw = String(code || '');
+        const raw = String(code || '').replace(/\s/g, '');
         const formatted = raw.length === 8 ? raw.slice(0, 4) + '-' + raw.slice(4) : raw;
+
+        console.log(`Pairing code for ${phone} session=${s.id}: ${formatted}`);
         res.json({
             success: true,
             code: formatted,
-            raw,
+            raw: raw.replace(/-/g, ''),
+            phoneUsed: phone,
             sessionId: s.id,
-            sessionName: s.name
+            sessionName: s.name,
+            tip: 'Phone pe ISI number wale WhatsApp account mein code enter karo. 60 sec ke andar. Boxes mein dash mat likho.'
         });
     } catch (e) {
         console.error('pair-code error:', e);
         res.status(500).json({
             success: false,
-            error: (e && e.message) ? e.message : 'Pairing code generate nahi hua. QR se connect karo ya 10 sec baad retry.'
+            error: (e && e.message) ? e.message : 'Pairing fail. Neeche Fresh Code try karo ya QR use karo.'
         });
     }
 });
@@ -954,3 +980,4 @@ app.post('/send', async (req, res) => {
         setTimeout(() => { runAutoScanTick().catch(() => {}); }, 30000);
     });
 })();
+
