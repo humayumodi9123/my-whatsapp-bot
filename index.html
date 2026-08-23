@@ -359,7 +359,8 @@
                             ? ('<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;">' +
                                 '<div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>' + s.name + '</b></div>' +
                                 '<input type="text" id="pairPhone" inputmode="numeric" autocomplete="off" value="' + phoneVal + '" placeholder="WhatsApp number (9876543210)" style="text-align:center;font-size:16px;width:100%;" oninput="savedPairPhone=this.value">' +
-                                '<button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode(\'' + s.id + '\')">Get 8-Digit Code</button>' +
+                                '<button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode(\'' + s.id + '\', false)">Get 8-Digit Code</button>' +
+                                '<button type="button" class="action-btn btn-success" style="margin-top:8px;" onclick="getPairingCode(\'' + s.id + '\', true)">Fresh Code (reset session)</button>' +
                                 codeBlock +
                                 (s.connected
                                     ? '<p style="font-size:12px;color:#ef4444;margin:8px 0 0;">Already connected — pairing QR pending session pe use karo.</p>'
@@ -1095,7 +1096,7 @@
             });
         }
         
-        function getPairingCode(sessionId) {
+        function getPairingCode(sessionId, fresh) {
             const phoneEl = document.getElementById('pairPhone');
             const phone = (phoneEl && phoneEl.value || '').trim();
             const display = document.getElementById('pairingCodeDisplay');
@@ -1110,20 +1111,29 @@
             const sid = sessionId || selectedPairSessionId;
             display.style.display = 'block';
             display.style.color = '#64748b';
-            display.innerText = '⏳ Code generate ho raha hai...';
+            display.innerText = fresh ? '⏳ Fresh session + naya code (10-15 sec)...' : '⏳ Code generate ho raha hai...';
             fetch('/pair-code', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone, sessionId: sid || undefined })
+                body: JSON.stringify({ phone, sessionId: sid || undefined, forceFresh: !!fresh })
             }).then(r => r.json()).then(d => {
                 display.style.display = 'block';
                 if (d.success && d.code) {
                     display.style.color = '#2563eb';
-                    display.innerHTML = d.code + (d.sessionName ? '<div style="font-size:12px;color:#64748b;margin-top:6px;">Session: ' + d.sessionName + '</div><button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText(\'' + String(d.raw || d.code).replace(/-/g, '') + '\')">Copy Code</button>' : '');
+                    const rawCode = String(d.raw || d.code).replace(/-/g, '');
+                    display.innerHTML =
+                        '<div style="font-size:28px;letter-spacing:2px;user-select:all;">' + d.code + '</div>' +
+                        '<div style="font-size:12px;color:#64748b;margin-top:6px;">Server number: ' + (d.phoneUsed || '') + ' · ' + (d.sessionName || '') + '</div>' +
+                        '<button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText(\'' + rawCode + '\')">Copy Code</button>' +
+                        '<div style="font-size:11px;color:#64748b;margin-top:8px;text-align:left;line-height:1.5;">' +
+                        '1) Phone pe account <b>' + (d.phoneUsed || phone) + '</b> active ho<br>' +
+                        '2) Linked devices → Link with phone number<br>' +
+                        '3) Code <b>bina dash</b> (8 chars) 60 sec mein enter<br>' +
+                        '4) Fail ho to <b>Fresh Code</b> button dabao</div>';
                     savedPairingCodeHTML = display.innerHTML;
                 } else {
                     display.style.color = '#ef4444';
-                    display.innerText = d.error || 'Pairing fail — QR se connect karo';
+                    display.innerText = d.error || 'Pairing fail';
                     savedPairingCodeHTML = display.innerHTML;
                 }
             }).catch(() => {
@@ -1136,4 +1146,3 @@
     </script>
 </body>
 </html>
-
