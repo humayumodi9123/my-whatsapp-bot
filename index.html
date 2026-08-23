@@ -303,71 +303,92 @@
 
         let selectedPairSessionId = null;
         let savedPairPhone = '';
-        let lastSessionsHTML = '';
+        let savedPairingCodeHTML = '';
+        let lastSessionsSnapshot = '';
 
-        function selectForPairing(id, name) {
+        function selectForPairing(id) {
             selectedPairSessionId = id;
-            // force re-render from last known list via status
-            fetch('/api/sessions').then(r => r.json()).then(d => renderSessionsUI(d.sessions || [])).catch(() => {});
+            savedPairingCodeHTML = '';
+            fetch('/api/sessions').then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {});
         }
 
-        function renderSessionsUI(list) {
+        function renderSessionsUI(list, force) {
             const box = document.getElementById('sessionsList');
             const pick = document.getElementById('campaignSessionPick');
-            // Preserve phone if user was typing
+
+            // Number type karte waqt full re-render mat karo (keyboard + text hat jata hai)
+            const active = document.activeElement;
+            if (active && active.id === 'pairPhone' && !force) return;
+
             const phoneEl = document.getElementById('pairPhone');
             if (phoneEl) savedPairPhone = phoneEl.value || savedPairPhone;
+            const codeEl = document.getElementById('pairingCodeDisplay');
+            if (codeEl && codeEl.innerHTML && codeEl.style.display !== 'none') {
+                savedPairingCodeHTML = codeEl.innerHTML;
+            }
+
+            const snap = JSON.stringify((list || []).map(s => [s.id, s.connected, s.resting, s.name, s.qrCode ? 1 : 0]));
+            if (!force && snap === lastSessionsSnapshot && box && box.innerHTML && selectedPairSessionId) {
+                (list || []).forEach(s => {
+                    if (!s.connected && s.qrCode) {
+                        const img = box.querySelector('img[data-sid="' + s.id + '"]');
+                        if (img && img.getAttribute('src') !== s.qrCode) img.setAttribute('src', s.qrCode);
+                    }
+                });
+                return;
+            }
+            lastSessionsSnapshot = snap;
 
             if (box) {
                 if (!list.length) {
                     box.innerHTML = '<p style="color:#64748b;">Koi session nahi — Add WhatsApp dabao.</p>';
                 } else {
-                    const html = list.map(s => {
+                    box.innerHTML = list.map(s => {
                         const status = s.connected
-                            ? (s.resting ? `<span style="color:#f59e0b">⏸️ Resting</span>` : '<span style="color:#10b981">✅ Connected</span>')
+                            ? (s.resting ? '<span style="color:#f59e0b">⏸️ Resting</span>' : '<span style="color:#10b981">✅ Connected</span>')
                             : '<span style="color:#f59e0b">QR pending...</span>';
-                        const qr = (!s.connected && s.qrCode) ? `<img src="${s.qrCode}" style="max-width:200px;width:100%;border-radius:8px;margin-top:8px;">` : '';
+                        const qr = (!s.connected && s.qrCode)
+                            ? '<img data-sid="' + s.id + '" src="' + s.qrCode + '" style="max-width:200px;width:100%;border-radius:8px;margin-top:8px;">'
+                            : '';
                         const isPairing = selectedPairSessionId === s.id;
-                        const pairPanel = isPairing ? `
-                            <div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;">
-                                <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>${s.name}</b></div>
-                                <input type="text" id="pairPhone" value="${(savedPairPhone || '').replace(/"/g, '')}" placeholder="WhatsApp number (9876543210)" style="text-align:center;font-size:16px;width:100%;">
-                                <button class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode('${s.id}')">Get 8-Digit Code</button>
-                                <div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;display:none;"></div>
-                                ${s.connected ? '<p style="font-size:12px;color:#ef4444;margin:8px 0 0;">Ye session already connected hai — pairing sirf naye / QR pending pe.</p>' : '<p style="font-size:12px;color:#64748b;margin:8px 0 0;">Phone → Linked Devices → Link with phone number → code enter.</p>'}
-                            </div>` : '';
+                        const phoneVal = (savedPairPhone || '').replace(/"/g, '&quot;');
+                        const codeBlock = (isPairing && savedPairingCodeHTML)
+                            ? '<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;user-select:all;">' + savedPairingCodeHTML + '</div>'
+                            : '<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;display:none;user-select:all;"></div>';
+                        const pairPanel = isPairing
+                            ? ('<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;">' +
+                                '<div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>' + s.name + '</b></div>' +
+                                '<input type="text" id="pairPhone" inputmode="numeric" autocomplete="off" value="' + phoneVal + '" placeholder="WhatsApp number (9876543210)" style="text-align:center;font-size:16px;width:100%;" oninput="savedPairPhone=this.value">' +
+                                '<button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode(\'' + s.id + '\')">Get 8-Digit Code</button>' +
+                                codeBlock +
+                                (s.connected
+                                    ? '<p style="font-size:12px;color:#ef4444;margin:8px 0 0;">Already connected — pairing QR pending session pe use karo.</p>'
+                                    : '<p style="font-size:12px;color:#64748b;margin:8px 0 0;">Code yahin rahega. Long-press se copy karo. Phone → Linked Devices → code enter.</p>') +
+                              '</div>')
+                            : '';
                         const pairBtn = s.connected
                             ? ''
-                            : `<button class="action-btn btn-sm btn-primary" style="width:auto;${isPairing ? 'outline:2px solid #2563eb;' : ''}" onclick="selectForPairing('${s.id}','${(s.name || '').replace(/'/g, '')}')">${isPairing ? '✓ Pairing selected' : 'Use for Pairing'}</button>`;
-                        return `<div style="background:#fff;border:1px solid ${isPairing ? '#2563eb' : '#e2e8f0'};border-radius:12px;padding:14px;margin-bottom:10px;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-                                <strong>${s.name}</strong>
-                                <span style="font-size:12px;">${status}</span>
-                            </div>
-                            ${qr}
-                            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-                                ${pairBtn}
-                                <button class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession('${s.id}')">Delete</button>
-                            </div>
-                            ${pairPanel}
-                        </div>`;
+                            : ('<button type="button" class="action-btn btn-sm btn-primary" style="width:auto;' + (isPairing ? 'outline:2px solid #2563eb;' : '') + '" onclick="selectForPairing(\'' + s.id + '\')">' + (isPairing ? '✓ Pairing selected' : 'Use for Pairing') + '</button>');
+                        return '<div style="background:#fff;border:1px solid ' + (isPairing ? '#2563eb' : '#e2e8f0') + ';border-radius:12px;padding:14px;margin-bottom:10px;">' +
+                            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                            '<strong>' + s.name + '</strong><span style="font-size:12px;">' + status + '</span></div>' +
+                            qr +
+                            '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' + pairBtn +
+                            '<button type="button" class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession(\'' + s.id + '\')">Delete</button></div>' +
+                            pairPanel + '</div>';
                     }).join('');
-                    // Avoid full replace flicker only if identical and pairing open with focus — still replace for QR updates
-                    box.innerHTML = html;
                 }
             }
             if (pick) {
                 const connected = list.filter(s => s.connected);
-                // Preserve checked state
                 const prevChecked = new Set(Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value));
                 if (!connected.length) {
                     pick.innerHTML = '<span style="color:#ef4444;font-size:13px;">Pehle Device Settings se WhatsApp connect karo.</span>';
                 } else {
                     pick.innerHTML = connected.map(s => {
                         const chk = prevChecked.size === 0 || prevChecked.has(s.id) ? 'checked' : '';
-                        return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;">
-                            <input type="checkbox" class="waSessionChk" value="${s.id}" ${chk}> ${s.name}${s.resting ? ' (resting)' : ''}
-                        </label>`;
+                        return '<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;">' +
+                            '<input type="checkbox" class="waSessionChk" value="' + s.id + '" ' + chk + '> ' + s.name + (s.resting ? ' (resting)' : '') + '</label>';
                     }).join('');
                 }
             }
@@ -1098,10 +1119,12 @@
                 display.style.display = 'block';
                 if (d.success && d.code) {
                     display.style.color = '#2563eb';
-                    display.innerHTML = d.code + (d.sessionName ? `<div style="font-size:12px;color:#64748b;margin-top:6px;">Session: ${d.sessionName}</div>` : '');
+                    display.innerHTML = d.code + (d.sessionName ? '<div style="font-size:12px;color:#64748b;margin-top:6px;">Session: ' + d.sessionName + '</div><button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText(\'' + String(d.raw || d.code).replace(/-/g, '') + '\')">Copy Code</button>' : '');
+                    savedPairingCodeHTML = display.innerHTML;
                 } else {
                     display.style.color = '#ef4444';
                     display.innerText = d.error || 'Pairing fail — QR se connect karo';
+                    savedPairingCodeHTML = display.innerHTML;
                 }
             }).catch(() => {
                 display.style.color = '#ef4444';
@@ -1113,3 +1136,4 @@
     </script>
 </body>
 </html>
+
