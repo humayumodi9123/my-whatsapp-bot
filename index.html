@@ -123,7 +123,6 @@
                     <li>Time window: <b>8 AM – 10 PM IST</b> only</li>
                     <li>Templates: risk / same text pe warning</li>
                 </ul>
-                <div id="templateRiskBox" style="margin-top:10px; display:none;"></div>
             </div>
             
             <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
@@ -157,8 +156,7 @@
             <div class="form-group"><label>प्रमोशनल डिज़ाइन / पोस्टर:</label><input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()"></div>
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
-                <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection(); analyzeCustomMessageRisk()"></textarea>
-                <div id="customMsgRisk" style="font-size:12px; margin-top:6px;"></div>
+                <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
             </div>
 
             <div class="delay-box">
@@ -180,10 +178,9 @@
             <div id="liveList" style="background:#fff; border-radius:12px; border:1px solid #e2e8f0; padding:15px; max-height:750px; overflow-y:auto;"></div>
         </div>
 
-        <!-- 🌟 NEW: Campaign History -->
+        <!-- 4. Campaign History -->
         <div id="historySec" class="content-section">
             <h2 class="section-title">📜 Campaign History & Logs</h2>
-            <p style="font-size:13px; color:var(--text-muted); margin-bottom:15px;">यहाँ आप देख सकते हैं कि किस तारीख और सेकंड पर किस नंबर को किस WhatsApp अकाउंट से मैसेज भेजा गया था।</p>
             <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                 <button class="action-btn btn-success" style="flex: 1; padding: 12px;" onclick="downloadHistory()">📥 Download CSV</button>
                 <button class="action-btn btn-primary" style="flex: 1; padding: 12px;" onclick="loadHistoryTable()">🔄 Refresh Data</button>
@@ -205,7 +202,7 @@
             </div>
         </div>
 
-        <!-- 4. Contact Book -->
+        <!-- 5. Contact Book -->
         <div id="contactBook" class="content-section">
             <h2 class="section-title">📇 Contact Book & List Upload</h2>
             <div style="display: flex; gap: 10px; margin-bottom: 20px;">
@@ -224,7 +221,18 @@
                     <input type="text" id="addPhone" placeholder="Mobile Number" style="flex: 1;">
                     <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add 1 No.</button>
                 </div>
-                <button class="action-btn btn-success btn-sm" style="margin-bottom:12px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 20</button>
+
+                <!-- 🌟 NEW: Scan WhatsApp Selection & Valid Numbers PDF Download Button -->
+                <div style="background:#fff; padding:12px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:15px;">
+                    <label style="font-size:13px; color:#1e293b; margin-bottom:6px;">📱 Scan ke liye WhatsApp select karo (Multi-WA):</label>
+                    <div id="scanSessionPick"></div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                    <button class="action-btn btn-success btn-sm" style="flex:2;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 20</button>
+                    <button class="action-btn btn-primary btn-sm" style="flex:1;" onclick="downloadValidNumbersPDF()">📥 Download Valid PDF</button>
+                </div>
+                
                 <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
                 <table class="contact-table" id="contactTable">
                     <thead><tr><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
@@ -233,7 +241,7 @@
             </div>
         </div>
 
-        <!-- 5. Template Manager -->
+        <!-- 6. Template Manager -->
         <div id="templateSec" class="content-section">
             <h2 class="section-title">📝 Template Manager</h2>
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
@@ -245,7 +253,7 @@
             <div id="templateListArea"></div>
         </div>
 
-        <!-- 6. Smart Auto Reply -->
+        <!-- 7. Smart Auto Reply -->
         <div id="autoReply" class="content-section">
             <h2 class="section-title">Smart Auto-Reply</h2>
             <div class="switch-wrapper">
@@ -256,7 +264,7 @@
             <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
         </div>
 
-        <!-- 7. Connect Device -->
+        <!-- 8. Connect Device -->
         <div id="connectWp" class="content-section">
             <h2 class="section-title">Multi WhatsApp Login</h2>
             <div style="display:flex; gap:10px; margin-bottom:15px;">
@@ -294,7 +302,10 @@
         function selectForPairing(id) { selectedPairSessionId = id; savedPairingCodeHTML = ''; fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {}); }
 
         function renderSessionsUI(list, force) {
-            const box = document.getElementById('sessionsList'); const pick = document.getElementById('campaignSessionPick');
+            const box = document.getElementById('sessionsList'); 
+            const pick = document.getElementById('campaignSessionPick');
+            const scanPick = document.getElementById('scanSessionPick'); // 🌟 NEW: Scan session pick
+            
             const active = document.activeElement; if (active && active.id === 'pairPhone' && !force) return;
             const phoneEl = document.getElementById('pairPhone'); if (phoneEl) savedPairPhone = phoneEl.value || savedPairPhone;
             const codeEl = document.getElementById('pairingCodeDisplay'); if (codeEl && codeEl.innerHTML && codeEl.style.display !== 'none') { savedPairingCodeHTML = codeEl.innerHTML; }
@@ -307,29 +318,29 @@
                 if (!list.length) { box.innerHTML = '<p style="color:#64748b;">Koi session nahi — Add WhatsApp dabao.</p>'; } 
                 else {
                     box.innerHTML = list.map(s => {
-                        const status = s.connected ? (s.resting ? '<span style="color:#f59e0b">⏸️ Resting</span>' : '<span style="color:#10b981">✅ Connected</span>') : '<span style="color:#f59e0b">QR pending...</span>';
+                        const status = s.connected ? (s.resting ? '<span style="color:#f59e0b">⏸️ Resting</span>' : '<span style="color:#10b981">✅ Connected</span>') : '<span style="color:#f59e0b">⏳ Waiting for login...</span>';
+                        const qr = (!s.connected && s.qrCode) ? `<div style="text-align:center; margin-top:15px;"><img data-sid="${s.id}" src="${s.qrCode}" style="width:160px; height:160px; border-radius:8px; border:2px solid #e2e8f0; padding:4px;"><p style="font-size:13px; color:#1e293b; font-weight:700; margin:5px 0;">📷 Scan QR Code</p><p style="font-size:12px; color:#94a3b8; margin:5px 0;">--- YA PHIR ---</p></div>` : (!s.connected ? `<div style="text-align:center; margin-top:10px; font-size:12px; color:#f59e0b;">⏳ QR Loading...</div>` : '');
                         const isPairing = selectedPairSessionId === s.id; const phoneVal = (savedPairPhone || '').replace(/"/g, '&quot;');
                         const codeBlock = (isPairing && savedPairingCodeHTML) ? `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;user-select:all;">${savedPairingCodeHTML}</div>` : `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;display:none;user-select:all;"></div>`;
-                        const pairPanel = isPairing ? (`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;">
-                                <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>${s.name}</b></div>
-                                <input type="text" id="pairPhone" inputmode="numeric" autocomplete="off" value="${phoneVal}" placeholder="WhatsApp number" style="text-align:center;font-size:16px;width:100%;" oninput="savedPairPhone=this.value">
-                                <button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode('${s.id}', false)">Get 8-Digit Code</button>
-                                <button type="button" class="action-btn btn-success" style="margin-top:8px;" onclick="getPairingCode('${s.id}', true)">Fresh Code (reset session)</button>
-                                ${codeBlock}</div>`) : '';
-                        const pairBtn = s.connected ? '' : `<button type="button" class="action-btn btn-sm btn-primary" style="width:auto;${isPairing ? 'outline:2px solid #2563eb;' : ''}" onclick="selectForPairing('${s.id}')">${isPairing ? '✓ Pairing selected' : 'Use for Pairing'}</button>`;
-                        return `<div style="background:#fff;border:1px solid ${isPairing ? '#2563eb' : '#e2e8f0'};border-radius:12px;padding:14px;margin-bottom:10px;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><strong>${s.name}</strong><span style="font-size:12px;">${status}</span></div>
-                            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">${pairBtn}<button type="button" class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession('${s.id}')">Delete</button></div>
-                            ${pairPanel}</div>`;
+                        const pairPanel = isPairing ? (`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;"><div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>${s.name}</b></div><input type="text" id="pairPhone" inputmode="numeric" autocomplete="off" value="${phoneVal}" placeholder="WhatsApp number" style="text-align:center;font-size:16px;width:100%;" oninput="savedPairPhone=this.value"><button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode('${s.id}', false)">Get 8-Digit Code</button><button type="button" class="action-btn btn-success" style="margin-top:8px;" onclick="getPairingCode('${s.id}', true)">Fresh Code (reset session)</button>${codeBlock}</div>`) : '';
+                        const pairBtn = s.connected ? '' : `<button type="button" class="action-btn btn-sm btn-primary" style="width:auto;${isPairing ? 'outline:2px solid #2563eb;' : ''}" onclick="selectForPairing('${s.id}')">${isPairing ? '✓ Pairing selected' : 'Link with Phone Number (Code)'}</button>`;
+                        return `<div style="background:#fff;border:1px solid ${isPairing ? '#2563eb' : '#e2e8f0'};border-radius:12px;padding:14px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><strong>${s.name}</strong><span style="font-size:12px;">${status}</span></div>${qr}<div style="margin-top:8px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">${pairBtn}<button type="button" class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession('${s.id}')">Delete</button></div>${pairPanel}</div>`;
                     }).join('');
                 }
             }
-            if (pick) {
-                const connected = list.filter(s => s.connected); const prevChecked = new Set(Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value));
-                if (!connected.length) { pick.innerHTML = '<span style="color:#ef4444;font-size:13px;">Pehle Device Settings se WhatsApp connect karo.</span>'; } 
-                else { pick.innerHTML = connected.map(s => { const chk = prevChecked.size === 0 || prevChecked.has(s.id) ? 'checked' : ''; return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;"><input type="checkbox" class="waSessionChk" value="${s.id}" ${chk}> ${s.name}</label>`; }).join(''); }
-            }
+            
+            // Populate Campaign Session Pick & Scan Session Pick checkboxes
+            const populateCheckboxes = (container, className) => {
+                if (!container) return;
+                const connected = list.filter(s => s.connected); 
+                const prevChecked = new Set(Array.from(container.querySelectorAll('.' + className + ':checked')).map(c => c.value));
+                if (!connected.length) { container.innerHTML = '<span style="color:#ef4444;font-size:13px;">Pehle Device Settings se WhatsApp connect karo.</span>'; } 
+                else { container.innerHTML = connected.map(s => { const chk = prevChecked.size === 0 || prevChecked.has(s.id) ? 'checked' : ''; return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;"><input type="checkbox" class="${className}" value="${s.id}" ${chk}> ${s.name}</label>`; }).join(''); }
+            };
+            populateCheckboxes(pick, 'waSessionChk');
+            populateCheckboxes(scanPick, 'scanSessionChk'); // 🌟 NEW: Scan checkboxes
         }
+
         async function createWASession() { const name = (document.getElementById('newSessionName').value || '').trim(); await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); document.getElementById('newSessionName').value = ''; const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
         async function deleteWASession(id) { if (!confirm('Delete this WhatsApp session?')) return; await fetch('/api/sessions/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }); const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
 
@@ -339,7 +350,6 @@
             document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
-            // 🌟 NEW: Load history table if history section is clicked
             if (id === 'historySec') loadHistoryTable();
         }
 
@@ -485,28 +495,46 @@
                 status.style.color = '#10b981'; status.innerHTML = `✅ Scan: Valid <b>${d.validCount}</b> | Invalid: ${d.invalid} | Dup: ${d.duplicatesRemoved}`;
             } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 20) + Clean Duplicates'; }
         }
+
         async function scanNextInGroup() {
             const g = document.getElementById('groupSelect').value; const status = document.getElementById('scanContactStatus'); const btn = document.getElementById('scanContactBtn');
             if (!g) return showToast('⚠️ Group select karo!', true);
+            const sessionIds = Array.from(document.querySelectorAll('.scanSessionChk:checked')).map(c => c.value);
+            if (!sessionIds.length) return showToast('⚠️ Scan ke liye kam se kam 1 WhatsApp select karo!', true);
+
             btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b'; status.innerHTML = '⏳ Scanning...';
             try {
-                const r = await fetch('/api/scan-next', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group: g }) }); const d = await r.json();
+                const r = await fetch('/api/scan-next', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group: g, sessionIds }) }); const d = await r.json();
                 if (!d.success) { status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed'); return; }
                 status.style.color = '#10b981'; status.innerHTML = `✅ Scanned ${d.scanned}: Valid ${d.valid}, Invalid ${d.invalid}`; fetchContacts();
             } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan next 20'; }
+        }
+
+        // 🌟 NEW: Download Valid Numbers PDF Function
+        function downloadValidNumbersPDF() {
+            const g = document.getElementById('groupSelect').value;
+            if(!g || !allContacts[g]) return showToast("⚠️ Pehle group select karo!", true);
+            const validList = (allContacts[g] || []).filter(c => c.waStatus === 'valid');
+            if(validList.length === 0) return showToast("⚠️ Is group mein koi bhi Valid WhatsApp number nahi mila! Pehle scan karo.", true);
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.text(`Valid WhatsApp Numbers - Group: ${g}`, 14, 20);
+            const tableRows = validList.map((c, idx) => [idx + 1, c.name || 'Customer', c.phone]);
+            doc.autoTable({ head: [["#", "Name", "Mobile Number"]], body: tableRows, startY: 30 });
+            doc.save(`${g}_Valid_WhatsApp_Numbers.pdf`);
+            showToast(`✅ ${validList.length} valid numbers ki PDF download ho gayi!`);
         }
 
         function fetchLiveStatus() {
             fetch('/api/live-status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => {
                 let html = '';
                 if (data.isActive && (data.status === 'resting' || data.status === 'night_rest')) {
-                    html += `<div style="background:#fef3c7; color:#92400e; padding:16px; border-radius:12px; margin-bottom:15px; text-align:center;">
-                        <div style="font-size:18px; font-weight:700; margin-bottom:6px;">⏸️ Batch Rest</div><div style="font-size:13px; margin-bottom:8px;">${data.restReason || ''}</div></div>`;
+                    html += `<div style="background:#fef3c7; color:#92400e; padding:16px; border-radius:12px; margin-bottom:15px; text-align:center;"><div style="font-size:18px; font-weight:700; margin-bottom:6px;">⏸️ Batch Rest</div><div style="font-size:13px; margin-bottom:8px;">${data.restReason || ''}</div></div>`;
                 } else if (data.isActive && data.status === 'sending') {
                     html += `<div style="background:#ecfdf5; color:#065f46; padding:10px 14px; border-radius:10px; margin-bottom:12px; font-size:13px; font-weight:600;">🚀 Sending... | Batch size: हर ${data.batchSize || 50} msgs → 2 hrs rest</div>`;
                 }
-                html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px; flex-wrap:wrap; gap:8px; font-size:15px; font-weight:bold; background:#f8fafc; padding:15px; border-radius:10px; border:1px solid #e2e8f0;">
-                    <span style="color:var(--secondary);">Total: ${data.total || 0}</span><span style="color:#10b981;">Sent: ${data.sent || 0}</span><span style="color:#ef4444;">Failed: ${data.failed || 0}</span><span style="color:#f59e0b;">Pending: ${data.pending || 0}</span></div>`;
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px; flex-wrap:wrap; gap:8px; font-size:15px; font-weight:bold; background:#f8fafc; padding:15px; border-radius:10px; border:1px solid #e2e8f0;"><span style="color:var(--secondary);">Total: ${data.total || 0}</span><span style="color:#10b981;">Sent: ${data.sent || 0}</span><span style="color:#ef4444;">Failed: ${data.failed || 0}</span><span style="color:#f59e0b;">Pending: ${data.pending || 0}</span></div>`;
 
                 if (data.numbers && data.numbers.length) {
                     let sessionsMap = {}; let pendingList = [];
@@ -552,14 +580,13 @@
         
         function getPairingCode(sessionId, fresh) {
             const phoneEl = document.getElementById('pairPhone'); const phone = (phoneEl && phoneEl.value || '').trim(); const display = document.getElementById('pairingCodeDisplay'); if (!display) return;
-            if (!phone) { display.style.display = 'block'; display.style.color = '#ef4444'; display.innerText = 'Pehle is session ka WhatsApp number likho'; return; }
+            if (!phone && !fresh) { display.style.display = 'block'; display.style.color = '#ef4444'; display.innerText = 'Pehle is session ka WhatsApp number likho'; return; }
             savedPairPhone = phone; const sid = sessionId || selectedPairSessionId; display.style.display = 'block'; display.style.color = '#64748b'; display.innerText = fresh ? '⏳ Fresh session (10-15 sec)...' : '⏳ Generating code...';
             fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, sessionId: sid || undefined, forceFresh: !!fresh }) }).then(r => r.json()).then(d => {
                 display.style.display = 'block'; if (d.success && d.code) { display.style.color = '#2563eb'; const rawCode = String(d.raw || d.code).replace(/-/g, ''); display.innerHTML = `<div style="font-size:28px;letter-spacing:2px;user-select:all;">${d.code}</div><button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText('${rawCode}')">Copy Code</button>`; savedPairingCodeHTML = display.innerHTML; } else { display.style.color = '#ef4444'; display.innerText = d.error || 'Pairing fail'; savedPairingCodeHTML = display.innerHTML; }
             }).catch(() => { display.style.color = '#ef4444'; display.innerText = 'Network error'; });
         }
 
-        // 🌟 NEW: HISTORY LOADING SYSTEM
         function loadHistoryTable() {
             const tbody = document.getElementById('historyTableBody');
             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">⏳ Data load हो रहा है...</td></tr>';
@@ -568,21 +595,15 @@
             .then(data => {
                 if(!data || data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b;">अभी तक कोई हिस्ट्री नहीं है।</td></tr>'; return; }
                 let html = '';
-                const recent = data.slice(-100).reverse(); // सबसे नई हिस्ट्री सबसे ऊपर
+                const recent = data.slice(-100).reverse();
                 recent.forEach(row => {
                     const safeMsg = (row.message || 'Media').substring(0, 30) + '...';
-                    html += `<tr>
-                        <td style="font-size:12px; color:#475569;">${row.date}</td>
-                        <td style="font-weight:600; color:#2563eb;">${row.session || '-'}</td>
-                        <td style="font-weight:600;">${row.number}</td>
-                        <td style="font-size:12px; color:#10b981;">✅ Sent<br><span style="color:#64748b; font-size:11px;">${safeMsg}</span></td>
-                    </tr>`;
+                    html += `<tr><td style="font-size:12px; color:#475569;">${row.date}</td><td style="font-weight:600; color:#2563eb;">${row.session || '-'}</td><td style="font-weight:600;">${row.number}</td><td style="font-size:12px; color:#10b981;">✅ Sent<br><span style="color:#64748b; font-size:11px;">${safeMsg}</span></td></tr>`;
                 });
                 tbody.innerHTML = html;
             }).catch(() => { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Network Error!</td></tr>'; });
         }
 
-        // 🌟 UPDATED: PDF & CSV Download (अब WhatsApp नाम के साथ)
         function downloadHistory() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { let csv = 'Date & Time,WhatsApp Device,Mobile Number,Message\n'; data.forEach(row => { csv += `"${row.date}","${row.session || '-'}","${row.number}","${(row.message||'').replace(/"/g, '""')}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Campaign_History.csv'); a.click(); }); }
         function downloadPDF() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Campaign History", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.date, row.session || '-', row.number, (row.message||'Media').substring(0,20)]); }); doc.autoTable({ head: [["Date & Time", "WhatsApp", "Mobile Number", "Message Preview"]], body: tableRows, startY: 30 }); doc.save('History.pdf'); }); }
     </script>
