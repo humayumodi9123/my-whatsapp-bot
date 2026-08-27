@@ -235,7 +235,7 @@
                 <input type="text" id="newGroupName" placeholder="नया ग्रुप बनाएं (उदा: Retailers)" style="flex: 1;">
                 <button class="action-btn btn-primary btn-sm" style="width: auto;" onclick="createNewGroup()">+ Create</button>
             </div>
-            <div class="form-group"><label>ग्रुप चुनें:</label><select id="groupSelect" onchange="renderGroupContacts()"><option value="">-- ग्रुप सेलेक्ट करें --</option></select></div>
+            <div class="form-group"><label>ग्रुप चुनें:</label><select id="groupSelect" onchange="contactListShowAll=false;contactListFilter='all';renderGroupContacts()"><option value="">-- ग्रुप सेलेक्ट करें --</option></select></div>
             <div id="contactManagerDiv" style="display: none; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
                 <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #2563eb; margin-bottom: 20px;">
                     <label style="color: #2563eb;">📂 Excel, CSV या PDF फाइल अपलोड करें:</label>
@@ -260,10 +260,18 @@
                 </div>
                 
                 <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
-                <table class="contact-table" id="contactTable">
-                    <thead><tr><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
-                    <tbody id="contactTableBody"></tbody>
-                </table>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#e2e8f0;color:#1e293b;" onclick="contactListFilter='all';contactListShowAll=false;renderGroupContacts()">All</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#d1fae5;color:#065f46;" onclick="contactListFilter='valid';contactListShowAll=false;renderGroupContacts()">Valid</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#fee2e2;color:#991b1b;" onclick="contactListFilter='invalid';contactListShowAll=false;renderGroupContacts()">Invalid</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#fef3c7;color:#92400e;" onclick="contactListFilter='pending';contactListShowAll=false;renderGroupContacts()">Pending</button>
+                </div>
+                <div style="max-height:420px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff;">
+                    <table class="contact-table" id="contactTable" style="margin-top:0;">
+                        <thead><tr><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
+                        <tbody id="contactTableBody"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -441,17 +449,45 @@
             updateGroupDropdowns(); document.getElementById('groupSelect').value = name; renderGroupContacts(); showToast(`✅ '${name}' ग्रुप सफलतापूर्वक बन गया!`);
             fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
         }
+        let contactListShowAll = false;
+        let contactListFilter = 'all'; // all | valid | invalid | pending
+
         function renderGroupContacts() {
-            const g = document.getElementById('groupSelect').value; const div = document.getElementById('contactManagerDiv'); const tbody = document.getElementById('contactTableBody');
+            const g = document.getElementById('groupSelect').value;
+            const div = document.getElementById('contactManagerDiv');
+            const tbody = document.getElementById('contactTableBody');
             if (!g) { div.style.display = 'none'; return; }
-            div.style.display = 'block'; const list = allContacts[g] || []; const MAX_SHOW = 100; const show = list.slice(0, MAX_SHOW); let html = '';
+            div.style.display = 'block';
+
+            let list = allContacts[g] || [];
+            if (contactListFilter === 'valid') list = list.filter(c => c.waStatus === 'valid');
+            else if (contactListFilter === 'invalid') list = list.filter(c => c.waStatus === 'invalid');
+            else if (contactListFilter === 'pending') list = list.filter(c => !c.waStatus || c.waStatus === 'pending');
+
+            const PAGE = 30;
+            const MAX_SHOW = contactListShowAll ? list.length : PAGE;
+            const show = list.slice(0, MAX_SHOW);
+            let html = '';
             for (let i = 0; i < show.length; i++) {
-                const st = show[i].waStatus; let badge = '<span style="color:#f59e0b">Pending</span>';
-                if (st === 'valid') badge = '<span style="color:#10b981">Valid ✅</span>'; if (st === 'invalid') badge = '<span style="color:#ef4444">Invalid ❌</span>';
+                const st = show[i].waStatus;
+                let badge = '<span style="color:#f59e0b">Pending</span>';
+                if (st === 'valid') badge = '<span style="color:#10b981">Valid ✅</span>';
+                if (st === 'invalid') badge = '<span style="color:#ef4444">Invalid ❌</span>';
                 html += `<tr><td>${show[i].name || 'Customer'}</td><td>${show[i].phone}</td><td>${badge}</td></tr>`;
             }
-            if (list.length > MAX_SHOW) html += `<tr><td colspan="3" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW}</td></tr>`;
-            tbody.innerHTML = html;
+            if (list.length > MAX_SHOW) {
+                const left = list.length - MAX_SHOW;
+                html += `<tr style="cursor:pointer;background:#eff6ff;" onclick="contactListShowAll=true;renderGroupContacts()">
+                    <td colspan="3" style="text-align:center;color:#2563eb;font-size:14px;font-weight:700;padding:14px;">
+                        👇 ... और ${left} — क्लिक करके पूरी लिस्ट देखें (कुल ${list.length})
+                    </td>
+                </tr>`;
+            } else if (list.length > PAGE && contactListShowAll) {
+                html += `<tr style="cursor:pointer;background:#f8fafc;" onclick="contactListShowAll=false;renderGroupContacts()">
+                    <td colspan="3" style="text-align:center;color:#64748b;font-size:13px;padding:12px;">▲ कम दिखाएं (पहली ${PAGE})</td>
+                </tr>`;
+            }
+            tbody.innerHTML = html || `<tr><td colspan="3" style="text-align:center;color:#64748b;">इस फ़िल्टर में कोई नंबर नहीं</td></tr>`;
         }
         function addSingleContact() {
             const g = document.getElementById('groupSelect').value; const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
