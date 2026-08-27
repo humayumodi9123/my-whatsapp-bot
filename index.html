@@ -149,7 +149,6 @@
                 </div>
 
                 <div id="manualTargetDiv" style="display: none; margin-top: 15px;">
-                    <!-- Excel/PDF Upload in Campaign -->
                     <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #10b981; margin-bottom: 10px;">
                         <label style="color: #10b981;">📄 PDF या Excel (CSV) फाइल से नंबर निकालें:</label>
                         <input type="file" id="campaignFileInput" accept=".csv, .xlsx, .xls, .pdf" onchange="processCampaignFile(event)">
@@ -157,7 +156,7 @@
                     </div>
 
                     <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें या ऊपर से फाइल अपलोड करें..." style="height:100px;"></textarea>
-                    <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा।</p>
+                    <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा。</p>
                     <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 20) + Clean Duplicates</button>
                     <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
                 </div>
@@ -512,7 +511,11 @@
                 if (added > 0) {
                     saveContactsToAPI();
                     setUploadStatus(`✅ ${added} numbers add हो गए (Total: ${allContacts[g].length})`, '#10b981');
-                } else { setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444'); }
+                    alert(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए!`);
+                } else { 
+                    setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444'); 
+                    alert("फाइल में कोई नया सही मोबाइल नंबर नहीं मिला।");
+                }
                 document.getElementById('contactFileInput').value = '';
             }, (page, total) => { setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b'); });
         }
@@ -578,7 +581,17 @@
             finally { btn.disabled = false; btn.innerHTML = '🔍 Scan next 20 (manual)'; }
         }
 
-        function fetchContacts() { fetch('/api/contacts').then(r => r.json()).then(data => { allContacts = data; updateGroupDropdowns(); renderGroupContacts(); }); }
+        /* -------------------------------------------------------------
+           ✅ 1. FIXED GROUP LOGIC WITH ALERTS & INPUT CLEARING
+           ------------------------------------------------------------- */
+        function fetchContacts() { 
+            fetch('/api/contacts').then(r => r.json()).then(data => { 
+                allContacts = data; 
+                updateGroupDropdowns(); 
+                renderGroupContacts(); 
+            }); 
+        }
+        
         function updateGroupDropdowns() {
             const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
             const prevG1 = g1.value; const prevG2 = g2.value; 
@@ -589,11 +602,26 @@
             });
             if(allContacts[prevG1]) g1.value = prevG1; if(allContacts[prevG2]) g2.value = prevG2;
         }
+
         function createNewGroup() {
             const name = document.getElementById('newGroupName').value.trim();
-            if(!name) return; if(allContacts[name]) return alert("ग्रुप पहले से है!");
-            allContacts[name] = []; saveContactsToAPI(); document.getElementById('newGroupName').value = '';
+            if(!name) return alert("⚠️ कृपया ग्रुप का नाम लिखें!"); 
+            if(allContacts[name]) return alert("⚠️ यह ग्रुप पहले से मौजूद है!");
+            
+            allContacts[name] = []; 
+            fetch('/api/contacts', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify(allContacts) 
+            }).then(() => { 
+                alert(`✅ नया ग्रुप '${name}' सफलतापूर्वक बन गया है!`);
+                document.getElementById('newGroupName').value = '';
+                fetchContacts(); 
+            }).catch(e => {
+                alert("❌ एरर: ग्रुप नहीं बन सका। नेटवर्क चेक करें।");
+            });
         }
+
         function renderGroupContacts() {
             const g = document.getElementById('groupSelect').value; const div = document.getElementById('contactManagerDiv'); const tbody = document.getElementById('contactTableBody');
             if (!g) { div.style.display = 'none'; return; }
@@ -608,32 +636,96 @@
             if (list.length > MAX_SHOW) html += `<tr><td colspan="3" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW}</td></tr>`;
             tbody.innerHTML = html;
         }
+
         function addSingleContact() {
             const g = document.getElementById('groupSelect').value; const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
             if(!n || !p) return alert("नाम और नंबर दोनों डालें!");
             allContacts[g].push({name: n, phone: p, waStatus: null}); saveContactsToAPI();
             document.getElementById('addName').value = ''; document.getElementById('addPhone').value = '';
+            alert(`✅ ${n} का नंबर ग्रुप में जुड़ गया!`);
         }
-        function saveContactsToAPI() { fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).then(() => fetchContacts()); }
 
-        function fetchTemplates() { fetch('/api/templates').then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }); }
+        function saveContactsToAPI() { 
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) })
+            .then(() => fetchContacts()); 
+        }
+
+        /* -------------------------------------------------------------
+           ✅ 2. FIXED TEMPLATE LOGIC WITH ALERTS & SAFE RENDERING
+           ------------------------------------------------------------- */
+        function fetchTemplates() { 
+            fetch('/api/templates').then(r => r.json()).then(data => { 
+                allTemplates = data; 
+                renderTemplates(); 
+            }); 
+        }
+
         function renderTemplates() {
             const drop = document.getElementById('templateDropdown'); const prevSelected = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
             drop.innerHTML = ''; document.getElementById('templateListArea').innerHTML = '';
+            
             allTemplates.forEach(t => {
+                // Fix: Added (t.message || '') to prevent substring crash
+                const safeMessage = (t.message || '').substring(0, 40);
                 const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
                 if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
-                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${t.message.substring(0, 40)}...</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
+                
+                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
             });
             applySelectedTemplates();
         }
+
         function saveNewTemplate() {
-            const name = document.getElementById('newTplName').value, msg = document.getElementById('newTplMsg').value, img = document.getElementById('newTplImage').files[0];
-            if(!name || !msg) return alert("नाम और मैसेज ज़रूरी है!"); const id = 'tpl_' + Date.now();
-            if(img) { const r = new FileReader(); r.onload = e => fetch('/api/templates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, name, message:msg, imageBase64:e.target.result})}).then(()=>fetchTemplates()); r.readAsDataURL(img); }
-            else fetch('/api/templates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, name, message:msg, imageBase64:null})}).then(()=>fetchTemplates());
+            const name = document.getElementById('newTplName').value;
+            const msg = document.getElementById('newTplMsg').value;
+            const imgFile = document.getElementById('newTplImage').files[0];
+            
+            if(!name || !msg) return alert("⚠️ नाम और मैसेज डालना ज़रूरी है!"); 
+            
+            const id = 'tpl_' + Date.now();
+            const payload = { id, name, message: msg, imageBase64: null };
+
+            if(imgFile) { 
+                const r = new FileReader(); 
+                r.onload = e => {
+                    payload.imageBase64 = e.target.result;
+                    sendTemplateToAPI(payload);
+                }; 
+                r.readAsDataURL(imgFile); 
+            } else {
+                sendTemplateToAPI(payload);
+            }
         }
-        function deleteTemplate(id) { fetch('/api/templates/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})}).then(()=>fetchTemplates()); }
+
+        function sendTemplateToAPI(payload) {
+            fetch('/api/templates', {
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify(payload)
+            }).then(() => {
+                alert("✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!");
+                document.getElementById('newTplName').value = '';
+                document.getElementById('newTplMsg').value = '';
+                document.getElementById('newTplImage').value = '';
+                fetchTemplates();
+            }).catch(e => {
+                alert("❌ एरर: टेम्प्लेट सेव नहीं हो सका।");
+                console.error(e);
+            });
+        }
+
+        function deleteTemplate(id) { 
+            if(!confirm("क्या आप सच में इसे डिलीट करना चाहते हैं?")) return;
+            fetch('/api/templates/delete', {
+                method:'POST', 
+                headers:{'Content-Type':'application/json'}, 
+                body:JSON.stringify({id})
+            }).then(() => {
+                alert("✅ टेम्प्लेट डिलीट हो गया!");
+                fetchTemplates();
+            }); 
+        }
+
         function applySelectedTemplates() {
             const drop = document.getElementById('templateDropdown');
             const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
@@ -657,14 +749,10 @@
             return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
         }
 
-        // ==========================================
-        // 🚀 UPDATED FETCH LIVE STATUS (GROUP BY WA)
-        // ==========================================
         function fetchLiveStatus() {
             fetch('/api/live-status').then(r => r.json()).then(data => {
                 let html = '';
 
-                // Banner Logic
                 if (data.isActive && (data.status === 'resting' || data.status === 'night_rest')) {
                     const cd = formatCountdown(data.resumeAt);
                     const isNight = data.status === 'night_rest';
@@ -677,7 +765,6 @@
                     html += `<div style="background:#ecfdf5; color:#065f46; padding:10px 14px; border-radius:10px; margin-bottom:12px; font-size:13px; font-weight:600;">🚀 Sending... | Batch size: हर ${data.batchSize || 50} msgs → 2 hrs rest</div>`;
                 }
 
-                // Global Stats
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px; flex-wrap:wrap; gap:8px; font-size:15px; font-weight:bold; background:#f8fafc; padding:15px; border-radius:10px; border:1px solid #e2e8f0;">
                     <span style="color:var(--secondary);">Total: ${data.total || 0}</span>
                     <span style="color:#10b981;">Sent: ${data.sent || 0}</span>
@@ -693,7 +780,6 @@
                         if (String(item.status).includes('Pending')) {
                             pendingList.push(item);
                         } else {
-                            // Extract session name from status string e.g., "Sent ✅ (WhatsApp 1 / Template Name)"
                             let match = String(item.status).match(/\((.*?)( \/ .*?)?\)/);
                             let sName = match ? match[1] : 'Unknown Device';
                             
@@ -706,7 +792,6 @@
                         }
                     });
 
-                    // Render separate Box for each WhatsApp Session
                     Object.keys(sessionsMap).forEach(sName => {
                         let sData = sessionsMap[sName];
                         html += `<div style="margin-bottom:20px; border:1px solid #bfdbfe; border-radius:10px; overflow:hidden;">
@@ -731,7 +816,6 @@
                         html += `</div></div>`;
                     });
 
-                    // Render Shared Pending Queue Box
                     if (pendingList.length > 0) {
                         html += `<div style="margin-bottom:20px; border:1px solid #fef08a; border-radius:10px; overflow:hidden;">
                             <div style="background:#fef9c3; padding:10px 15px; border-bottom:1px solid #fef08a; display:flex; justify-content:space-between; align-items:center;">
@@ -827,3 +911,4 @@
     </script>
 </body>
 </html>
+
