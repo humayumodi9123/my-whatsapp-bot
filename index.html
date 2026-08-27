@@ -23,7 +23,7 @@
         
         .sidebar { width: 260px; background: var(--card-bg); height: 100%; position: fixed; left: -260px; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); padding-top: 80px; border-right: 1px solid var(--border-color); z-index: 1000; box-shadow: 4px 0 15px rgba(0,0,0,0.03); display: flex; flex-direction: column; }
         .sidebar.active { left: 0; }
-        .sidebar-menu { flex: 1; overflow-y: auto; }
+        .sidebar-menu { flex: 1; overflow-y: auto; padding-bottom: 20px; }
         .sidebar-btn { display: block; width: 90%; margin: 8px auto; padding: 14px 20px; text-align: left; background: none; border: none; font-size: 15px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-radius: 10px; transition: all 0.3s ease; }
         .sidebar-btn:hover { background: #f8fafc; color: var(--secondary); transform: translateX(5px); }
         .sidebar-btn.active { background: #eff6ff; color: var(--primary); border-left: 4px solid var(--primary); }
@@ -54,13 +54,11 @@
         .btn-sm { padding: 10px 15px; font-size: 14px; border-radius: 8px; }
 
         .delay-box { display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
-        #imagePreview { max-width: 100px; max-height: 100px; border-radius: 8px; display: none; margin-top: 10px; }
 
         .contact-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         .contact-table th, .contact-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
         .contact-table th { background: #f8fafc; color: var(--secondary); }
         
-        /* Auto Reply Switch CSS */
         .switch-wrapper { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
         .switch-text h3 { margin: 0 0 5px 0; color: var(--secondary); font-size: 17px; }
         .switch-text p { margin: 0; color: var(--text-muted); font-size: 13px; }
@@ -71,7 +69,6 @@
         input:checked + .slider { background-color: var(--success); }
         input:checked + .slider:before { transform: translateX(22px); }
 
-        /* Toast Notification CSS */
         #appToast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 30px; font-weight: 600; font-size: 14px; color: #fff; z-index: 9999; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); opacity: 0; pointer-events: none; }
 
         @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid, .delay-box { flex-direction: column; } }
@@ -79,7 +76,6 @@
 </head>
 <body>
 
-    <!-- Toast Notification -->
     <div id="appToast"></div>
 
     <div class="topbar">
@@ -91,9 +87,10 @@
         <div class="sidebar-menu">
             <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
             <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
+            <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
+            <button class="sidebar-btn" onclick="showSection('historySec', this)">📜 Campaign History</button>
             <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contact Book</button>
             <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Template Manager</button>
-            <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
             <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
             <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
         </div>
@@ -117,8 +114,6 @@
         <!-- 2. Campaign Sender -->
         <div id="sendMsg" class="content-section">
             <h2 class="section-title">New Marketing Campaign</h2>
-
-            <!-- Anti-Ban AI Rules Panel -->
             <div style="background: linear-gradient(135deg,#ecfdf5,#f0fdf4); border:1px solid #86efac; border-radius:14px; padding:16px; margin-bottom:20px;">
                 <div style="font-weight:700; color:#065f46; font-size:15px; margin-bottom:8px;">🛡️ Anti-Ban AI Rules (auto ON)</div>
                 <ul style="margin:0; padding-left:18px; font-size:12px; color:#166534; line-height:1.6;">
@@ -126,18 +121,14 @@
                     <li>Auto batch: <b>30 / 40 / 50</b> msgs → phir <b>2 hours rest</b></li>
                     <li>Daily limit: naya account ~80, baad mein max ~200 / day</li>
                     <li>Time window: <b>8 AM – 10 PM IST</b> only</li>
-                    <li>Min delay server pe <b>45 sec+</b> (neeche se kam bhi set karo to 45 lagega)</li>
                     <li>Templates: risk / same text pe warning</li>
                 </ul>
-                <div id="antiBanStatus" style="margin-top:10px; font-size:12px; color:#047857;"></div>
                 <div id="templateRiskBox" style="margin-top:10px; display:none;"></div>
             </div>
             
             <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
                 <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (AI Smart Mix):</label>
-                <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">Desktop: Ctrl/Cmd दबाकर कई टेम्प्लेट सेलेक्ट करें। Mobile: एक-एक करके tap करके चुनें। <b>AI Smart Mix:</b> random mix — series nahi.</p>
-                <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()">
-                </select>
+                <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()"></select>
                 <div id="selectedTemplatesPreview" style="margin-top:12px;"></div>
             </div>
 
@@ -149,20 +140,15 @@
                 </select>
                 
                 <div id="groupTargetDiv" style="margin-top: 15px;">
-                    <select id="campaignGroupDropdown">
-                        <option value="">-- ग्रुप चुनें --</option>
-                    </select>
+                    <select id="campaignGroupDropdown"><option value="">-- ग्रुप चुनें --</option></select>
                 </div>
 
                 <div id="manualTargetDiv" style="display: none; margin-top: 15px;">
                     <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #10b981; margin-bottom: 10px;">
                         <label style="color: #10b981;">📄 PDF या Excel (CSV) फाइल से नंबर निकालें:</label>
                         <input type="file" id="campaignFileInput" accept=".csv, .xlsx, .xls, .pdf" onchange="processCampaignFile(event)">
-                        <p style="font-size:12px; color:var(--text-muted); margin-top:5px; margin-bottom: 0;">अपलोड करते ही सारे नंबर नीचे बॉक्स में आ जाएँगे।</p>
                     </div>
-
-                    <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें या ऊपर से फाइल अपलोड करें..." style="height:100px;"></textarea>
-                    <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा।</p>
+                    <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें..." style="height:100px;"></textarea>
                     <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 20) + Clean Duplicates</button>
                     <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
                 </div>
@@ -183,47 +169,63 @@
             <div class="form-group" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
                 <label>📱 Kis WhatsApp se bhejna hai? (multi select)</label>
                 <div id="campaignSessionPick" style="margin-top:8px;"></div>
-                <p style="font-size:12px; color:#64748b; margin:8px 0 0;">Har selected WA: 30 msgs → 2hr rest. Available WA queue se next number lega. Ek number pe sirf ek msg.</p>
             </div>
 
-            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign (Multi-WA Anti-Ban)</button>
+            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign (Multi-WA)</button>
         </div>
 
-        <!-- 3. Contact Book & File Upload -->
+        <!-- 3. Live Tracking -->
+        <div id="liveTrackingSec" class="content-section">
+            <h2 class="section-title">📡 Live Campaign Monitor</h2>
+            <div id="liveList" style="background:#fff; border-radius:12px; border:1px solid #e2e8f0; padding:15px; max-height:750px; overflow-y:auto;"></div>
+        </div>
+
+        <!-- 🌟 NEW: Campaign History -->
+        <div id="historySec" class="content-section">
+            <h2 class="section-title">📜 Campaign History & Logs</h2>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:15px;">यहाँ आप देख सकते हैं कि किस तारीख और सेकंड पर किस नंबर को किस WhatsApp अकाउंट से मैसेज भेजा गया था।</p>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <button class="action-btn btn-success" style="flex: 1; padding: 12px;" onclick="downloadHistory()">📥 Download CSV</button>
+                <button class="action-btn btn-primary" style="flex: 1; padding: 12px;" onclick="loadHistoryTable()">🔄 Refresh Data</button>
+            </div>
+            <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow-x: auto;">
+                <table class="contact-table" id="historyTable" style="min-width: 650px;">
+                    <thead>
+                        <tr>
+                            <th>Date & Time (IST)</th>
+                            <th>WhatsApp Device</th>
+                            <th>Mobile Number</th>
+                            <th>Message Preview</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 4. Contact Book -->
         <div id="contactBook" class="content-section">
             <h2 class="section-title">📇 Contact Book & List Upload</h2>
-            
             <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                 <input type="text" id="newGroupName" placeholder="नया ग्रुप बनाएं (उदा: Retailers)" style="flex: 1;">
                 <button class="action-btn btn-primary btn-sm" style="width: auto;" onclick="createNewGroup()">+ Create</button>
             </div>
-
-            <div class="form-group">
-                <label>ग्रुप चुनें:</label>
-                <select id="groupSelect" onchange="renderGroupContacts()">
-                    <option value="">-- ग्रुप सेलेक्ट करें --</option>
-                </select>
-            </div>
-
+            <div class="form-group"><label>ग्रुप चुनें:</label><select id="groupSelect" onchange="renderGroupContacts()"><option value="">-- ग्रुप सेलेक्ट करें --</option></select></div>
             <div id="contactManagerDiv" style="display: none; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                
                 <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #2563eb; margin-bottom: 20px;">
                     <label style="color: #2563eb;">📂 Excel, CSV या PDF फाइल अपलोड करें:</label>
                     <input type="file" id="contactFileInput" accept=".csv, .xlsx, .xls, .pdf" style="margin-bottom: 10px;">
                     <button class="action-btn btn-primary btn-sm" onclick="processContactFile()">Upload File</button>
-                    <p style="font-size:12px; color:var(--text-muted); margin-top:5px;">PDF से नंबर अपने आप निकाल लिए जाएँगे। Excel/CSV में पहला कॉलम नाम, दूसरा नंबर रखें।</p>
                 </div>
-
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                     <input type="text" id="addName" placeholder="Name" style="flex: 1;">
                     <input type="text" id="addPhone" placeholder="Mobile Number" style="flex: 1;">
                     <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add 1 No.</button>
                 </div>
-
-                <div id="groupScanStats" style="background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; margin-bottom:12px; font-size:13px; display:none;"></div>
-                <button class="action-btn btn-success btn-sm" style="margin-bottom:12px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 20 (manual) — Auto bhi background mein chalega</button>
+                <button class="action-btn btn-success btn-sm" style="margin-bottom:12px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 20</button>
                 <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
-
                 <table class="contact-table" id="contactTable">
                     <thead><tr><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
                     <tbody id="contactTableBody"></tbody>
@@ -231,77 +233,52 @@
             </div>
         </div>
 
-        <!-- 4. Template Manager -->
+        <!-- 5. Template Manager -->
         <div id="templateSec" class="content-section">
             <h2 class="section-title">📝 Template Manager</h2>
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
-                <h3 style="margin-top:0;">Create New Template</h3>
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
                 <div class="form-group"><label>पोस्टर / फोटो:</label><input type="file" id="newTplImage" accept="image/*"></div>
-                <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;" placeholder="नमस्ते [Name], ..."></textarea></div>
+                <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
                 <button class="action-btn btn-success" onclick="saveNewTemplate()">💾 Save Template</button>
             </div>
             <div id="templateListArea"></div>
-        </div>
-
-        <!-- 5. Live Tracking -->
-        <div id="liveTrackingSec" class="content-section">
-            <h2 class="section-title">📡 Live Campaign Monitor</h2>
-            <div id="liveList" style="background:#fff; border-radius:12px; border:1px solid #e2e8f0; padding:15px; max-height:750px; overflow-y:auto;"></div>
         </div>
 
         <!-- 6. Smart Auto Reply -->
         <div id="autoReply" class="content-section">
             <h2 class="section-title">Smart Auto-Reply</h2>
             <div class="switch-wrapper">
-                <div class="switch-text">
-                    <h3>Auto-Reply Assistant</h3>
-                    <p>ग्राहकों को अपने आप तुरंत जवाब भेजें।</p>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()">
-                    <span class="slider"></span>
-                </label>
+                <div class="switch-text"><h3>Auto-Reply Assistant</h3><p>ग्राहकों को अपने आप तुरंत जवाब भेजें।</p></div>
+                <label class="switch"><input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()"><span class="slider"></span></label>
             </div>
             <div class="form-group"><label>वेलकम मैसेज सेट करें:</label><textarea id="editAutoReplyMsg" style="height:180px;"></textarea></div>
             <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
         </div>
 
-        <!-- Connect Device -->
+        <!-- 7. Connect Device -->
         <div id="connectWp" class="content-section">
             <h2 class="section-title">Multi WhatsApp Login</h2>
-            <p style="font-size:13px; color:#64748b;">Kai numbers connect karo. Send time pe select karoge — har WA 30 msgs ke baad 2hr rest, doosra WA continue.</p>
             <div style="display:flex; gap:10px; margin-bottom:15px;">
                 <input type="text" id="newSessionName" placeholder="Name (e.g. Business 2)" style="flex:1;">
                 <button class="action-btn btn-primary btn-sm" style="width:auto;" onclick="createWASession()">+ Add WhatsApp</button>
             </div>
             <div id="sessionsList"></div>
-            <p style="font-size:12px; color:#64748b; margin-top:12px;">Pairing code chahiye to us session pe <b>Use for Pairing</b> dabao — number box usi card ke andar khulega.</p>
         </div>
     </div>
 
-    <!-- JAVASCRIPT LOGIC -->
     <script>
-        let allTemplates = [];
-        let selectedTemplatesList = []; 
-        let allContacts = {}; 
-
-        // 🌟 TOAST NOTIFICATION SYSTEM (No more blocking alerts)
+        let allTemplates = []; let selectedTemplatesList = []; let allContacts = {}; 
         function showToast(msg, isError = false) {
             let toast = document.getElementById('appToast');
             toast.style.backgroundColor = isError ? '#ef4444' : '#10b981';
-            toast.innerHTML = msg;
-            toast.style.opacity = '1';
-            toast.style.bottom = '40px';
+            toast.innerHTML = msg; toast.style.opacity = '1'; toast.style.bottom = '40px';
             setTimeout(() => { toast.style.opacity = '0'; toast.style.bottom = '20px'; }, 3000);
         }
 
         window.onload = () => {
             const df = document.getElementById('dateFilter');
-            if (df && !df.value) {
-                const t = new Date();
-                df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
-            }
+            if (df && !df.value) { const t = new Date(); df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0'); }
             fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
                 fetch('/status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => {
@@ -309,98 +286,52 @@
                     document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
                 }).catch(() => {});
-                fetchLiveStatus();
-                fetchStats();
+                fetchLiveStatus(); fetchStats();
             }, 3000);
         }
 
-        let selectedPairSessionId = null;
-        let savedPairPhone = '';
-        let savedPairingCodeHTML = '';
-        let lastSessionsSnapshot = '';
-
-        function selectForPairing(id) {
-            selectedPairSessionId = id; savedPairingCodeHTML = '';
-            fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {});
-        }
+        let selectedPairSessionId = null; let savedPairPhone = ''; let savedPairingCodeHTML = ''; let lastSessionsSnapshot = '';
+        function selectForPairing(id) { selectedPairSessionId = id; savedPairingCodeHTML = ''; fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {}); }
 
         function renderSessionsUI(list, force) {
-            const box = document.getElementById('sessionsList');
-            const pick = document.getElementById('campaignSessionPick');
-            const active = document.activeElement;
-            if (active && active.id === 'pairPhone' && !force) return;
-
-            const phoneEl = document.getElementById('pairPhone');
-            if (phoneEl) savedPairPhone = phoneEl.value || savedPairPhone;
-            const codeEl = document.getElementById('pairingCodeDisplay');
-            if (codeEl && codeEl.innerHTML && codeEl.style.display !== 'none') { savedPairingCodeHTML = codeEl.innerHTML; }
-
+            const box = document.getElementById('sessionsList'); const pick = document.getElementById('campaignSessionPick');
+            const active = document.activeElement; if (active && active.id === 'pairPhone' && !force) return;
+            const phoneEl = document.getElementById('pairPhone'); if (phoneEl) savedPairPhone = phoneEl.value || savedPairPhone;
+            const codeEl = document.getElementById('pairingCodeDisplay'); if (codeEl && codeEl.innerHTML && codeEl.style.display !== 'none') { savedPairingCodeHTML = codeEl.innerHTML; }
             const snap = JSON.stringify((list || []).map(s => [s.id, s.connected, s.resting, s.name, s.qrCode ? 1 : 0]));
             if (!force && snap === lastSessionsSnapshot && box && box.innerHTML && selectedPairSessionId) {
-                (list || []).forEach(s => {
-                    if (!s.connected && s.qrCode) {
-                        const img = box.querySelector('img[data-sid="' + s.id + '"]');
-                        if (img && img.getAttribute('src') !== s.qrCode) img.setAttribute('src', s.qrCode);
-                    }
-                });
-                return;
+                (list || []).forEach(s => { if (!s.connected && s.qrCode) { const img = box.querySelector('img[data-sid="' + s.id + '"]'); if (img && img.getAttribute('src') !== s.qrCode) img.setAttribute('src', s.qrCode); } }); return;
             }
             lastSessionsSnapshot = snap;
-
             if (box) {
                 if (!list.length) { box.innerHTML = '<p style="color:#64748b;">Koi session nahi — Add WhatsApp dabao.</p>'; } 
                 else {
                     box.innerHTML = list.map(s => {
                         const status = s.connected ? (s.resting ? '<span style="color:#f59e0b">⏸️ Resting</span>' : '<span style="color:#10b981">✅ Connected</span>') : '<span style="color:#f59e0b">QR pending...</span>';
-                        const qr = (!s.connected && s.qrCode) ? `<img data-sid="${s.id}" src="${s.qrCode}" style="max-width:200px;width:100%;border-radius:8px;margin-top:8px;">` : '';
-                        const isPairing = selectedPairSessionId === s.id;
-                        const phoneVal = (savedPairPhone || '').replace(/"/g, '&quot;');
-                        const codeBlock = (isPairing && savedPairingCodeHTML)
-                            ? `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;user-select:all;">${savedPairingCodeHTML}</div>`
-                            : `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;display:none;user-select:all;"></div>`;
-                        const pairPanel = isPairing
-                            ? (`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;">
+                        const isPairing = selectedPairSessionId === s.id; const phoneVal = (savedPairPhone || '').replace(/"/g, '&quot;');
+                        const codeBlock = (isPairing && savedPairingCodeHTML) ? `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;user-select:all;">${savedPairingCodeHTML}</div>` : `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;display:none;user-select:all;"></div>`;
+                        const pairPanel = isPairing ? (`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;">
                                 <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>${s.name}</b></div>
                                 <input type="text" id="pairPhone" inputmode="numeric" autocomplete="off" value="${phoneVal}" placeholder="WhatsApp number" style="text-align:center;font-size:16px;width:100%;" oninput="savedPairPhone=this.value">
                                 <button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode('${s.id}', false)">Get 8-Digit Code</button>
                                 <button type="button" class="action-btn btn-success" style="margin-top:8px;" onclick="getPairingCode('${s.id}', true)">Fresh Code (reset session)</button>
-                                ${codeBlock}
-                                ${s.connected ? '<p style="font-size:12px;color:#ef4444;margin:8px 0 0;">Already connected.</p>' : '<p style="font-size:12px;color:#64748b;margin:8px 0 0;">Code yahin rahega.</p>'}
-                              </div>`) : '';
+                                ${codeBlock}</div>`) : '';
                         const pairBtn = s.connected ? '' : `<button type="button" class="action-btn btn-sm btn-primary" style="width:auto;${isPairing ? 'outline:2px solid #2563eb;' : ''}" onclick="selectForPairing('${s.id}')">${isPairing ? '✓ Pairing selected' : 'Use for Pairing'}</button>`;
                         return `<div style="background:#fff;border:1px solid ${isPairing ? '#2563eb' : '#e2e8f0'};border-radius:12px;padding:14px;margin-bottom:10px;">
                             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><strong>${s.name}</strong><span style="font-size:12px;">${status}</span></div>
-                            ${qr}
                             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">${pairBtn}<button type="button" class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession('${s.id}')">Delete</button></div>
                             ${pairPanel}</div>`;
                     }).join('');
                 }
             }
             if (pick) {
-                const connected = list.filter(s => s.connected);
-                const prevChecked = new Set(Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value));
+                const connected = list.filter(s => s.connected); const prevChecked = new Set(Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value));
                 if (!connected.length) { pick.innerHTML = '<span style="color:#ef4444;font-size:13px;">Pehle Device Settings se WhatsApp connect karo.</span>'; } 
-                else {
-                    pick.innerHTML = connected.map(s => {
-                        const chk = prevChecked.size === 0 || prevChecked.has(s.id) ? 'checked' : '';
-                        return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;"><input type="checkbox" class="waSessionChk" value="${s.id}" ${chk}> ${s.name} ${s.resting ? '(resting)' : ''}</label>`;
-                    }).join('');
-                }
+                else { pick.innerHTML = connected.map(s => { const chk = prevChecked.size === 0 || prevChecked.has(s.id) ? 'checked' : ''; return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;"><input type="checkbox" class="waSessionChk" value="${s.id}" ${chk}> ${s.name}</label>`; }).join(''); }
             }
         }
-        async function createWASession() {
-            const name = (document.getElementById('newSessionName').value || '').trim();
-            await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-            document.getElementById('newSessionName').value = '';
-            const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json();
-            renderSessionsUI(d.sessions || []);
-        }
-        async function deleteWASession(id) {
-            if (!confirm('Delete this WhatsApp session?')) return;
-            await fetch('/api/sessions/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-            const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json();
-            renderSessionsUI(d.sessions || []);
-        }
+        async function createWASession() { const name = (document.getElementById('newSessionName').value || '').trim(); await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); document.getElementById('newSessionName').value = ''; const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
+        async function deleteWASession(id) { if (!confirm('Delete this WhatsApp session?')) return; await fetch('/api/sessions/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }); const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
 
         function showSection(id, btn) {
             document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
@@ -408,64 +339,33 @@
             document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
+            // 🌟 NEW: Load history table if history section is clicked
+            if (id === 'historySec') loadHistoryTable();
         }
 
         function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value + '&t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent || 0; document.getElementById('failedCount').innerText = d.failed || 0; }); }
-        
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => showToast('✅ मैसेज अपडेट हो गया।')) }
 
-        /* -------------------------------------------------------------
-           🌟 OPTIMISTIC UI: CONTACT GROUPS (INSTANT RENDER)
-           ------------------------------------------------------------- */
-        function fetchContacts() { 
-            fetch('/api/contacts?t=' + Date.now(), { cache: "no-store" })
-                .then(r => r.json())
-                .then(data => { 
-                    allContacts = data; 
-                    updateGroupDropdowns(); 
-                    renderGroupContacts(); 
-                }).catch(e => console.error(e)); 
-        }
-        
+        function fetchContacts() { fetch('/api/contacts?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { allContacts = data; updateGroupDropdowns(); renderGroupContacts(); }).catch(e => console.error(e)); }
         function updateGroupDropdowns() {
             const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
             const prevG1 = g1.value; const prevG2 = g2.value; 
             g1.innerHTML = '<option value="">-- ग्रुप सेलेक्ट करें --</option>'; g2.innerHTML = '<option value="">-- ग्रुप चुनें --</option>';
-            Object.keys(allContacts).forEach(g => {
-                g1.innerHTML += `<option value="${g}">${g} (${allContacts[g].length})</option>`;
-                g2.innerHTML += `<option value="${g}">${g} (${allContacts[g].length} Contacts)</option>`;
-            });
+            Object.keys(allContacts).forEach(g => { g1.innerHTML += `<option value="${g}">${g} (${allContacts[g].length})</option>`; g2.innerHTML += `<option value="${g}">${g} (${allContacts[g].length} Contacts)</option>`; });
             if(allContacts[prevG1]) g1.value = prevG1; if(allContacts[prevG2]) g2.value = prevG2;
         }
-
         function createNewGroup() {
             const name = document.getElementById('newGroupName').value.trim();
-            if(!name) return showToast("⚠️ कृपया ग्रुप का नाम लिखें!", true); 
-            if(allContacts[name]) return showToast("⚠️ यह ग्रुप पहले से मौजूद है!", true);
-            
-            // 🚀 Instant UI Update (Zero Delay)
-            allContacts[name] = []; 
-            try { document.getElementById('newGroupName').value = ''; } catch(e){}
-            updateGroupDropdowns();
-            document.getElementById('groupSelect').value = name;
-            renderGroupContacts();
-            showToast(`✅ '${name}' ग्रुप सफलतापूर्वक बन गया!`);
-
-            // 📡 Background Save
-            fetch('/api/contacts', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify(allContacts) 
-            }).catch(e => console.error("Save Error:", e));
+            if(!name) return showToast("⚠️ कृपया ग्रुप का नाम लिखें!", true); if(allContacts[name]) return showToast("⚠️ यह ग्रुप पहले से मौजूद है!", true);
+            allContacts[name] = []; try { document.getElementById('newGroupName').value = ''; } catch(e){}
+            updateGroupDropdowns(); document.getElementById('groupSelect').value = name; renderGroupContacts(); showToast(`✅ '${name}' ग्रुप सफलतापूर्वक बन गया!`);
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
         }
-
         function renderGroupContacts() {
             const g = document.getElementById('groupSelect').value; const div = document.getElementById('contactManagerDiv'); const tbody = document.getElementById('contactTableBody');
             if (!g) { div.style.display = 'none'; return; }
-            div.style.display = 'block'; const list = allContacts[g] || [];
-            const MAX_SHOW = 100; const show = list.slice(0, MAX_SHOW);
-            let html = '';
+            div.style.display = 'block'; const list = allContacts[g] || []; const MAX_SHOW = 100; const show = list.slice(0, MAX_SHOW); let html = '';
             for (let i = 0; i < show.length; i++) {
                 const st = show[i].waStatus; let badge = '<span style="color:#f59e0b">Pending</span>';
                 if (st === 'valid') badge = '<span style="color:#10b981">Valid ✅</span>'; if (st === 'invalid') badge = '<span style="color:#ef4444">Invalid ❌</span>';
@@ -474,264 +374,100 @@
             if (list.length > MAX_SHOW) html += `<tr><td colspan="3" style="text-align:center;color:#64748b;font-size:13px;">... और ${list.length - MAX_SHOW}</td></tr>`;
             tbody.innerHTML = html;
         }
-
         function addSingleContact() {
             const g = document.getElementById('groupSelect').value; const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
-            if(!g) return showToast("⚠️ पहले ग्रुप सेलेक्ट करें!", true);
-            if(!n || !p) return showToast("⚠️ नाम और नंबर दोनों डालें!", true);
-            
-            // 🚀 Instant UI Update
+            if(!g) return showToast("⚠️ पहले ग्रुप सेलेक्ट करें!", true); if(!n || !p) return showToast("⚠️ नाम और नंबर दोनों डालें!", true);
             allContacts[g].push({name: n, phone: p, waStatus: null}); 
-            try { document.getElementById('addName').value = ''; } catch(e){}
-            try { document.getElementById('addPhone').value = ''; } catch(e){}
-            
-            renderGroupContacts();
-            updateGroupDropdowns();
-            document.getElementById('groupSelect').value = g;
-            showToast(`✅ ${n} का नंबर जुड़ गया!`);
-
-            // 📡 Background Save
+            try { document.getElementById('addName').value = ''; document.getElementById('addPhone').value = ''; } catch(e){}
+            renderGroupContacts(); updateGroupDropdowns(); document.getElementById('groupSelect').value = g; showToast(`✅ ${n} का नंबर जुड़ गया!`);
             fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
         }
 
-        /* -------------------------------------------------------------
-           🌟 OPTIMISTIC UI: TEMPLATES (INSTANT RENDER)
-           ------------------------------------------------------------- */
-        function fetchTemplates() { 
-            fetch('/api/templates?t=' + Date.now(), { cache: "no-store" })
-                .then(r => r.json())
-                .then(data => { 
-                    allTemplates = data; 
-                    renderTemplates(); 
-                }).catch(e => console.error(e)); 
-        }
-
+        function fetchTemplates() { fetch('/api/templates?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }).catch(e => console.error(e)); }
         function renderTemplates() {
             const drop = document.getElementById('templateDropdown'); const prevSelected = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
             drop.innerHTML = ''; document.getElementById('templateListArea').innerHTML = '';
-            
             allTemplates.forEach(t => {
                 const safeMessage = (t.message || '').substring(0, 40);
                 const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
                 if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
-                
                 document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
-            });
-            applySelectedTemplates();
+            }); applySelectedTemplates();
         }
-
         function saveNewTemplate() {
-            const name = document.getElementById('newTplName').value;
-            const msg = document.getElementById('newTplMsg').value;
-            const imgFile = document.getElementById('newTplImage').files[0];
-            
+            const name = document.getElementById('newTplName').value; const msg = document.getElementById('newTplMsg').value; const imgFile = document.getElementById('newTplImage').files[0];
             if(!name || !msg) return showToast("⚠️ नाम और मैसेज डालना ज़रूरी है!", true); 
-            
-            const id = 'tpl_' + Date.now();
-            const payload = { id, name, message: msg, imageBase64: null };
-
-            if(imgFile) { 
-                const r = new FileReader(); 
-                r.onload = e => {
-                    payload.imageBase64 = e.target.result;
-                    doSaveTemplate(payload);
-                }; 
-                r.readAsDataURL(imgFile); 
-            } else {
-                doSaveTemplate(payload);
-            }
+            const id = 'tpl_' + Date.now(); const payload = { id, name, message: msg, imageBase64: null };
+            if(imgFile) { const r = new FileReader(); r.onload = e => { payload.imageBase64 = e.target.result; doSaveTemplate(payload); }; r.readAsDataURL(imgFile); } else { doSaveTemplate(payload); }
         }
-
         function doSaveTemplate(payload) {
-            // 🚀 Instant UI Update
-            allTemplates.push(payload);
-            
-            try { document.getElementById('newTplName').value = ''; } catch(e){}
-            try { document.getElementById('newTplMsg').value = ''; } catch(e){}
-            try { document.getElementById('newTplImage').value = ''; } catch(e){} // Safe clear for mobile
-            
-            renderTemplates();
-            document.getElementById('templateDropdown').value = payload.id;
-            applySelectedTemplates();
-            showToast(`✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!`);
-
-            // 📡 Background Save
-            fetch('/api/templates', {
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify(payload)
-            }).catch(e => console.error("Template Save Error:", e));
+            allTemplates.push(payload); try { document.getElementById('newTplName').value = ''; document.getElementById('newTplMsg').value = ''; document.getElementById('newTplImage').value = ''; } catch(e){}
+            renderTemplates(); document.getElementById('templateDropdown').value = payload.id; applySelectedTemplates(); showToast(`✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!`);
+            fetch('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }).catch(e => console.error("Template Save Error:", e));
         }
-
         function deleteTemplate(id) { 
             if(!confirm("क्या आप सच में इसे डिलीट करना चाहते हैं?")) return;
-            
-            // 🚀 Instant UI Update
-            allTemplates = allTemplates.filter(t => t.id !== id);
-            renderTemplates();
-            showToast("🗑️ टेम्प्लेट डिलीट हो गया!", true);
-
-            // 📡 Background Delete
-            fetch('/api/templates/delete', {
-                method:'POST', 
-                headers:{'Content-Type':'application/json'}, 
-                body:JSON.stringify({id})
-            }).catch(e => console.error(e)); 
+            allTemplates = allTemplates.filter(t => t.id !== id); renderTemplates(); showToast("🗑️ टेम्प्लेट डिलीट हो गया!", true);
+            fetch('/api/templates/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) }).catch(e => console.error(e)); 
         }
-
         function applySelectedTemplates() {
-            const drop = document.getElementById('templateDropdown');
-            const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
-            selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean);
-            const preview = document.getElementById('selectedTemplatesPreview');
+            const drop = document.getElementById('templateDropdown'); const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
+            selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean); const preview = document.getElementById('selectedTemplatesPreview');
             if (selectedTemplatesList.length === 0) { preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा।</p>'; return; }
-            analyzeSelectedTemplatesRisk();
             let html = `<div style="display:flex; flex-direction:column; gap:12px;">`;
             selectedTemplatesList.forEach((t, idx) => {
                 const hasMedia = t.imageBase64 && t.imageBase64.length > 20;
                 let mediaHtml = hasMedia ? `<img src="${t.imageBase64}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0; object-fit:cover;">` : `<div style="width:80px; height:80px; background:#f1f5f9; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#94a3b8;">No Media</div>`;
                 html += `<div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;"><div style="flex-shrink:0;">${mediaHtml}</div><div style="flex:1; min-width:0;"><div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}</div><div style="font-size:12px; color:#475569; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${t.message || '(कोई मैसेज नहीं)'}</div></div></div>`;
-            });
-            preview.innerHTML = html + `</div>`;
+            }); preview.innerHTML = html + `</div>`;
         }
         function clearTemplateSelection() { Array.from(document.getElementById('templateDropdown').options).forEach(o => o.selected = false); selectedTemplatesList = []; document.getElementById('selectedTemplatesPreview').innerHTML = ''; }
 
-        // FILE UPLOAD AND OTHERS (Kept identical as it was working perfectly)
         function setUploadStatus(msg, color) {
             let el = document.getElementById('uploadStatusMsg');
-            if (!el) {
-                el = document.createElement('p'); el.id = 'uploadStatusMsg';
-                el.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;';
-                const box = document.getElementById('contactFileInput') || document.getElementById('campaignFileInput');
-                if (box && box.parentNode) box.parentNode.appendChild(el);
-            }
-            el.style.display = msg ? 'block' : 'none';
-            el.style.color = color || '#f59e0b';
-            el.innerHTML = msg || '';
+            if (!el) { el = document.createElement('p'); el.id = 'uploadStatusMsg'; el.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;'; const box = document.getElementById('contactFileInput') || document.getElementById('campaignFileInput'); if (box && box.parentNode) box.parentNode.appendChild(el); }
+            el.style.display = msg ? 'block' : 'none'; el.style.color = color || '#f59e0b'; el.innerHTML = msg || '';
         }
-
         function extractDataFromFile(file, callback, onProgress) {
             const ext = file.name.split('.').pop().toLowerCase();
             if (ext === 'pdf') {
-                const reader = new FileReader();
-                reader.onerror = () => { showToast('PDF read error', true); callback([]); };
+                const reader = new FileReader(); reader.onerror = () => { showToast('PDF read error', true); callback([]); };
                 reader.onload = async function(e) {
                     try {
-                        const typedarray = new Uint8Array(e.target.result);
-                        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
-                        const total = pdf.numPages;
-                        const phoneSet = new Set();
-                        const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
+                        const typedarray = new Uint8Array(e.target.result); const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise; const total = pdf.numPages; const phoneSet = new Set(); const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
                         for (let i = 1; i <= total; i++) {
-                            if (onProgress) onProgress(i, total);
-                            const page = await pdf.getPage(i);
-                            const textContent = await page.getTextContent();
-                            const pageText = textContent.items.map(item => item.str).join(' ');
-                            let m; regex.lastIndex = 0;
-                            while ((m = regex.exec(pageText)) !== null) {
-                                const num = m[0].replace(/\D/g, '').slice(-10);
-                                if (num.length === 10) phoneSet.add(num);
-                            }
+                            if (onProgress) onProgress(i, total); const page = await pdf.getPage(i); const textContent = await page.getTextContent(); const pageText = textContent.items.map(item => item.str).join(' '); let m; regex.lastIndex = 0;
+                            while ((m = regex.exec(pageText)) !== null) { const num = m[0].replace(/\D/g, '').slice(-10); if (num.length === 10) phoneSet.add(num); }
                             if (i % 3 === 0) await new Promise(r => setTimeout(r, 0));
                         }
                         callback(Array.from(phoneSet).map(num => ['Customer', num]));
                     } catch (err) { showToast('PDF process error', true); callback([]); }
-                };
-                reader.readAsArrayBuffer(file);
+                }; reader.readAsArrayBuffer(file);
             } else if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-                        callback(json);
-                    } catch (err) { showToast('Excel/CSV read error', true); callback([]); }
-                };
-                reader.readAsArrayBuffer(file);
+                const reader = new FileReader(); reader.onload = function(e) { try { const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, { type: 'array' }); const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 }); callback(json); } catch (err) { showToast('Excel/CSV read error', true); callback([]); } }; reader.readAsArrayBuffer(file);
             } else { showToast("केवल PDF, Excel या CSV फाइल ही अपलोड करें।", true); callback([]); }
         }
-
         function processCampaignFile(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
+            const file = event.target.files[0]; if (!file) return; setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
             extractDataFromFile(file, (data) => {
-                let numbersStr = data.map(row => {
-                    let phone = row.length >= 2 ? String(row[1]) : String(row[0]);
-                    return phone ? phone.replace(/\D/g, '').slice(-10) : '';
-                }).filter(n => n.length === 10).join('\n');
-
-                let existing = document.getElementById('numbers').value;
-                document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
-                const count = numbersStr ? numbersStr.split('\n').filter(Boolean).length : 0;
-                setUploadStatus(`✅ ${count} numbers निकाले गए`, '#10b981');
-                showToast(`✅ ${count} नंबर निकाल लिए गए!`);
+                let numbersStr = data.map(row => { let phone = row.length >= 2 ? String(row[1]) : String(row[0]); return phone ? phone.replace(/\D/g, '').slice(-10) : ''; }).filter(n => n.length === 10).join('\n');
+                let existing = document.getElementById('numbers').value; document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
+                const count = numbersStr ? numbersStr.split('\n').filter(Boolean).length : 0; setUploadStatus(`✅ ${count} numbers निकाले गए`, '#10b981'); showToast(`✅ ${count} नंबर निकाल लिए गए!`);
                 try { document.getElementById('campaignFileInput').value = ''; } catch(e){}
             }, (page, total) => { setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b'); });
         }
-
         function processContactFile() {
-            const file = document.getElementById('contactFileInput').files[0];
-            const g = document.getElementById('groupSelect').value;
-            if (!file || !g) return showToast("⚠️ फाइल और ग्रुप दोनों सेलेक्ट करें!", true);
-            setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
+            const file = document.getElementById('contactFileInput').files[0]; const g = document.getElementById('groupSelect').value;
+            if (!file || !g) return showToast("⚠️ फाइल और ग्रुप दोनों सेलेक्ट करें!", true); setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
             extractDataFromFile(file, (data) => {
-                if (!allContacts[g]) allContacts[g] = [];
-                const existing = new Set(allContacts[g].map(c => c.phone));
-                let added = 0;
+                if (!allContacts[g]) allContacts[g] = []; const existing = new Set(allContacts[g].map(c => c.phone)); let added = 0;
                 data.forEach(row => {
-                    if (!row || row.length === 0) return;
-                    let name = row.length >= 2 ? String(row[0]).trim() : 'Customer';
-                    let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]);
-                    let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
-                    if (phone.length === 10 && !existing.has(phone)) {
-                        allContacts[g].push({ name: name, phone: phone }); existing.add(phone); added++;
-                    }
+                    if (!row || row.length === 0) return; let name = row.length >= 2 ? String(row[0]).trim() : 'Customer'; let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]); let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
+                    if (phone.length === 10 && !existing.has(phone)) { allContacts[g].push({ name: name, phone: phone }); existing.add(phone); added++; }
                 });
-                if (added > 0) {
-                    renderGroupContacts();
-                    updateGroupDropdowns();
-                    document.getElementById('groupSelect').value = g;
-                    fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) });
-                    setUploadStatus(`✅ ${added} numbers add हो गए (Total: ${allContacts[g].length})`, '#10b981');
-                    showToast(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए!`);
-                } else { 
-                    setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444'); 
-                    showToast("⚠️ कोई नया सही मोबाइल नंबर नहीं मिला।", true);
-                }
+                if (added > 0) { renderGroupContacts(); updateGroupDropdowns(); document.getElementById('groupSelect').value = g; fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }); setUploadStatus(`✅ ${added} numbers add हो गए`, '#10b981'); showToast(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए!`); } else { setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444'); showToast("⚠️ कोई नया सही मोबाइल नंबर नहीं मिला।", true); }
                 try { document.getElementById('contactFileInput').value = ''; } catch(e){}
             }, (page, total) => { setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b'); });
-        }
-
-        function analyzeMessageRisk(text) {
-            const risks = []; if (!text || !text.trim()) return risks; const t = text.trim();
-            const upper = (t.match(/[A-Z]/g) || []).length; const letters = (t.match(/[A-Za-z]/g) || []).length;
-            if (letters > 20 && upper / letters > 0.5) risks.push('Bahut zyada CAPITAL letters');
-            const spamWords = ['free money', 'click now', 'limited offer', 'act now', 'urgent', '100% free'];
-            const lower = t.toLowerCase();
-            spamWords.forEach(w => { if (lower.includes(w)) risks.push('Risky word: "' + w + '"'); });
-            if ((t.match(/!/g) || []).length >= 4) risks.push('Bahut zyada ! marks');
-            if ((t.match(/https?:\/\//gi) || []).length >= 3) risks.push('Bahut saare links');
-            return risks;
-        }
-        function analyzeSelectedTemplatesRisk() {
-            const box = document.getElementById('templateRiskBox');
-            if (!box) return;
-            if (!selectedTemplatesList.length) { box.style.display = 'none'; return; }
-            let html = ''; let hasRisk = false;
-            selectedTemplatesList.forEach((t) => {
-                const risks = analyzeMessageRisk(t.message);
-                if (risks.length) { hasRisk = true; html += `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px;margin-bottom:6px;font-size:12px;color:#991b1b;"><b>⚠️ ${t.name}:</b> ${risks.join(' · ')}</div>`; }
-            });
-            if (!hasRisk) html = `<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:8px;font-size:12px;color:#065f46;">✅ Templates OK</div>`;
-            box.innerHTML = html; box.style.display = 'block';
-        }
-        function analyzeCustomMessageRisk() {
-            const el = document.getElementById('customMsgRisk'); if (!el) return;
-            const risks = analyzeMessageRisk(document.getElementById('message').value);
-            if (!risks.length) { el.innerHTML = ''; return; }
-            el.innerHTML = `<span style="color:#dc2626;">⚠️ Risk: ${risks.join(' · ')}</span>`;
         }
 
         async function scanCampaignNumbers() {
@@ -747,134 +483,56 @@
                 const rest = ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(20);
                 ta.value = (d.valid || []).map(c => c.phone).concat(rest).join('\n');
                 status.style.color = '#10b981'; status.innerHTML = `✅ Scan: Valid <b>${d.validCount}</b> | Invalid: ${d.invalid} | Dup: ${d.duplicatesRemoved}`;
-            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } 
-            finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 20) + Clean Duplicates'; }
+            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 20) + Clean Duplicates'; }
         }
-
         async function scanNextInGroup() {
             const g = document.getElementById('groupSelect').value; const status = document.getElementById('scanContactStatus'); const btn = document.getElementById('scanContactBtn');
             if (!g) return showToast('⚠️ Group select karo!', true);
-            btn.disabled = true; btn.innerHTML = '⏳ Scanning next 20...'; status.style.display = 'block'; status.style.color = '#f59e0b'; status.innerHTML = '⏳ Scanning...';
+            btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b'; status.innerHTML = '⏳ Scanning...';
             try {
-                const r = await fetch('/api/scan-next', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group: g }) });
-                const d = await r.json();
+                const r = await fetch('/api/scan-next', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group: g }) }); const d = await r.json();
                 if (!d.success) { status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed'); return; }
-                status.style.color = '#10b981'; status.innerHTML = `✅ Scanned ${d.scanned}: Valid ${d.valid}, Invalid ${d.invalid}`;
-                fetchContacts();
-            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } 
-            finally { btn.disabled = false; btn.innerHTML = '🔍 Scan next 20 (manual)'; }
-        }
-
-        function formatCountdown(iso) {
-            if (!iso) return ''; const left = new Date(iso).getTime() - Date.now(); if (left <= 0) return '00:00:00';
-            const h = Math.floor(left / 3600000), m = Math.floor((left % 3600000) / 60000), s = Math.floor((left % 60000) / 1000);
-            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+                status.style.color = '#10b981'; status.innerHTML = `✅ Scanned ${d.scanned}: Valid ${d.valid}, Invalid ${d.invalid}`; fetchContacts();
+            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan next 20'; }
         }
 
         function fetchLiveStatus() {
             fetch('/api/live-status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => {
                 let html = '';
-
                 if (data.isActive && (data.status === 'resting' || data.status === 'night_rest')) {
-                    const cd = formatCountdown(data.resumeAt);
-                    const isNight = data.status === 'night_rest';
-                    html += `<div style="background:${isNight ? '#1e293b' : '#fef3c7'}; color:${isNight ? '#f8fafc' : '#92400e'}; padding:16px; border-radius:12px; margin-bottom:15px; text-align:center;">
-                        <div style="font-size:18px; font-weight:700; margin-bottom:6px;">${isNight ? '🌙 Night Rest' : '⏸️ Batch Rest'}</div>
-                        <div style="font-size:13px; margin-bottom:8px;">${data.restReason || ''}</div>
-                        <div style="font-size:28px; font-weight:800; letter-spacing:2px;">⏳ ${cd}</div>
-                    </div>`;
+                    html += `<div style="background:#fef3c7; color:#92400e; padding:16px; border-radius:12px; margin-bottom:15px; text-align:center;">
+                        <div style="font-size:18px; font-weight:700; margin-bottom:6px;">⏸️ Batch Rest</div><div style="font-size:13px; margin-bottom:8px;">${data.restReason || ''}</div></div>`;
                 } else if (data.isActive && data.status === 'sending') {
                     html += `<div style="background:#ecfdf5; color:#065f46; padding:10px 14px; border-radius:10px; margin-bottom:12px; font-size:13px; font-weight:600;">🚀 Sending... | Batch size: हर ${data.batchSize || 50} msgs → 2 hrs rest</div>`;
                 }
-
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px; flex-wrap:wrap; gap:8px; font-size:15px; font-weight:bold; background:#f8fafc; padding:15px; border-radius:10px; border:1px solid #e2e8f0;">
-                    <span style="color:var(--secondary);">Total: ${data.total || 0}</span>
-                    <span style="color:#10b981;">Sent: ${data.sent || 0}</span>
-                    <span style="color:#ef4444;">Failed: ${data.failed || 0}</span>
-                    <span style="color:#f59e0b;">Pending: ${data.pending || 0}</span>
-                </div>`;
+                    <span style="color:var(--secondary);">Total: ${data.total || 0}</span><span style="color:#10b981;">Sent: ${data.sent || 0}</span><span style="color:#ef4444;">Failed: ${data.failed || 0}</span><span style="color:#f59e0b;">Pending: ${data.pending || 0}</span></div>`;
 
                 if (data.numbers && data.numbers.length) {
                     let sessionsMap = {}; let pendingList = [];
                     data.numbers.forEach(item => {
                         if (String(item.status).includes('Pending')) { pendingList.push(item); } 
-                        else {
-                            let match = String(item.status).match(/\((.*?)( \/ .*?)?\)/);
-                            let sName = match ? match[1] : 'Unknown Device';
-                            if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] };
-                            if (String(item.status).includes('Sent')) sessionsMap[sName].sent++; else sessionsMap[sName].failed++;
-                            sessionsMap[sName].list.push(item);
-                        }
+                        else { let match = String(item.status).match(/\((.*?)( \/ .*?)?\)/); let sName = match ? match[1] : 'Unknown Device'; if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] }; if (String(item.status).includes('Sent')) sessionsMap[sName].sent++; else sessionsMap[sName].failed++; sessionsMap[sName].list.push(item); }
                     });
-
                     Object.keys(sessionsMap).forEach(sName => {
                         let sData = sessionsMap[sName];
-                        html += `<div style="margin-bottom:20px; border:1px solid #bfdbfe; border-radius:10px; overflow:hidden;">
-                            <div style="background:#eff6ff; padding:10px 15px; border-bottom:1px solid #bfdbfe; display:flex; justify-content:space-between; align-items:center;">
-                                <strong style="color:#1e40af; font-size:14px;">📱 ${sName}</strong>
-                                <div style="font-size:13px; font-weight:bold;">
-                                    <span style="color:#10b981; margin-right:12px;">Sent: ${sData.sent}</span>
-                                    <span style="color:#ef4444;">Failed: ${sData.failed}</span>
-                                </div>
-                            </div>
-                            <div style="max-height:250px; overflow-y:auto; padding:10px; background:#fff;">`;
-                        sData.list.reverse().forEach(item => {
-                            let isSent = String(item.status).includes('Sent');
-                            let color = isSent ? '#10b981' : '#ef4444';
-                            let icon = isSent ? '✅' : '❌';
-                            html += `<div style="display:flex; justify-content:space-between; padding:8px 5px; border-bottom:1px solid #f1f5f9; font-size:13px;">
-                                <span>📞 ${item.phone}</span><span style="color:${color}; font-weight:600;">${icon} Processed</span>
-                            </div>`;
-                        });
-                        html += `</div></div>`;
+                        html += `<div style="margin-bottom:20px; border:1px solid #bfdbfe; border-radius:10px; overflow:hidden;"><div style="background:#eff6ff; padding:10px 15px; border-bottom:1px solid #bfdbfe; display:flex; justify-content:space-between; align-items:center;"><strong style="color:#1e40af; font-size:14px;">📱 ${sName}</strong><div style="font-size:13px; font-weight:bold;"><span style="color:#10b981; margin-right:12px;">Sent: ${sData.sent}</span><span style="color:#ef4444;">Failed: ${sData.failed}</span></div></div><div style="max-height:250px; overflow-y:auto; padding:10px; background:#fff;">`;
+                        sData.list.reverse().forEach(item => { let isSent = String(item.status).includes('Sent'); let color = isSent ? '#10b981' : '#ef4444'; let icon = isSent ? '✅' : '❌'; html += `<div style="display:flex; justify-content:space-between; padding:8px 5px; border-bottom:1px solid #f1f5f9; font-size:13px;"><span>📞 ${item.phone}</span><span style="color:${color}; font-weight:600;">${icon} Processed</span></div>`; }); html += `</div></div>`;
                     });
-
-                    if (pendingList.length > 0) {
-                        html += `<div style="margin-bottom:20px; border:1px solid #fef08a; border-radius:10px; overflow:hidden;">
-                            <div style="background:#fef9c3; padding:10px 15px; border-bottom:1px solid #fef08a; display:flex; justify-content:space-between; align-items:center;">
-                                <strong style="color:#854d0e; font-size:14px;">⏳ Shared Pending Queue</strong>
-                                <span style="font-size:13px; font-weight:bold; color:#a16207;">Waiting: ${pendingList.length}</span>
-                            </div>
-                            <div style="max-height:200px; overflow-y:auto; padding:10px; background:#fff;">`;
-                        pendingList.forEach(item => {
-                            html += `<div style="display:flex; justify-content:space-between; padding:8px 5px; border-bottom:1px solid #f1f5f9; font-size:13px;">
-                                <span>📞 ${item.phone}</span><span style="color:#f59e0b; font-weight:600;">Pending ⏳</span>
-                            </div>`;
-                        });
-                        html += `</div></div>`;
-                    }
                 }
                 document.getElementById('liveList').innerHTML = html || '<div style="padding:20px; text-align:center; color:#64748b;">कोई एक्टिव कैंपेन नहीं है।</div>';
-                if (!data.isActive && data.total > 0 && data.pending === 0) {
-                    document.getElementById('sendBtn').disabled = false;
-                    document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign (Multi-WA Anti-Ban)';
-                    fetchStats(); 
-                }
+                if (!data.isActive && data.total > 0 && data.pending === 0) { document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign (Multi-WA)'; fetchStats(); }
             });
         }
 
-        function toggleTargetInput() {
-            const t = document.getElementById('targetType').value;
-            document.getElementById('groupTargetDiv').style.display = (t === 'group') ? 'block' : 'none';
-            document.getElementById('manualTargetDiv').style.display = (t === 'manual') ? 'block' : 'none';
-        }
-
+        function toggleTargetInput() { const t = document.getElementById('targetType').value; document.getElementById('groupTargetDiv').style.display = (t === 'group') ? 'block' : 'none'; document.getElementById('manualTargetDiv').style.display = (t === 'manual') ? 'block' : 'none'; }
+        
         async function startSending() {
-            let finalNumbers = [];
-            const targetType = document.getElementById('targetType').value;
-            if(targetType === 'group') {
-                const g = document.getElementById('campaignGroupDropdown').value;
-                if(!g || !allContacts[g]) return showToast("⚠️ कृपया एक ग्रुप चुनें!", true);
-                finalNumbers = allContacts[g];
-            } else {
-                const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
-                finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
-            }
-            applySelectedTemplates();
-            const msg = document.getElementById('message').value; const imgFile = document.getElementById('imageFile').files[0];
+            let finalNumbers = []; const targetType = document.getElementById('targetType').value;
+            if(targetType === 'group') { const g = document.getElementById('campaignGroupDropdown').value; if(!g || !allContacts[g]) return showToast("⚠️ कृपया एक ग्रुप चुनें!", true); finalNumbers = allContacts[g]; } else { const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== ''); finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' })); }
+            applySelectedTemplates(); const msg = document.getElementById('message').value; const imgFile = document.getElementById('imageFile').files[0];
             if (selectedTemplatesList.length > 0) { doSend(finalNumbers, msg, null, selectedTemplatesList); return; }
-            if (imgFile) { const r = new FileReader(); r.onload = (e) => { doSend(finalNumbers, msg, e.target.result, []); }; r.readAsDataURL(imgFile); } 
-            else { doSend(finalNumbers, msg, null, []); }
+            if (imgFile) { const r = new FileReader(); r.onload = (e) => { doSend(finalNumbers, msg, e.target.result, []); }; r.readAsDataURL(imgFile); } else { doSend(finalNumbers, msg, null, []); }
         }
         
         function doSend(numsObjArray, msg, imgBase64, templatesArr) {
@@ -882,41 +540,51 @@
             if (parseInt(minD) >= parseInt(maxD)) return showToast('⚠️ अधिकतम समय ज़्यादा होना चाहिए!', true);
             if (numsObjArray.length === 0) return showToast('⚠️ नंबर लिस्ट खाली है!', true);
             if ((!templatesArr || templatesArr.length === 0) && !msg && !imgBase64) return showToast('⚠️ टेम्प्लेट चुनें या मैसेज/इमेज डालें!', true);
-
             const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
             if (!sessionIds.length) return showToast('⚠️ कम से कम 1 WhatsApp सेलेक्ट करें।', true);
-
             document.getElementById('sendBtn').disabled = true; document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
-
             const payload = { numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64, sessionIds, templates: (templatesArr || []).map(t => ({ name: t.name, message: t.message, imageBase64: t.imageBase64 || null })) };
-
-            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-            .then(async (r) => {
-                const d = await r.json().catch(() => ({}));
-                if (!r.ok || d.success === false) { showToast(d.error || 'Start failed', true); document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; return; }
-                const liveBtn = document.querySelector('.sidebar-btn[onclick*="liveTrackingSec"]');
-                showSection('liveTrackingSec', liveBtn || document.querySelectorAll('.sidebar-btn')[4]);
-                fetchLiveStatus();
+            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(async (r) => {
+                const d = await r.json().catch(() => ({})); if (!r.ok || d.success === false) { showToast(d.error || 'Start failed', true); document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; return; }
+                const liveBtn = document.querySelector('.sidebar-btn[onclick*="liveTrackingSec"]'); showSection('liveTrackingSec', liveBtn || document.querySelectorAll('.sidebar-btn')[2]); fetchLiveStatus();
             }).catch(() => { document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; });
         }
         
         function getPairingCode(sessionId, fresh) {
-            const phoneEl = document.getElementById('pairPhone'); const phone = (phoneEl && phoneEl.value || '').trim();
-            const display = document.getElementById('pairingCodeDisplay'); if (!display) return;
+            const phoneEl = document.getElementById('pairPhone'); const phone = (phoneEl && phoneEl.value || '').trim(); const display = document.getElementById('pairingCodeDisplay'); if (!display) return;
             if (!phone) { display.style.display = 'block'; display.style.color = '#ef4444'; display.innerText = 'Pehle is session ka WhatsApp number likho'; return; }
-            savedPairPhone = phone; const sid = sessionId || selectedPairSessionId;
-            display.style.display = 'block'; display.style.color = '#64748b'; display.innerText = fresh ? '⏳ Fresh session + naya code (10-15 sec)...' : '⏳ Code generate ho raha hai...';
+            savedPairPhone = phone; const sid = sessionId || selectedPairSessionId; display.style.display = 'block'; display.style.color = '#64748b'; display.innerText = fresh ? '⏳ Fresh session (10-15 sec)...' : '⏳ Generating code...';
             fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, sessionId: sid || undefined, forceFresh: !!fresh }) }).then(r => r.json()).then(d => {
-                display.style.display = 'block';
-                if (d.success && d.code) {
-                    display.style.color = '#2563eb'; const rawCode = String(d.raw || d.code).replace(/-/g, '');
-                    display.innerHTML = `<div style="font-size:28px;letter-spacing:2px;user-select:all;">${d.code}</div><button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText('${rawCode}')">Copy Code</button>`;
-                    savedPairingCodeHTML = display.innerHTML;
-                } else { display.style.color = '#ef4444'; display.innerText = d.error || 'Pairing fail'; savedPairingCodeHTML = display.innerHTML; }
+                display.style.display = 'block'; if (d.success && d.code) { display.style.color = '#2563eb'; const rawCode = String(d.raw || d.code).replace(/-/g, ''); display.innerHTML = `<div style="font-size:28px;letter-spacing:2px;user-select:all;">${d.code}</div><button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText('${rawCode}')">Copy Code</button>`; savedPairingCodeHTML = display.innerHTML; } else { display.style.color = '#ef4444'; display.innerText = d.error || 'Pairing fail'; savedPairingCodeHTML = display.innerHTML; }
             }).catch(() => { display.style.color = '#ef4444'; display.innerText = 'Network error'; });
         }
-        function downloadHistory() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { let csv = 'Mobile Number,Date & Time\n'; data.forEach(row => { csv += `"${row.number}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Report.csv'); a.click(); }); }
-        function downloadPDF() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Report", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.number, row.date]); }); doc.autoTable({ head: [["Mobile Number", "Date & Time"]], body: tableRows, startY: 30 }); doc.save('Report.pdf'); }); }
+
+        // 🌟 NEW: HISTORY LOADING SYSTEM
+        function loadHistoryTable() {
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">⏳ Data load हो रहा है...</td></tr>';
+            fetch('/api/history?t=' + Date.now(), { cache: "no-store" })
+            .then(r => r.json())
+            .then(data => {
+                if(!data || data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b;">अभी तक कोई हिस्ट्री नहीं है।</td></tr>'; return; }
+                let html = '';
+                const recent = data.slice(-100).reverse(); // सबसे नई हिस्ट्री सबसे ऊपर
+                recent.forEach(row => {
+                    const safeMsg = (row.message || 'Media').substring(0, 30) + '...';
+                    html += `<tr>
+                        <td style="font-size:12px; color:#475569;">${row.date}</td>
+                        <td style="font-weight:600; color:#2563eb;">${row.session || '-'}</td>
+                        <td style="font-weight:600;">${row.number}</td>
+                        <td style="font-size:12px; color:#10b981;">✅ Sent<br><span style="color:#64748b; font-size:11px;">${safeMsg}</span></td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
+            }).catch(() => { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Network Error!</td></tr>'; });
+        }
+
+        // 🌟 UPDATED: PDF & CSV Download (अब WhatsApp नाम के साथ)
+        function downloadHistory() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { let csv = 'Date & Time,WhatsApp Device,Mobile Number,Message\n'; data.forEach(row => { csv += `"${row.date}","${row.session || '-'}","${row.number}","${(row.message||'').replace(/"/g, '""')}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Campaign_History.csv'); a.click(); }); }
+        function downloadPDF() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Campaign History", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.date, row.session || '-', row.number, (row.message||'Media').substring(0,20)]); }); doc.autoTable({ head: [["Date & Time", "WhatsApp", "Mobile Number", "Message Preview"]], body: tableRows, startY: 30 }); doc.save('History.pdf'); }); }
     </script>
 </body>
 </html>
