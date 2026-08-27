@@ -15,6 +15,7 @@ app.use(express.static(__dirname));
 const sessions = new Map();
 const SESSION_BATCH = 30;          
 const SESSION_REST_MS = 2 * 60 * 60 * 1000;
+let skipSleepUntil = 0; // 🌟 NEW: Night sleep override logic
 
 let isAutoReplyEnabled = true;
 let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n*1️⃣* - सर्विस और प्रोडक्ट\n*2️⃣* - प्राइस लिस्ट\n*3️⃣* - हमसे बात करने के लिए`;
@@ -155,7 +156,9 @@ let autoScanRunning = false;
 async function runAutoScanTick() {
     if (autoScanRunning || !anyConnected() || (liveCampaign && liveCampaign.isActive)) return;
     const ist = getISTNow();
-    if (ist.getHours() < 8 || ist.getHours() >= 22) return;
+    if (ist.getHours() < 8 || ist.getHours() >= 22) {
+        if (Date.now() > skipSleepUntil) return; // Night sleep active
+    }
 
     const dailyLimit = getDailyScanLimit();
     const used = getTodayScanCount();
@@ -196,15 +199,27 @@ function msUntilNext8AM_IST() {
     return (24 * 60 * 60 * 1000 - msSinceMidnight) + eightAM;
 }
 
+// 🌟 UPDATED: Smart Sleep with Override check
 async function smartSleep(ms, reason) {
     const resumeAt = new Date(Date.now() + ms);
     liveCampaign.status = (reason.includes('Night')) ? 'night_rest' : 'resting';
     liveCampaign.restReason = reason; liveCampaign.resumeAt = resumeAt.toISOString();
     let left = ms;
-    while (left > 0) { await new Promise(r => setTimeout(r, Math.min(5000, left))); left = resumeAt.getTime() - Date.now(); liveCampaign.resumeAt = resumeAt.toISOString(); }
+    while (left > 0) {
+        await new Promise(r => setTimeout(r, Math.min(5000, left)));
+        if (reason.includes('Night') && Date.now() < skipSleepUntil) {
+            break; // User turned off night sleep! Wake up immediately.
+        }
+        left = resumeAt.getTime() - Date.now();
+        liveCampaign.resumeAt = new Date(Date.now() + left).toISOString();
+    }
     liveCampaign.status = 'sending'; liveCampaign.restReason = ''; liveCampaign.resumeAt = null;
 }
-async function waitForSendWindow() { const waitMs = msUntilNext8AM_IST(); if (waitMs > 0) await smartSleep(waitMs, 'Night Rest (10 PM – 8 AM IST)'); }
+async function waitForSendWindow() { 
+    if (Date.now() < skipSleepUntil) return; // Sleep overridden for tonight
+    const waitMs = msUntilNext8AM_IST(); 
+    if (waitMs > 0) await smartSleep(waitMs, 'Night Rest (10 PM – 8 AM IST)'); 
+}
 
 function pathJoinAuth(sessionId) { return (__dirname + '/auth_sessions/' + sessionId).replace(/\\/g, '/'); }
 
@@ -350,7 +365,21 @@ app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enab
 app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
 app.get('/api/history', (req, res) => res.json(getHistory()));
-app.get('/api/live-status', (req, res) => res.json(liveCampaign));
+
+// 🌟 UPDATED: Return sleepDisabled status
+app.get('/api/live-status', (req, res) => res.json({ ...liveCampaign, sleepDisabled: Date.now() < skipSleepUntil }));
+
+// 🌟 NEW: Toggle Night Sleep Mode API
+app.post('/api/toggle-sleep', (req, res) => {
+    const { disable } = req.body;
+    if (disable) {
+        // Skip sleep for next 14 hours (covers the entire night safely)
+        skipSleepUntil = Date.now() + (14 * 60 * 60 * 1000); 
+    } else {
+        skipSleepUntil = 0;
+    }
+    res.json({ success: true, sleepDisabled: disable });
+});
 
 app.get('/api/templates', (req, res) => res.json(getTemplates()));
 app.post('/api/templates', async (req, res) => {
@@ -381,9 +410,14 @@ app.post('/api/scan-next', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
     const { group, sessionIds } = req.body; const contacts = getContacts();
     if (!group || !contacts[group]) return res.status(400).json({ success: false, error: 'Group select karo' });
-    const dailyLimit = getDailyScanLimit(); const used = getTodayScanCount();
+    
+    const activeWaCount = (sessionIds && sessionIds.length) ? sessionIds.length : 1;
+    const dailyLimit = getDailyScanLimit() * activeWaCount; 
+    
+    const used = getTodayScanCount();
     if (used >= dailyLimit) return res.status(400).json({ success: false, error: `Aaj ki limit (${dailyLimit}) puri.`, todayScanned: used, dailyScanLimit: dailyLimit });
     const chunk = Math.min(20, dailyLimit - used); let scanned = 0, valid = 0, invalid = 0;
+    
     for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
         const c = contacts[group][i]; if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
         const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
