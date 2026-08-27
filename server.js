@@ -27,10 +27,18 @@ function listSessionsPublic() {
     }));
 }
 function anyConnected() { return Array.from(sessions.values()).some(s => s.connected && s.sock); }
-function getFirstConnectedSock() {
-    for (const s of sessions.values()) if (s.connected && s.sock) return s.sock;
-    return null;
+
+function getSelectedOrRandomSock(sessionIds) {
+    let activeSessions = Array.from(sessions.values()).filter(s => s.connected && s.sock);
+    if (sessionIds && sessionIds.length > 0) {
+        let filtered = activeSessions.filter(s => sessionIds.includes(s.id));
+        if (filtered.length > 0) activeSessions = filtered;
+    }
+    if (activeSessions.length === 0) return null;
+    const randomIndex = Math.floor(Math.random() * activeSessions.length);
+    return activeSessions[randomIndex].sock;
 }
+
 function getSession(id) { return sessions.get(id) || null; }
 
 const statsFile = __dirname + '/stats.json';
@@ -94,14 +102,9 @@ function saveStats(date, sent, failed) {
     persist('stats', stats);
 }
 
-// 🌟 NEW: HISTORY SAVING WITH IST TIME (WITH SECONDS) & SESSION NAME
 function getHistory() { return cache.history || []; }
 function addHistory(number, messageSent, sessionName) {
-    const istTime = new Date().toLocaleString('en-IN', { 
-        timeZone: 'Asia/Kolkata', hour12: true, 
-        year: 'numeric', month: 'short', day: '2-digit', 
-        hour: '2-digit', minute: '2-digit', second: '2-digit' 
-    });
+    const istTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
     let list = getHistory(); 
     list.push({ number: number, message: messageSent, session: sessionName || 'Unknown', date: istTime });
     if (list.length > 50000) list = list.slice(-50000);
@@ -139,8 +142,8 @@ function getGroupScanStats(groupContacts) {
     return { total: list.length, valid, invalid, pending, scanned: valid + invalid };
 }
 
-async function checkOneNumberOnWA(phone10) {
-    const sock = getFirstConnectedSock();
+async function checkOneNumberOnWA(phone10, sessionIds) {
+    const sock = getSelectedOrRandomSock(sessionIds);
     if (!sock) return false;
     try {
         const r = await sock.onWhatsApp('91' + phone10 + '@s.whatsapp.net');
@@ -174,11 +177,11 @@ async function runAutoScanTick() {
         for (const item of pendingItems.slice(0, chunk)) {
             const phone = String(item.contact.phone || '').replace(/\D/g, '').slice(-10);
             if (phone.length !== 10) { contacts[item.group][item.index].waStatus = 'invalid'; scannedNow++; continue; }
-            const ok = await checkOneNumberOnWA(phone);
+            const ok = await checkOneNumberOnWA(phone, []);
             contacts[item.group][item.index].waStatus = ok ? 'valid' : 'invalid';
             contacts[item.group][item.index].phone = phone;
             scannedNow++;
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 2500));
         }
         if (scannedNow > 0) { addTodayScanCount(scannedNow); await persist('contacts', contacts); }
     } catch (e) {} finally { autoScanRunning = false; }
@@ -376,7 +379,7 @@ app.get('/api/scan-progress', (req, res) => {
 
 app.post('/api/scan-next', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
-    const group = req.body.group; const contacts = getContacts();
+    const { group, sessionIds } = req.body; const contacts = getContacts();
     if (!group || !contacts[group]) return res.status(400).json({ success: false, error: 'Group select karo' });
     const dailyLimit = getDailyScanLimit(); const used = getTodayScanCount();
     if (used >= dailyLimit) return res.status(400).json({ success: false, error: `Aaj ki limit (${dailyLimit}) puri.`, todayScanned: used, dailyScanLimit: dailyLimit });
@@ -384,9 +387,10 @@ app.post('/api/scan-next', async (req, res) => {
     for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
         const c = contacts[group][i]; if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
         const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
-        const ok = phone.length === 10 ? await checkOneNumberOnWA(phone) : false;
+        const ok = phone.length === 10 ? await checkOneNumberOnWA(phone, sessionIds) : false;
         contacts[group][i].waStatus = ok ? 'valid' : 'invalid'; contacts[group][i].phone = phone;
-        if (ok) valid++; else invalid++; scanned++; await new Promise(r => setTimeout(r, 1500));
+        if (ok) valid++; else invalid++; scanned++; 
+        await new Promise(r => setTimeout(r, 2500));
     }
     if (scanned > 0) { addTodayScanCount(scanned); await persist('contacts', contacts); }
     res.json({ success: true, scanned, valid, invalid, todayScanned: getTodayScanCount(), dailyScanLimit: dailyLimit, groupStats: getGroupScanStats(contacts[group]) });
@@ -435,7 +439,8 @@ app.post('/api/validate-numbers', async (req, res) => {
     for (let i = 0; i < uniqueList.length; i += 5) {
         const batch = uniqueList.slice(i, i + 5);
         try {
-            const jids = batch.map(c => '91' + c.phone + '@s.whatsapp.net'); const _sock = getFirstConnectedSock();
+            const jids = batch.map(c => '91' + c.phone + '@s.whatsapp.net'); 
+            const _sock = getSelectedOrRandomSock([]); 
             if (!_sock) throw new Error('no sock');
             const results = await _sock.onWhatsApp(...jids);
             const existSet = new Set();
@@ -443,7 +448,7 @@ app.post('/api/validate-numbers', async (req, res) => {
             batch.forEach(c => { if (existSet.has(c.phone)) valid.push(c); else invalidCount++; });
         } catch (e) {
             for (const c of batch) {
-                try { const ok = await checkOneNumberOnWA(c.phone); if (ok) valid.push(c); else invalidCount++; } catch (e2) { invalidCount++; }
+                try { const ok = await checkOneNumberOnWA(c.phone, []); if (ok) valid.push(c); else invalidCount++; } catch (e2) { invalidCount++; }
             }
         }
         if (i + 5 < uniqueList.length) await new Promise(r => setTimeout(r, 2000));
@@ -520,7 +525,6 @@ app.post('/send', async (req, res) => {
                     liveCampaign.sent++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
                     if (liveCampaign.numbers[idx]) liveCampaign.numbers[idx].status = `Sent ✅ (${s.name}${tplName ? ' / ' + tplName : ''})`;
                     
-                    // 🌟 NEW: PASS SESSION NAME TO HISTORY
                     addHistory(num, finalMessage || 'Media Sent', s.name); 
                     saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
                     batchCount++; s.sentInBatch = batchCount;
@@ -552,4 +556,3 @@ app.post('/send', async (req, res) => {
         setInterval(() => { runAutoScanTick().catch(() => {}); }, 3 * 60 * 1000);
     });
 })();
-
