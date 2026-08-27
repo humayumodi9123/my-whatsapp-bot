@@ -117,7 +117,7 @@
             <div style="background: linear-gradient(135deg,#ecfdf5,#f0fdf4); border:1px solid #86efac; border-radius:14px; padding:16px; margin-bottom:20px;">
                 <div style="font-weight:700; color:#065f46; font-size:15px; margin-bottom:8px;">🛡️ Anti-Ban AI Rules (auto ON)</div>
                 <ul style="margin:0; padding-left:18px; font-size:12px; color:#166534; line-height:1.6;">
-                    <li>Scan: <b>max 20 numbers</b> ek baar</li>
+                    <li>Scan: <b>max 10 numbers</b> ek baar</li>
                     <li>Auto batch: <b>30 / 40 / 50</b> msgs → phir <b>2 hours rest</b></li>
                     <li>Daily limit: naya account ~80, baad mein max ~200 / day</li>
                     <li>Time window: <b>8 AM – 10 PM IST</b> only</li>
@@ -147,7 +147,7 @@
                         <input type="file" id="campaignFileInput" accept=".csv, .xlsx, .xls, .pdf" onchange="processCampaignFile(event)">
                     </div>
                     <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें..." style="height:100px;"></textarea>
-                    <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 20) + Clean Duplicates</button>
+                    <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 10) + Clean Duplicates</button>
                     <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
                 </div>
             </div>
@@ -174,8 +174,6 @@
         <!-- 3. Live Tracking -->
         <div id="liveTrackingSec" class="content-section">
             <h2 class="section-title">📡 Live Campaign Monitor</h2>
-            
-            <!-- 🌟 NEW: Night Sleep Mode Toggle -->
             <div style="background:#f8fafc; padding:15px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <h3 style="margin:0 0 5px 0; font-size:15px; color:#1e293b;">🌙 Night Sleep Mode</h3>
@@ -186,7 +184,6 @@
                     <span class="slider"></span>
                 </label>
             </div>
-
             <div id="liveList" style="background:#fff; border-radius:12px; border:1px solid #e2e8f0; padding:15px; max-height:750px; overflow-y:auto;"></div>
         </div>
 
@@ -239,9 +236,8 @@
                     <div id="scanSessionPick"></div>
                 </div>
 
-                <!-- 🌟 NEW: SCAN ALL PENDING BUTTON -->
                 <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap:wrap;">
-                    <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 20</button>
+                    <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 10</button>
                     <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px; background:linear-gradient(135deg, #059669 0%, #047857 100%);" id="scanAllBtn" onclick="toggleScanAll()">🔍 Scan All Pending</button>
                     <button class="action-btn btn-primary btn-sm" style="flex:1; min-width:140px;" onclick="downloadValidNumbersPDF()">📥 Download Valid PDF</button>
                 </div>
@@ -392,7 +388,6 @@
             if (id === 'historySec') loadHistoryTable();
         }
 
-        // 🌟 NEW: Toggle Night Sleep Function
         function toggleNightSleep() {
             const isSleepOn = document.getElementById('nightSleepToggle').checked;
             fetch('/api/toggle-sleep', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ disable: !isSleepOn }) });
@@ -530,19 +525,18 @@
             const ta = document.getElementById('numbers'); const status = document.getElementById('scanCampaignStatus'); const btn = document.getElementById('scanCampaignBtn');
             let lines = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
             if (lines.length === 0) return showToast('⚠️ पहले नंबर डालो!', true);
-            if (lines.length > 20) { if (!confirm(`Anti-Ban: max 20 scan.\nOK = pehle 20 scan karo`)) return; lines = lines.slice(0, 20); }
+            if (lines.length > 10) { if (!confirm(`Anti-Ban: max 10 scan.\nOK = pehle 10 scan karo`)) return; lines = lines.slice(0, 10); }
             btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b'; status.innerHTML = `⏳ Scanning ${lines.length}...`;
             try {
                 const r = await fetch('/api/validate-numbers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: lines.map(n => ({ phone: n, name: 'Customer' })) }) });
                 const d = await r.json();
                 if (!d.success) { status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed'); return; }
-                const rest = ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(20);
+                const rest = ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(10);
                 ta.value = (d.valid || []).map(c => c.phone).concat(rest).join('\n');
                 status.style.color = '#10b981'; status.innerHTML = `✅ Scan: Valid <b>${d.validCount}</b> | Invalid: ${d.invalid} | Dup: ${d.duplicatesRemoved}`;
-            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 20) + Clean Duplicates'; }
+            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 10) + Clean Duplicates'; }
         }
 
-        // 🌟 UPDATED: Added isAuto parameter
         async function scanNextInGroup(isAuto = false) {
             const g = document.getElementById('groupSelect').value; const status = document.getElementById('scanContactStatus'); const btn = document.getElementById('scanContactBtn');
             if (!g) { showToast('⚠️ Group select karo!', true); return false; }
@@ -554,23 +548,22 @@
                 const r = await fetch('/api/scan-next', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group: g, sessionIds }) }); const d = await r.json();
                 if (!d.success) { 
                     status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed'); 
-                    btn.disabled = false; btn.innerHTML = '🔍 Scan next 20';
+                    btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
                     return false; 
                 }
                 status.style.color = '#10b981'; status.innerHTML = `✅ Scanned ${d.scanned}: Valid ${d.valid}, Invalid ${d.invalid}`; fetchContacts();
-                btn.disabled = false; btn.innerHTML = '🔍 Scan next 20';
+                btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
                 
                 if (isAuto === true) {
                     return (d.scanned > 0 && d.todayScanned < d.dailyScanLimit && d.groupStats.pending > 0);
                 }
             } catch (e) { 
                 status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; 
-                btn.disabled = false; btn.innerHTML = '🔍 Scan next 20';
+                btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
                 return false; 
             } 
         }
 
-        // 🌟 NEW: Scan All Pending Logic
         let isAutoScanningAll = false;
         async function toggleScanAll() {
             const btn = document.getElementById('scanAllBtn');
@@ -620,8 +613,6 @@
 
         function fetchLiveStatus() {
             fetch('/api/live-status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => {
-                
-                // 🌟 Update Night Sleep Toggle based on backend status
                 if (data.sleepDisabled !== undefined) {
                     const toggle = document.getElementById('nightSleepToggle');
                     if (toggle) toggle.checked = !data.sleepDisabled;
@@ -708,4 +699,3 @@
     </script>
 </body>
 </html>
-
