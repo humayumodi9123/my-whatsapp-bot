@@ -156,7 +156,7 @@
                     </div>
 
                     <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें या ऊपर से फाइल अपलोड करें..." style="height:100px;"></textarea>
-                    <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा。</p>
+                    <p style="font-size:12px; color:var(--text-muted);">नोट: मैन्युअल नंबर डालने पर [Name] की जगह 'Customer' लिखा जाएगा।</p>
                     <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 20) + Clean Duplicates</button>
                     <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
                 </div>
@@ -288,7 +288,7 @@
             }
             fetchStats(); fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
-                fetch('/status').then(r => r.json()).then(d => {
+                fetch('/status?t=' + Date.now()).then(r => r.json()).then(d => {
                     renderSessionsUI(d.sessions || []);
                     document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
@@ -306,7 +306,7 @@
         function selectForPairing(id) {
             selectedPairSessionId = id;
             savedPairingCodeHTML = '';
-            fetch('/api/sessions').then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {});
+            fetch('/api/sessions?t=' + Date.now()).then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {});
         }
 
         function renderSessionsUI(list, force) {
@@ -393,13 +393,13 @@
             const name = (document.getElementById('newSessionName').value || '').trim();
             await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
             document.getElementById('newSessionName').value = '';
-            const r = await fetch('/api/sessions'); const d = await r.json();
+            const r = await fetch('/api/sessions?t=' + Date.now()); const d = await r.json();
             renderSessionsUI(d.sessions || []);
         }
         async function deleteWASession(id) {
             if (!confirm('Delete this WhatsApp session?')) return;
             await fetch('/api/sessions/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-            const r = await fetch('/api/sessions'); const d = await r.json();
+            const r = await fetch('/api/sessions?t=' + Date.now()); const d = await r.json();
             renderSessionsUI(d.sessions || []);
         }
 
@@ -411,7 +411,7 @@
             if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
         }
 
-        function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent || 0; document.getElementById('failedCount').innerText = d.failed || 0; }); }
+        function fetchStats() { fetch('/api/stats?date=' + document.getElementById('dateFilter').value + '&t=' + Date.now()).then(r => r.json()).then(d => { document.getElementById('sentCount').innerText = d.sent || 0; document.getElementById('failedCount').innerText = d.failed || 0; }); }
         
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => alert('✅ मैसेज अपडेट हो गया।')) }
@@ -582,14 +582,16 @@
         }
 
         /* -------------------------------------------------------------
-           ✅ 1. FIXED GROUP LOGIC WITH ALERTS & INPUT CLEARING
+           ✅ CACHE BUSTER UPDATE
            ------------------------------------------------------------- */
         function fetchContacts() { 
-            fetch('/api/contacts').then(r => r.json()).then(data => { 
-                allContacts = data; 
-                updateGroupDropdowns(); 
-                renderGroupContacts(); 
-            }); 
+            fetch('/api/contacts?t=' + Date.now()) // Added cache-buster
+                .then(r => r.json())
+                .then(data => { 
+                    allContacts = data; 
+                    updateGroupDropdowns(); 
+                    renderGroupContacts(); 
+                }); 
         }
         
         function updateGroupDropdowns() {
@@ -614,9 +616,8 @@
                 headers: {'Content-Type': 'application/json'}, 
                 body: JSON.stringify(allContacts) 
             }).then(() => { 
-                alert(`✅ नया ग्रुप '${name}' सफलतापूर्वक बन गया है!`);
                 document.getElementById('newGroupName').value = '';
-                fetchContacts(); 
+                fetchContacts(); // Will now fetch fresh data bypassing browser cache
             }).catch(e => {
                 alert("❌ एरर: ग्रुप नहीं बन सका। नेटवर्क चेक करें।");
             });
@@ -651,13 +652,15 @@
         }
 
         /* -------------------------------------------------------------
-           ✅ 2. FIXED TEMPLATE LOGIC WITH ALERTS & SAFE RENDERING
+           ✅ CACHE BUSTER UPDATE FOR TEMPLATES
            ------------------------------------------------------------- */
         function fetchTemplates() { 
-            fetch('/api/templates').then(r => r.json()).then(data => { 
-                allTemplates = data; 
-                renderTemplates(); 
-            }); 
+            fetch('/api/templates?t=' + Date.now()) // Added cache-buster
+                .then(r => r.json())
+                .then(data => { 
+                    allTemplates = data; 
+                    renderTemplates(); 
+                }); 
         }
 
         function renderTemplates() {
@@ -665,7 +668,6 @@
             drop.innerHTML = ''; document.getElementById('templateListArea').innerHTML = '';
             
             allTemplates.forEach(t => {
-                // Fix: Added (t.message || '') to prevent substring crash
                 const safeMessage = (t.message || '').substring(0, 40);
                 const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
                 if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
@@ -703,11 +705,10 @@
                 headers: {'Content-Type': 'application/json'}, 
                 body: JSON.stringify(payload)
             }).then(() => {
-                alert("✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!");
                 document.getElementById('newTplName').value = '';
                 document.getElementById('newTplMsg').value = '';
                 document.getElementById('newTplImage').value = '';
-                fetchTemplates();
+                fetchTemplates(); // Will now fetch fresh data bypassing browser cache
             }).catch(e => {
                 alert("❌ एरर: टेम्प्लेट सेव नहीं हो सका।");
                 console.error(e);
@@ -750,7 +751,7 @@
         }
 
         function fetchLiveStatus() {
-            fetch('/api/live-status').then(r => r.json()).then(data => {
+            fetch('/api/live-status?t=' + Date.now()).then(r => r.json()).then(data => {
                 let html = '';
 
                 if (data.isActive && (data.status === 'resting' || data.status === 'night_rest')) {
@@ -906,9 +907,8 @@
                 } else { display.style.color = '#ef4444'; display.innerText = d.error || 'Pairing fail'; savedPairingCodeHTML = display.innerHTML; }
             }).catch(() => { display.style.color = '#ef4444'; display.innerText = 'Network error'; });
         }
-        function downloadHistory() { fetch('/api/history').then(r => r.json()).then(data => { let csv = 'Mobile Number,Date & Time\n'; data.forEach(row => { csv += `"${row.number}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Report.csv'); a.click(); }); }
-        function downloadPDF() { fetch('/api/history').then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Report", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.number, row.date]); }); doc.autoTable({ head: [["Mobile Number", "Date & Time"]], body: tableRows, startY: 30 }); doc.save('Report.pdf'); }); }
+        function downloadHistory() { fetch('/api/history?t=' + Date.now()).then(r => r.json()).then(data => { let csv = 'Mobile Number,Date & Time\n'; data.forEach(row => { csv += `"${row.number}","${row.date}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Report.csv'); a.click(); }); }
+        function downloadPDF() { fetch('/api/history?t=' + Date.now()).then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Report", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.number, row.date]); }); doc.autoTable({ head: [["Mobile Number", "Date & Time"]], body: tableRows, startY: 30 }); doc.save('Report.pdf'); }); }
     </script>
 </body>
 </html>
-
