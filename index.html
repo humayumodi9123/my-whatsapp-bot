@@ -326,6 +326,7 @@
                     <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 10</button>
                     <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px; background:linear-gradient(135deg, #059669 0%, #047857 100%);" id="scanAllBtn" onclick="toggleScanAll()">🔍 Scan All Pending</button>
                     <button class="action-btn btn-primary btn-sm" style="flex:1; min-width:140px;" onclick="downloadValidNumbersPDF()">📥 Download Valid PDF</button>
+                    <button class="action-btn btn-danger btn-sm" style="flex:1; min-width:140px;" onclick="removeInvalidNumbers()">🗑️ Delete Invalid</button>
                 </div>
                 
                 <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
@@ -792,6 +793,28 @@
             doc.autoTable({ head: [["#", "Name", "Mobile Number"]], body: tableRows, startY: 30 });
             doc.save(`${g}_Valid_WhatsApp_Numbers.pdf`);
             showToast(`✅ ${validList.length} valid numbers ki PDF download ho gayi!`);
+        }
+
+        function removeInvalidNumbers() {
+            const g = document.getElementById('groupSelect').value;
+            if (!g || !allContacts[g]) return showToast('⚠️ Pehle group select karo!', true);
+            const before = allContacts[g].length;
+            const invalidCount = allContacts[g].filter(c => c.waStatus === 'invalid').length;
+            if (invalidCount === 0) return showToast('Is group mein koi Invalid number nahi hai.', true);
+            if (!confirm('Group "' + g + '" se ' + invalidCount + ' Invalid numbers delete karein?\nValid + Pending list mein rahenge.')) return;
+            allContacts[g] = allContacts[g].filter(c => c.waStatus !== 'invalid');
+            contactListFilter = 'all';
+            contactListShowAll = false;
+            fetch('/api/contacts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(allContacts)
+            }).then(() => {
+                renderGroupContacts();
+                updateGroupDropdowns();
+                document.getElementById('groupSelect').value = g;
+                showToast('✅ ' + invalidCount + ' invalid delete. Ab ' + allContacts[g].length + ' numbers (pehle ' + before + ')');
+            }).catch(() => showToast('Network error', true));
         }
 
         function fetchLiveStatus() {
