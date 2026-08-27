@@ -117,7 +117,7 @@ function getContacts() { return cache.contacts || {}; }
 function getMeta() { return cache.meta || {}; }
 
 let liveCampaign = {
-    isActive: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [],
+    isActive: false, isPaused: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [],
     status: 'idle', restReason: '', resumeAt: null, batchSize: 50, accountAgeDays: 0
 };
 
@@ -164,7 +164,6 @@ async function runAutoScanTick() {
     const used = getTodayScanCount();
     if (used >= dailyLimit) return;
 
-    // 🌟 CHANGED: 20 se 10 kar diya (Timeout se bachne ke liye)
     const chunk = Math.min(10, dailyLimit - used);
     const contacts = getContacts();
     const pendingItems = [];
@@ -367,6 +366,19 @@ app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req
 app.get('/api/history', (req, res) => res.json(getHistory()));
 app.get('/api/live-status', (req, res) => res.json({ ...liveCampaign, sleepDisabled: Date.now() < skipSleepUntil }));
 
+// 🌟 NEW: Campaign Pause/Resume Toggle API
+app.post('/api/toggle-pause', (req, res) => {
+    liveCampaign.isPaused = !!req.body.pause;
+    if (liveCampaign.isPaused) {
+        liveCampaign.status = 'paused';
+        liveCampaign.restReason = '🛑 Campaign Paused by User';
+    } else {
+        liveCampaign.status = 'sending';
+        liveCampaign.restReason = '';
+    }
+    res.json({ success: true, isPaused: liveCampaign.isPaused });
+});
+
 app.post('/api/toggle-sleep', (req, res) => {
     const { disable } = req.body;
     if (disable) {
@@ -413,7 +425,6 @@ app.post('/api/scan-next', async (req, res) => {
     const used = getTodayScanCount();
     if (used >= dailyLimit) return res.status(400).json({ success: false, error: `Aaj ki limit (${dailyLimit}) puri.`, todayScanned: used, dailyScanLimit: dailyLimit });
     
-    // 🌟 CHANGED: API call mein bhi 10 kar diya
     const chunk = Math.min(10, dailyLimit - used); let scanned = 0, valid = 0, invalid = 0;
     
     for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
@@ -457,7 +468,6 @@ app.post('/pair-code', async (req, res) => {
 app.post('/api/validate-numbers', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है! Pehle device connect karo.' });
     let raw = req.body.numbers || []; if (!Array.isArray(raw) || raw.length === 0) return res.json({ success: true, valid: [], invalid: 0, duplicatesRemoved: 0, total: 0 });
-    // 🌟 CHANGED: yaha bhi 10 kar diya
     if (raw.length > 10) return res.status(400).json({ success: false, error: `Anti-Ban: ek baar mein max 10 numbers scan allowed.`, maxAllowed: 10, received: raw.length });
 
     const seen = new Map(); let duplicatesRemoved = 0;
@@ -511,7 +521,7 @@ app.post('/send', async (req, res) => {
     const useRotation = Array.isArray(templates) && templates.length > 0; let tplIndex = 0;
 
     liveCampaign = {
-        isActive: true, total: uniqueNumbers.length, dailyLimit, alreadySentToday: alreadySent, sent: 0, failed: 0, pending: uniqueNumbers.length,
+        isActive: true, isPaused: false, total: uniqueNumbers.length, dailyLimit, alreadySentToday: alreadySent, sent: 0, failed: 0, pending: uniqueNumbers.length,
         numbers: uniqueNumbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' })), status: 'sending', restReason: '', resumeAt: null, batchSize: SESSION_BATCH, accountAgeDays: getAccountAgeDays(),
         sessions: selectedIds.map(id => { const s = getSession(id); return { id, name: s.name, resting: false }; })
     };
@@ -523,6 +533,14 @@ app.post('/send', async (req, res) => {
     async function sessionWorker(sessionId) {
         const s = getSession(sessionId); if (!s) return;
         while (queue.length > 0) {
+            
+            // 🌟 NEW: Campaign Pause Check before sleeping/sending
+            while (liveCampaign.isPaused) {
+                liveCampaign.status = 'paused';
+                liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
+                await new Promise(r => setTimeout(r, 2000));
+            }
+
             while (s.restUntil && Date.now() < s.restUntil) {
                 const left = s.restUntil - Date.now();
                 liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: 2hr rest after ${SESSION_BATCH} msgs`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
@@ -534,6 +552,14 @@ app.post('/send', async (req, res) => {
 
             let batchCount = 0;
             while (batchCount < SESSION_BATCH && queue.length > 0) {
+                
+                // 🌟 NEW: Check Pause inside the message sending batch
+                while (liveCampaign.isPaused) {
+                    liveCampaign.status = 'paused';
+                    liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+
                 if (!s.connected || !s.sock) break; if (s.restUntil && Date.now() < s.restUntil) break;
                 const item = queue.shift(); if (!item) break;
                 let num = item.phone; const customerName = item.name || 'Customer'; const idx = item.idx;
