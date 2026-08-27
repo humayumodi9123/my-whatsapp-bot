@@ -143,13 +143,28 @@ function getGroupScanStats(groupContacts) {
     return { total: list.length, valid, invalid, pending, scanned: valid + invalid };
 }
 
-async function checkOneNumberOnWA(phone10, sessionIds) {
-    const sock = getSelectedOrRandomSock(sessionIds);
+function getScanSocks(sessionIds) {
+    let list = Array.from(sessions.values()).filter(s => s.connected && s.sock);
+    if (sessionIds && sessionIds.length > 0) {
+        const filtered = list.filter(s => sessionIds.includes(s.id));
+        if (filtered.length) list = filtered;
+    }
+    return list;
+}
+
+async function checkOneNumberOnWA(phone10, sessionIds, preferredSock) {
+    const sock = preferredSock || getSelectedOrRandomSock(sessionIds);
     if (!sock) return false;
     try {
         const r = await sock.onWhatsApp('91' + phone10 + '@s.whatsapp.net');
         return Array.isArray(r) && r[0] && r[0].exists !== false;
     } catch (e) { return false; }
+}
+
+function scanDelayMs(waCount) {
+    // Multi WA: 2–3 sec | Single WA: 2.5–5 sec (random)
+    if (waCount >= 2) return 2000 + Math.floor(Math.random() * 1001);
+    return 2500 + Math.floor(Math.random() * 2501);
 }
 
 let autoScanRunning = false;
@@ -416,27 +431,69 @@ app.get('/api/scan-progress', (req, res) => {
 
 app.post('/api/scan-next', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
-    const { group, sessionIds } = req.body; const contacts = getContacts();
+    const { group, sessionIds, scanAll } = req.body || {};
+    const contacts = getContacts();
     if (!group || !contacts[group]) return res.status(400).json({ success: false, error: 'Group select karo' });
-    
-    const activeWaCount = (sessionIds && sessionIds.length) ? sessionIds.length : 1;
-    const dailyLimit = getDailyScanLimit() * activeWaCount; 
-    
+
+    const socks = getScanSocks(sessionIds);
+    if (!socks.length) return res.status(400).json({ success: false, error: 'Koi connected WhatsApp select nahi hai' });
+
+    const activeWaCount = socks.length;
+    // Scan All Pending: daily 80 limit NAHI — sab pending numbers bari-bari
+    // Manual "Scan next 10": daily limit apply
+    const dailyLimit = getDailyScanLimit() * activeWaCount;
     const used = getTodayScanCount();
-    if (used >= dailyLimit) return res.status(400).json({ success: false, error: `Aaj ki limit (${dailyLimit}) puri.`, todayScanned: used, dailyScanLimit: dailyLimit });
-    
-    const chunk = Math.min(10, dailyLimit - used); let scanned = 0, valid = 0, invalid = 0;
-    
-    for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
-        const c = contacts[group][i]; if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
-        const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
-        const ok = phone.length === 10 ? await checkOneNumberOnWA(phone, sessionIds) : false;
-        contacts[group][i].waStatus = ok ? 'valid' : 'invalid'; contacts[group][i].phone = phone;
-        if (ok) valid++; else invalid++; scanned++; 
-        await new Promise(r => setTimeout(r, 2500));
+    if (!scanAll && used >= dailyLimit) {
+        return res.status(400).json({
+            success: false,
+            error: `Aaj ki limit (${dailyLimit}) puri. "Scan All Pending" se bina limit scan kar sakte ho (gaps + multi-WA rules lagte rahenge).`,
+            todayScanned: used,
+            dailyScanLimit: dailyLimit
+        });
     }
-    if (scanned > 0) { addTodayScanCount(scanned); await persist('contacts', contacts); }
-    res.json({ success: true, scanned, valid, invalid, todayScanned: getTodayScanCount(), dailyScanLimit: dailyLimit, groupStats: getGroupScanStats(contacts[group]) });
+
+    // Ek request mein max 10 — frontend loop karega jab tak pending khatam
+    const chunk = scanAll ? 10 : Math.min(10, Math.max(1, dailyLimit - used));
+    let scanned = 0, valid = 0, invalid = 0;
+    let rr = 0; // round-robin: eak ke baad eak WhatsApp
+
+    for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
+        const c = contacts[group][i];
+        if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
+
+        const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
+        const sObj = socks[rr % socks.length];
+        rr++;
+        const ok = phone.length === 10
+            ? await checkOneNumberOnWA(phone, sessionIds, sObj.sock)
+            : false;
+
+        contacts[group][i].waStatus = ok ? 'valid' : 'invalid';
+        contacts[group][i].phone = phone;
+        if (ok) valid++; else invalid++;
+        scanned++;
+
+        // Random gap: multi 2–3s | single 2.5–5s (series feel na aaye)
+        const delay = scanDelayMs(activeWaCount);
+        await new Promise(r => setTimeout(r, delay));
+    }
+
+    if (scanned > 0) {
+        addTodayScanCount(scanned);
+        await persist('contacts', contacts);
+    }
+    res.json({
+        success: true,
+        scanned,
+        valid,
+        invalid,
+        todayScanned: getTodayScanCount(),
+        dailyScanLimit: scanAll ? null : dailyLimit,
+        unlimited: !!scanAll,
+        waUsed: activeWaCount,
+        delayMode: activeWaCount >= 2 ? '2-3s multi-WA' : '2.5-5s single-WA',
+        groupStats: getGroupScanStats(contacts[group])
+    });
 });
 
 app.post('/pair-code', async (req, res) => {
