@@ -888,7 +888,17 @@
         
         async function startSending() {
             let finalNumbers = []; const targetType = document.getElementById('targetType').value;
-            if(targetType === 'group') { const g = document.getElementById('campaignGroupDropdown').value; if(!g || !allContacts[g]) return showToast("⚠️ कृपया एक ग्रुप चुनें!", true); finalNumbers = allContacts[g]; } else { const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== ''); finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' })); }
+            if (targetType === 'group') {
+                const g = document.getElementById('campaignGroupDropdown').value;
+                if (!g || !allContacts[g]) return showToast('⚠️ कृपया एक ग्रुप चुनें!', true);
+                finalNumbers = (allContacts[g] || []).filter(c => c.waStatus === 'valid');
+                if (finalNumbers.length === 0) return showToast('⚠️ Is group mein koi Valid number nahi. Pehle scan karo.', true);
+                const skipped = allContacts[g].length - finalNumbers.length;
+                if (skipped > 0) showToast('ℹ️ ' + finalNumbers.length + ' Valid pe bhejenge · ' + skipped + ' Pending/Invalid skip');
+            } else {
+                const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
+                finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
+            }
             applySelectedTemplates(); const msg = document.getElementById('message').value; const imgFile = document.getElementById('imageFile').files[0];
             if (selectedTemplatesList.length > 0) { doSend(finalNumbers, msg, null, selectedTemplatesList); return; }
             if (imgFile) { const r = new FileReader(); r.onload = (e) => { doSend(finalNumbers, msg, e.target.result, []); }; r.readAsDataURL(imgFile); } else { doSend(finalNumbers, msg, null, []); }
@@ -940,4 +950,5 @@
     </script>
 </body>
 </html>
+
 
