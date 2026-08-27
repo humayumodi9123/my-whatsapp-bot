@@ -46,10 +46,8 @@ let useMongo = false;
 
 let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {} };
 
-// --- MONGODB INITIALIZATION ---
 async function initMongo() {
     if (!MONGODB_URI || !MongoClient) {
-        console.log('⚠️ MongoDB not used — local JSON files fallback');
         cache.contacts = getJsonFile(contactsFile) || {}; cache.templates = getJsonFile(templatesFile) || [];
         cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {};
         return;
@@ -59,7 +57,6 @@ async function initMongo() {
         await mongoClient.connect();
         db = mongoClient.db('whatsapp_bot');
         useMongo = true;
-        console.log('✅ MongoDB connected — Data & Auth Keys will persist');
 
         const col = (name) => db.collection(name);
         const contactsDoc = await col('contacts').findOne({ _id: 'main' });
@@ -73,10 +70,7 @@ async function initMongo() {
         cache.history = (historyDoc && historyDoc.data) ? historyDoc.data : [];
         cache.stats = (statsDoc && statsDoc.data) ? statsDoc.data : {};
         cache.meta = (metaDoc && metaDoc.data) ? metaDoc.data : {};
-    } catch (e) {
-        console.error('❌ MongoDB connect failed:', e.message);
-        useMongo = false;
-    }
+    } catch (e) { useMongo = false; }
 }
 
 async function persist(key, data) {
@@ -99,17 +93,25 @@ function saveStats(date, sent, failed) {
     stats[date].sent += sent; stats[date].failed += failed;
     persist('stats', stats);
 }
+
+// 🌟 NEW: HISTORY SAVING WITH IST TIME (WITH SECONDS) & SESSION NAME
 function getHistory() { return cache.history || []; }
-function addHistory(number, messageSent) {
-    let list = getHistory(); list.push({ number: number, message: messageSent, date: new Date().toLocaleString('en-IN') });
+function addHistory(number, messageSent, sessionName) {
+    const istTime = new Date().toLocaleString('en-IN', { 
+        timeZone: 'Asia/Kolkata', hour12: true, 
+        year: 'numeric', month: 'short', day: '2-digit', 
+        hour: '2-digit', minute: '2-digit', second: '2-digit' 
+    });
+    let list = getHistory(); 
+    list.push({ number: number, message: messageSent, session: sessionName || 'Unknown', date: istTime });
     if (list.length > 50000) list = list.slice(-50000);
     persist('history', list);
 }
+
 function getTemplates() { return cache.templates || []; }
 function getContacts() { return cache.contacts || {}; }
 function getMeta() { return cache.meta || {}; }
 
-// --- ANTI-BAN & TIME LIMITS ---
 let liveCampaign = {
     isActive: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [],
     status: 'idle', restReason: '', resumeAt: null, batchSize: 50, accountAgeDays: 0
@@ -201,7 +203,6 @@ async function smartSleep(ms, reason) {
 }
 async function waitForSendWindow() { const waitMs = msUntilNext8AM_IST(); if (waitMs > 0) await smartSleep(waitMs, 'Night Rest (10 PM – 8 AM IST)'); }
 
-// --- MONGODB AUTH ADAPTER ---
 function pathJoinAuth(sessionId) { return (__dirname + '/auth_sessions/' + sessionId).replace(/\\/g, '/'); }
 
 async function clearSessionAuth(sessionId) {
@@ -234,18 +235,14 @@ async function getAuthState(sessionId) {
                 keys: {
                     get: async (type, ids) => {
                         const data = {};
-                        await Promise.all(ids.map(async id => {
-                            let value = await readData(`${type}-${id}`);
-                            data[id] = value;
-                        }));
+                        await Promise.all(ids.map(async id => { let value = await readData(`${type}-${id}`); data[id] = value; }));
                         return data;
                     },
                     set: async (data) => {
                         const tasks = [];
                         for (const category in data) {
                             for (const id in data[category]) {
-                                const value = data[category][id];
-                                const key = `${category}-${id}`;
+                                const value = data[category][id]; const key = `${category}-${id}`;
                                 tasks.push(value ? writeData(value, key) : removeData(key));
                             }
                         }
@@ -262,7 +259,6 @@ async function getAuthState(sessionId) {
     }
 }
 
-// --- WHATSAPP CONNECTION ---
 async function startSession(sessionId, sessionName) {
     const { state, saveCreds } = await getAuthState(sessionId);
     const sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
@@ -294,7 +290,6 @@ async function startSession(sessionId, sessionName) {
             if (!meta.firstConnectedAt) { meta.firstConnectedAt = new Date().toISOString(); persist('meta', meta); }
             if (!meta.sessions) meta.sessions = [];
             if (!meta.sessions.find(x => x.id === sessionId)) { meta.sessions.push({ id: sessionId, name: s.name }); persist('meta', meta); }
-            console.log(`Session connected: ${s.name} (${sessionId})`);
         }
     });
     sock.ev.on('creds.update', saveCreds);
@@ -325,7 +320,6 @@ async function bootstrapSessions() {
     for (const item of list) { await startSession(item.id, item.name); }
 }
 
-// --- API ROUTES (ALL RESTORED) ---
 app.get('/status', (req, res) => {
     const list = listSessionsPublic(); const primary = list.find(s => s.connected) || list[0] || null;
     res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
@@ -525,7 +519,10 @@ app.post('/send', async (req, res) => {
                     await s.sock.sendMessage(jid, messageOptions);
                     liveCampaign.sent++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
                     if (liveCampaign.numbers[idx]) liveCampaign.numbers[idx].status = `Sent ✅ (${s.name}${tplName ? ' / ' + tplName : ''})`;
-                    addHistory(num, finalMessage || 'Media Sent'); saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
+                    
+                    // 🌟 NEW: PASS SESSION NAME TO HISTORY
+                    addHistory(num, finalMessage || 'Media Sent', s.name); 
+                    saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
                     batchCount++; s.sentInBatch = batchCount;
 
                     const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
@@ -547,7 +544,6 @@ app.post('/send', async (req, res) => {
     liveCampaign.isActive = false; liveCampaign.status = 'idle'; liveCampaign.restReason = ''; liveCampaign.resumeAt = null;
 });
 
-// Boot
 (async () => {
     await initMongo();
     await bootstrapSessions();
