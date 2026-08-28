@@ -207,6 +207,21 @@
                 <div style="flex: 1;"><label>अधिकतम समय (Sec):</label><input type="number" id="maxDelay" value="120" min="60"></div>
             </div>
 
+            <div class="form-group" style="background:linear-gradient(135deg,#f8fafc,#eff6ff);padding:16px;border-radius:14px;border:1px dashed #93c5fd;">
+                <div style="font-weight:700;color:#1e40af;font-size:14px;margin-bottom:6px;">⚙️ Custom Batch & Rest (optional)</div>
+                <p style="margin:0 0 12px;font-size:11px;color:#64748b;line-height:1.4;">Khali chhodo = default (30 msgs → 2 hr rest). Custom bhi daily 80/WA limit follow karega.</p>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;">Batch size (msgs)</label>
+                        <input type="number" id="customBatch" placeholder="e.g. 5" min="1" max="50" style="margin:0;">
+                    </div>
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;">Rest after batch (hours)</label>
+                        <input type="number" id="customRestHours" placeholder="e.g. 1" min="0.25" max="12" step="0.25" style="margin:0;">
+                    </div>
+                </div>
+            </div>
+
             <div class="form-group" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
                 <label>📱 Kis WhatsApp se bhejna hai? (multi select)</label>
                 <div id="campaignSessionPick" style="margin-top:8px;"></div>
@@ -855,7 +870,7 @@
                         banner.innerHTML = '<div style="background:#fef3c7;color:#92400e;padding:14px;border-radius:12px;text-align:center;border:1px solid #fde68a;"><div style="font-size:15px;font-weight:700;">⏸️ Rest Mode</div><div style="font-size:12px;margin-top:4px;">' + (data.restReason || '') + '</div></div>';
                     } else if (data.isActive && data.status === 'sending') {
                         banner.style.display = 'block';
-                        banner.innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:12px 14px;border-radius:12px;text-align:center;border:1px solid #a7f3d0;font-size:13px;font-weight:600;">🚀 Sending in progress · Batch ' + (data.batchSize || 30) + ' → 2hr rest</div>';
+                        banner.innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:12px 14px;border-radius:12px;text-align:center;border:1px solid #a7f3d0;font-size:13px;font-weight:600;">🚀 Sending · Batch ' + (data.batchSize || 30) + ' → ' + (data.restHours || '2') + 'hr rest</div>';
                     } else {
                         banner.style.display = 'none';
                         banner.innerHTML = '';
@@ -954,7 +969,16 @@
             const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
             if (!sessionIds.length) return showToast('⚠️ कम से कम 1 WhatsApp सेलेक्ट करें।', true);
             document.getElementById('sendBtn').disabled = true; document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
-            const payload = { numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64, sessionIds, templates: (templatesArr || []).map(t => ({ name: t.name, message: t.message, imageBase64: t.imageBase64 || null })) };
+            const batchEl = document.getElementById('customBatch');
+            const restEl = document.getElementById('customRestHours');
+            const customBatch = batchEl && batchEl.value ? parseInt(batchEl.value, 10) : null;
+            const customRestHours = restEl && restEl.value ? parseFloat(restEl.value) : null;
+            const payload = {
+                numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64, sessionIds,
+                customBatch: (customBatch && customBatch > 0) ? customBatch : null,
+                customRestHours: (customRestHours && customRestHours > 0) ? customRestHours : null,
+                templates: (templatesArr || []).map(t => ({ name: t.name, message: t.message, imageBase64: t.imageBase64 || null }))
+            };
             fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(async (r) => {
                 const d = await r.json().catch(() => ({})); if (!r.ok || d.success === false) { showToast(d.error || 'Start failed', true); document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; return; }
                 const liveBtn = document.querySelector('.sidebar-btn[onclick*="liveTrackingSec"]'); showSection('liveTrackingSec', liveBtn || document.querySelectorAll('.sidebar-btn')[2]); fetchLiveStatus();
