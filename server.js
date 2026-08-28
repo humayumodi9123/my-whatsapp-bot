@@ -170,7 +170,6 @@ async function checkOneNumberOnWA(phone10, sessionIds, preferredSock) {
 }
 
 function scanDelayMs(waCount) {
-    // Multi WA: 2–3 sec | Single WA: 2.5–5 sec (random)
     if (waCount >= 2) return 2000 + Math.floor(Math.random() * 1001);
     return 2500 + Math.floor(Math.random() * 2501);
 }
@@ -318,8 +317,6 @@ async function startSession(sessionId, sessionName) {
             s.connected = false;
             const code = lastDisconnect?.error?.output?.statusCode;
             console.log(`[${sessionId}] connection close code=${code}`);
-            // 401 loggedOut → auth clear + fresh QR
-            // 440 conflict/replaced → dusri jagah se login; thodi der baad reconnect (auth mat mitao)
             if (code === DisconnectReason.loggedOut) {
                 try { await clearSessionAuth(sessionId); } catch (e) {}
                 s.qrCode = null;
@@ -371,7 +368,6 @@ async function bootstrapSessions() {
     const meta = getMeta();
     let list = (meta.sessions && meta.sessions.length) ? meta.sessions : [{ id: 'wa_1', name: 'WhatsApp 1' }];
     if (!list.length) list = [{ id: 'wa_1', name: 'WhatsApp 1' }];
-    // Ek saath saari sessions mat kholo — conflict kam
     for (const item of list) {
         try {
             await startSession(item.id, item.name);
@@ -411,7 +407,6 @@ app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req
 app.get('/api/history', (req, res) => res.json(getHistory()));
 app.get('/api/live-status', (req, res) => res.json({ ...liveCampaign, sleepDisabled: Date.now() < skipSleepUntil }));
 
-// 🌟 NEW: Campaign Pause/Resume Toggle API
 app.post('/api/toggle-pause', (req, res) => {
     liveCampaign.isPaused = !!req.body.pause;
     if (liveCampaign.isPaused) {
@@ -469,8 +464,6 @@ app.post('/api/scan-next', async (req, res) => {
     if (!socks.length) return res.status(400).json({ success: false, error: 'Koi connected WhatsApp select nahi hai' });
 
     const activeWaCount = socks.length;
-    // Scan All Pending: daily 80 limit NAHI — sab pending numbers bari-bari
-    // Manual "Scan next 10": daily limit apply
     const dailyLimit = getDailyScanLimit() * activeWaCount;
     const used = getTodayScanCount();
     if (!scanAll && used >= dailyLimit) {
@@ -482,11 +475,9 @@ app.post('/api/scan-next', async (req, res) => {
         });
     }
 
-    // Scan All: 5/batch (lamba request = mobile/Render network error)
-    // Manual Scan next: max 10
     const chunk = scanAll ? 5 : Math.min(10, Math.max(1, dailyLimit - used));
     let scanned = 0, valid = 0, invalid = 0;
-    let rr = 0; // round-robin: eak ke baad eak WhatsApp
+    let rr = 0; 
 
     for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
         const c = contacts[group][i];
@@ -504,7 +495,6 @@ app.post('/api/scan-next', async (req, res) => {
         if (ok) valid++; else invalid++;
         scanned++;
 
-        // Random gap: multi 2–3s | single 2.5–5s (series feel na aaye)
         const delay = scanDelayMs(activeWaCount);
         await new Promise(r => setTimeout(r, delay));
     }
@@ -514,14 +504,10 @@ app.post('/api/scan-next', async (req, res) => {
         await persist('contacts', contacts);
     }
     res.json({
-        success: true,
-        scanned,
-        valid,
-        invalid,
+        success: true, scanned, valid, invalid,
         todayScanned: getTodayScanCount(),
         dailyScanLimit: scanAll ? null : dailyLimit,
-        unlimited: !!scanAll,
-        waUsed: activeWaCount,
+        unlimited: !!scanAll, waUsed: activeWaCount,
         delayMode: activeWaCount >= 2 ? '2-3s multi-WA' : '2.5-5s single-WA',
         groupStats: getGroupScanStats(contacts[group])
     });
@@ -589,7 +575,7 @@ app.post('/api/validate-numbers', async (req, res) => {
 
 app.post('/send', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
-    const { numbers, message, minDelay, maxDelay, imageBase64, templates, sessionIds, customBatch, customRestHours } = req.body;
+    const { numbers, message, minDelay, maxDelay, imageBase64, fileName, templates, sessionIds, customBatch, customRestHours } = req.body;
     if (!Array.isArray(numbers) || numbers.length === 0) return res.status(400).json({ success: false, error: 'Number list empty!' });
 
     let selectedIds = Array.isArray(sessionIds) && sessionIds.length ? sessionIds : Array.from(sessions.values()).filter(s => s.connected).map(s => s.id);
@@ -602,12 +588,10 @@ app.post('/send', async (req, res) => {
         if (p.length === 10 && !seenPhone.has(p)) { seenPhone.add(p); uniqueNumbers.push({ phone: p, name: n.name || 'Customer' }); }
     }
 
-    // Daily limit always applies (80 / WA etc.) — custom batch se bypass nahi
     const dailyLimit = getDailyLimit() * selectedIds.length; const alreadySent = getTodaySentCount();
     if (alreadySent >= dailyLimit) return res.status(400).json({ success: false, error: `Anti-Ban: aaj ka limit (${dailyLimit}) pure. Kal try karo.` });
     const remainingQuota = dailyLimit - alreadySent; if (uniqueNumbers.length > remainingQuota) uniqueNumbers = uniqueNumbers.slice(0, remainingQuota);
 
-    // Custom batch / rest — empty = default 30 / 2hr
     let batchSize = SESSION_BATCH;
     let restMs = SESSION_REST_MS;
     const cb = parseInt(customBatch, 10);
@@ -640,7 +624,6 @@ app.post('/send', async (req, res) => {
         const s = getSession(sessionId); if (!s) return;
         while (queue.length > 0) {
             
-            // 🌟 NEW: Campaign Pause Check before sleeping/sending
             while (liveCampaign.isPaused) {
                 liveCampaign.status = 'paused';
                 liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
@@ -659,7 +642,6 @@ app.post('/send', async (req, res) => {
             let batchCount = 0;
             while (batchCount < batchSize && queue.length > 0) {
                 
-                // 🌟 NEW: Check Pause inside the message sending batch
                 while (liveCampaign.isPaused) {
                     liveCampaign.status = 'paused';
                     liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
@@ -672,17 +654,21 @@ app.post('/send', async (req, res) => {
 
                 try {
                     if (!num.startsWith('91')) num = '91' + num; const jid = num + '@s.whatsapp.net';
-                    let finalMessage = ''; let finalImageBase64 = null; let tplName = '';
+                    let finalMessage = ''; let finalMediaBase64 = null; let tplName = ''; let finalFileName = 'Document';
                     let buttons = [];
+                    
                     if (useRotation) {
                         const tpl = templates[tplIndex % templates.length]; tplIndex++; tplName = tpl.name || '';
-                        finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName); finalImageBase64 = tpl.imageBase64 || null;
+                        finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName); 
+                        finalMediaBase64 = tpl.imageBase64 || null; // Frontend passes all files in this variable
+                        finalFileName = tpl.fileName || 'Attachment';
                         buttons = Array.isArray(tpl.buttons) ? tpl.buttons : [];
                     } else {
-                        finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : ''; finalImageBase64 = imageBase64 || null;
+                        finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : ''; 
+                        finalMediaBase64 = imageBase64 || null;
+                        finalFileName = fileName || 'Attachment';
                     }
 
-                    // Action buttons → message footer (Call / Link / Reply) — har device pe dikhe
                     if (buttons.length) {
                         const lines = ['', '────────────'];
                         buttons.forEach(b => {
@@ -696,15 +682,32 @@ app.post('/send', async (req, res) => {
                         finalMessage = (finalMessage || '') + lines.join('\n');
                     }
 
+                    // 🌟 NEW: Advanced File Handling
                     let messageOptions;
-                    if (finalImageBase64) {
-                        const base64Data = finalImageBase64.includes(',') ? finalImageBase64.split(',')[1] : finalImageBase64;
-                        messageOptions = { image: Buffer.from(base64Data, 'base64'), caption: finalMessage };
-                    } else messageOptions = { text: finalMessage || ' ' };
+                    if (finalMediaBase64) {
+                        let mimeType = 'application/octet-stream';
+                        let base64Data = finalMediaBase64;
+                        if (finalMediaBase64.includes(',')) {
+                            const parts = finalMediaBase64.split(',');
+                            const match = parts[0].match(/:(.*?);/);
+                            if (match) mimeType = match[1];
+                            base64Data = parts[1];
+                        }
+                        const buffer = Buffer.from(base64Data, 'base64');
+
+                        if (mimeType.startsWith('image/')) {
+                            messageOptions = { image: buffer, caption: finalMessage };
+                        } else if (mimeType.startsWith('video/')) {
+                            messageOptions = { video: buffer, caption: finalMessage };
+                        } else {
+                            messageOptions = { document: buffer, mimetype: mimeType, fileName: finalFileName, caption: finalMessage };
+                        }
+                    } else {
+                        messageOptions = { text: finalMessage || ' ' };
+                    }
 
                     await s.sock.sendMessage(jid, messageOptions);
 
-                    // Try native-style buttons (optional — kuch accounts pe dikhte hain)
                     if (buttons.length) {
                         try {
                             const nativeBtns = buttons.slice(0, 3).map((b, i) => ({
@@ -720,16 +723,16 @@ app.post('/send', async (req, res) => {
                                     headerType: 1
                                 });
                             }
-                        } catch (btnErr) { /* ignore — text buttons already in caption */ }
+                        } catch (btnErr) {}
                     }
                     liveCampaign.sent++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
                     if (liveCampaign.numbers[idx]) {
                         liveCampaign.numbers[idx].status = 'Sent ✅ (' + s.name + (tplName ? ' / ' + tplName : '') + ')';
                         liveCampaign.numbers[idx].state = 'sent';
                         liveCampaign.numbers[idx].session = s.name;
-                        liveCampaign.numbers[idx].template = tplName || (finalImageBase64 ? 'Media' : 'Message');
+                        liveCampaign.numbers[idx].template = tplName || (finalMediaBase64 ? 'Media/File' : 'Message');
                     }
-                    addHistory(num, finalMessage || 'Media Sent', s.name + (tplName ? ' | ' + tplName : ''));
+                    addHistory(num, finalMessage || 'Media/File Sent', s.name + (tplName ? ' | ' + tplName : ''));
                     saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
                     batchCount++; s.sentInBatch = batchCount;
 
@@ -763,13 +766,11 @@ app.post('/send', async (req, res) => {
     } catch (e) {
         console.error('initMongo error', e.message);
     }
-    // Pehle HTTP listen — Render health check pass
     const port = process.env.PORT || 10000;
     app.listen(port, '0.0.0.0', () => {
         console.log(`Server started on ${port} | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'}`);
         setInterval(() => { runAutoScanTick().catch(() => {}); }, 3 * 60 * 1000);
     });
-    // WhatsApp sessions background mein
     bootstrapSessions().catch(e => console.error('bootstrap error', e.message));
 })();
 
