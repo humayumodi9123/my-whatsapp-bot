@@ -21,6 +21,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
 const sessions = new Map();
+const deletedSessionIds = new Set(); // user-deleted — reconnect mat karo
 const SESSION_BATCH = 30;          
 const SESSION_REST_MS = 2 * 60 * 60 * 1000;
 let skipSleepUntil = 0;
@@ -300,6 +301,10 @@ async function getAuthState(sessionId) {
 }
 
 async function startSession(sessionId, sessionName) {
+    if (deletedSessionIds.has(sessionId)) {
+        console.log(`[${sessionId}] skip start — user deleted`);
+        return;
+    }
     const { state, saveCreds } = await getAuthState(sessionId);
     const sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
 
@@ -311,39 +316,40 @@ async function startSession(sessionId, sessionName) {
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
         const s = sessions.get(sessionId);
         if (!s) return;
-        if (qr) s.qrCode = await qrcode.toDataURL(qr);
+        if (qr) {
+            try { s.qrCode = await qrcode.toDataURL(qr); } catch (e) {}
+        }
         if (connection === 'close') {
             s.connected = false;
+            if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
             const code = lastDisconnect?.error?.output?.statusCode;
             console.log(`[${sessionId}] connection close code=${code}`);
-            // 401 loggedOut → auth clear + fresh QR
-            // 440 conflict/replaced → dusri jagah se login; thodi der baad reconnect (auth mat mitao)
             if (code === DisconnectReason.loggedOut) {
                 try { await clearSessionAuth(sessionId); } catch (e) {}
                 s.qrCode = null;
-                if (!s._reconnectTimer) {
-                    s._reconnectTimer = setTimeout(() => {
-                        s._reconnectTimer = null;
-                        startSession(sessionId, s.name).catch(() => {});
-                    }, 4000);
-                }
-            } else {
-                const delay = (code === 440 || code === DisconnectReason.connectionReplaced) ? 8000 : 4000;
-                if (!s._reconnectTimer) {
-                    s._reconnectTimer = setTimeout(() => {
-                        s._reconnectTimer = null;
-                        startSession(sessionId, s.name).catch(() => {});
-                    }, delay);
-                }
+            }
+            const delay = (code === 440 || code === DisconnectReason.connectionReplaced) ? 8000 : 4000;
+            if (!s._reconnectTimer && !deletedSessionIds.has(sessionId) && sessions.has(sessionId)) {
+                s._reconnectTimer = setTimeout(() => {
+                    s._reconnectTimer = null;
+                    if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
+                    startSession(sessionId, s.name).catch(() => {});
+                }, delay);
             }
         } else if (connection === 'open') {
+            if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
             s.connected = true; s.qrCode = null;
             const meta = { ...getMeta() };
             if (!meta.firstConnectedAt) { meta.firstConnectedAt = new Date().toISOString(); persist('meta', meta); }
             if (!meta.sessions) meta.sessions = [];
-            if (!meta.sessions.find(x => x.id === sessionId)) { meta.sessions.push({ id: sessionId, name: s.name }); persist('meta', meta); }
+            // Sirf tab add karo jab meta mein pehle se planned session ho / create API se aaya ho
+            if (!meta.sessions.find(x => x.id === sessionId)) {
+                meta.sessions.push({ id: sessionId, name: s.name });
+                persist('meta', meta);
+            }
         }
     });
     sock.ev.on('creds.update', saveCreds);
@@ -392,16 +398,27 @@ app.get('/api/sessions', (req, res) => res.json({ sessions: listSessionsPublic()
 app.post('/api/sessions/create', async (req, res) => {
     const name = (req.body && req.body.name) ? String(req.body.name).trim() : ''; const id = 'wa_' + Date.now();
     const displayName = name || ('WhatsApp ' + (sessions.size + 1));
+    deletedSessionIds.delete(id);
     const meta = { ...getMeta() }; if (!meta.sessions) meta.sessions = []; meta.sessions.push({ id, name: displayName });
     await persist('meta', meta); await startSession(id, displayName);
     res.json({ success: true, session: { id, name: displayName } });
 });
 
 app.post('/api/sessions/delete', async (req, res) => {
-    const id = req.body && req.body.id; if (!id || !sessions.has(id)) return res.status(400).json({ success: false, error: 'Session not found' });
-    const s = sessions.get(id); try { if (s.sock) s.sock.end(); } catch (e) {} sessions.delete(id);
-    await clearSessionAuth(id);
-    const meta = { ...getMeta() }; meta.sessions = (meta.sessions || []).filter(x => x.id !== id); await persist('meta', meta);
+    const id = req.body && req.body.id;
+    if (!id) return res.status(400).json({ success: false, error: 'Session id missing' });
+    deletedSessionIds.add(id);
+    const s = sessions.get(id);
+    if (s) {
+        try { if (s._reconnectTimer) clearTimeout(s._reconnectTimer); } catch (e) {}
+        s._reconnectTimer = null;
+        try { if (s.sock) s.sock.end(undefined); } catch (e) {}
+    }
+    sessions.delete(id);
+    try { await clearSessionAuth(id); } catch (e) {}
+    const meta = { ...getMeta() };
+    meta.sessions = (meta.sessions || []).filter(x => x.id !== id);
+    await persist('meta', meta);
     res.json({ success: true });
 });
 
@@ -447,10 +464,33 @@ app.post('/api/contacts', async (req, res) => {
     const body = req.body || {};
     Object.keys(body).forEach(g => {
         if (!Array.isArray(body[g])) return;
-        body[g] = body[g].map(c => ({ name: c.name || 'Customer', phone: String(c.phone || '').replace(/\D/g, '').slice(-10), waStatus: c.waStatus || null }));
+        body[g] = body[g].map(c => ({
+            name: c.name || 'Customer',
+            phone: String(c.phone || '').replace(/\D/g, '').slice(-10),
+            waStatus: c.waStatus === 'valid' || c.waStatus === 'invalid' || c.waStatus === 'pending' ? c.waStatus : (c.waStatus || null)
+        }));
     });
     await persist('contacts', body);
     res.json({ success: true });
+});
+
+// Invalid numbers permanently remove (server-side — poll se wapas nahi aayenge)
+app.post('/api/contacts/remove-invalid', async (req, res) => {
+    const group = req.body && req.body.group;
+    const contacts = { ...getContacts() };
+    if (!group || !Array.isArray(contacts[group])) {
+        return res.status(400).json({ success: false, error: 'Group select karo' });
+    }
+    const before = contacts[group].length;
+    contacts[group] = contacts[group].filter(c => c.waStatus !== 'invalid');
+    const removed = before - contacts[group].length;
+    await persist('contacts', contacts);
+    res.json({
+        success: true,
+        removed,
+        remaining: contacts[group].length,
+        contacts
+    });
 });
 
 app.get('/api/scan-progress', (req, res) => {
