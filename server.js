@@ -4,6 +4,14 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, initAuth
 const qrcode = require('qrcode');
 const fs = require('fs');
 
+// Render crash prevent — Baileys errors process ko kill na karein
+process.on('unhandledRejection', (err) => {
+    console.error('[unhandledRejection]', err && err.message ? err.message : err);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', err && err.message ? err.message : err);
+});
+
 let MongoClient = null;
 try { MongoClient = require('mongodb').MongoClient; } catch (e) { console.log('mongodb package not installed'); }
 
@@ -308,13 +316,27 @@ async function startSession(sessionId, sessionName) {
         if (qr) s.qrCode = await qrcode.toDataURL(qr);
         if (connection === 'close') {
             s.connected = false;
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) {
-                setTimeout(() => startSession(sessionId, s.name), 3000);
-            } else {
-                try { await clearSessionAuth(sessionId); } catch(e){}
+            const code = lastDisconnect?.error?.output?.statusCode;
+            console.log(`[${sessionId}] connection close code=${code}`);
+            // 401 loggedOut → auth clear + fresh QR
+            // 440 conflict/replaced → dusri jagah se login; thodi der baad reconnect (auth mat mitao)
+            if (code === DisconnectReason.loggedOut) {
+                try { await clearSessionAuth(sessionId); } catch (e) {}
                 s.qrCode = null;
-                setTimeout(() => startSession(sessionId, s.name), 2000);
+                if (!s._reconnectTimer) {
+                    s._reconnectTimer = setTimeout(() => {
+                        s._reconnectTimer = null;
+                        startSession(sessionId, s.name).catch(() => {});
+                    }, 4000);
+                }
+            } else {
+                const delay = (code === 440 || code === DisconnectReason.connectionReplaced) ? 8000 : 4000;
+                if (!s._reconnectTimer) {
+                    s._reconnectTimer = setTimeout(() => {
+                        s._reconnectTimer = null;
+                        startSession(sessionId, s.name).catch(() => {});
+                    }, delay);
+                }
             }
         } else if (connection === 'open') {
             s.connected = true; s.qrCode = null;
@@ -349,7 +371,15 @@ async function bootstrapSessions() {
     const meta = getMeta();
     let list = (meta.sessions && meta.sessions.length) ? meta.sessions : [{ id: 'wa_1', name: 'WhatsApp 1' }];
     if (!list.length) list = [{ id: 'wa_1', name: 'WhatsApp 1' }];
-    for (const item of list) { await startSession(item.id, item.name); }
+    // Ek saath saari sessions mat kholo — conflict kam
+    for (const item of list) {
+        try {
+            await startSession(item.id, item.name);
+        } catch (e) {
+            console.error('bootstrap session fail', item.id, e.message);
+        }
+        await new Promise(r => setTimeout(r, 1500));
+    }
 }
 
 app.get('/status', (req, res) => {
@@ -693,11 +723,18 @@ app.post('/send', async (req, res) => {
 });
 
 (async () => {
-    await initMongo();
-    await bootstrapSessions();
-    app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
-        console.log(`Server started | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'}`);
+    try {
+        await initMongo();
+    } catch (e) {
+        console.error('initMongo error', e.message);
+    }
+    // Pehle HTTP listen — Render health check pass
+    const port = process.env.PORT || 10000;
+    app.listen(port, '0.0.0.0', () => {
+        console.log(`Server started on ${port} | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'}`);
         setInterval(() => { runAutoScanTick().catch(() => {}); }, 3 * 60 * 1000);
     });
+    // WhatsApp sessions background mein
+    bootstrapSessions().catch(e => console.error('bootstrap error', e.message));
 })();
 
