@@ -6,6 +6,7 @@
     <title>Marketing Dashboard Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     
+    <!-- PDF & Excel/CSV Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -194,9 +195,8 @@
                 </div>
             </div>
 
-            <!-- 🌟 UPDATED: File Input accepts all file types -->
             <div class="form-group">
-                <label>फाइल अटैचमेंट (Photo, Video, PDF, Excel आदि):</label>
+                <label>फाइल अटैचमेंट (Photo, Video, PDF, Excel आदि): <span style="font-size:11px;color:#ef4444;font-weight:normal;">(Max 15MB)</span></label>
                 <input type="file" id="imageFile" onchange="clearTemplateSelection()">
             </div>
             
@@ -367,8 +367,7 @@
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
                 
-                <!-- 🌟 UPDATED: File input id to generic name -->
-                <div class="form-group"><label>फाइल अटैचमेंट (Photo, Video, PDF, Excel आदि):</label><input type="file" id="newTplFile"></div>
+                <div class="form-group"><label>फाइल अटैचमेंट (Photo, Video, PDF, Excel आदि): <span style="font-size:11px;color:#ef4444;font-weight:normal;">(Max 15MB)</span></label><input type="file" id="newTplFile"></div>
                 
                 <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
 
@@ -666,7 +665,6 @@
 
         function fetchTemplates() { fetch('/api/templates?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }).catch(e => console.error(e)); }
         
-        // 🌟 UPDATED: Render generic file previews
         function renderTemplates() {
             const drop = document.getElementById('templateDropdown'); const prevSelected = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
             drop.innerHTML = ''; document.getElementById('templateListArea').innerHTML = '';
@@ -701,15 +699,20 @@
             return buttons;
         }
         
-        // 🌟 UPDATED: File logic uses generic name
         function saveNewTemplate() {
             const name = document.getElementById('newTplName').value; const msg = document.getElementById('newTplMsg').value; 
             const fileInput = document.getElementById('newTplFile');
             const imgFile = fileInput ? fileInput.files[0] : null;
             if(!name || !msg) return showToast("⚠️ नाम और मैसेज डालना ज़रूरी है!", true);
+            
+            if (imgFile && imgFile.size > 15 * 1024 * 1024) {
+                return showToast("⚠️ फाइल साइज़ 15MB से कम रखें! (बड़ी फाइल से मोबाइल हैंग हो सकता है)", true);
+            }
+
             const id = 'tpl_' + Date.now();
             const payload = { id, name, message: msg, mediaBase64: null, fileName: '', buttons: collectTemplateButtons() };
             if (imgFile) {
+                showToast("⏳ फाइल अपलोड हो रही है, कृपया रुकें...", false);
                 payload.fileName = imgFile.name;
                 const r = new FileReader();
                 r.onload = e => { payload.mediaBase64 = e.target.result; doSaveTemplate(payload); };
@@ -737,7 +740,6 @@
             fetch('/api/templates/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) }).catch(e => console.error(e)); 
         }
         
-        // 🌟 UPDATED: File logic preview
         function applySelectedTemplates() {
             const drop = document.getElementById('templateDropdown'); const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
             selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean); const preview = document.getElementById('selectedTemplatesPreview');
@@ -944,7 +946,6 @@
             }).catch(() => showToast('Network error', true));
         }
 
-        // 🌟 UPDATED: File logic uses generic name
         async function startSending() {
             let finalNumbers = []; const targetType = document.getElementById('targetType').value;
             if (targetType === 'group') {
@@ -960,10 +961,13 @@
             }
             applySelectedTemplates(); const msg = document.getElementById('message').value; 
             
-            // File input handle for generic files
             const fileInput = document.getElementById('imageFile');
             const imgFile = fileInput ? fileInput.files[0] : null;
             const fileName = imgFile ? imgFile.name : '';
+            
+            if (imgFile && imgFile.size > 15 * 1024 * 1024) {
+                return showToast("⚠️ फाइल साइज़ 15MB से कम रखें!", true);
+            }
             
             if (selectedTemplatesList.length > 0) { doSend(finalNumbers, msg, null, '', selectedTemplatesList); return; }
             if (imgFile) { 
