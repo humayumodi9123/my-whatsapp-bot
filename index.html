@@ -708,20 +708,24 @@
             } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 10) + Clean Duplicates'; }
         }
 
-        async function scanNextInGroup(isAuto = false) {
+        async function scanNextInGroup(isAuto = false, retryCount = 0) {
             const g = document.getElementById('groupSelect').value; const status = document.getElementById('scanContactStatus'); const btn = document.getElementById('scanContactBtn');
             if (!g) { showToast('⚠️ Group select karo!', true); return false; }
             const sessionIds = Array.from(document.querySelectorAll('.scanSessionChk:checked')).map(c => c.value);
             if (!sessionIds.length) { showToast('⚠️ Scan ke liye kam se kam 1 WhatsApp select karo!', true); return false; }
 
             btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b';
-            status.innerHTML = isAuto ? '⏳ Scan All… gaps + multi-WA rotation ON (no 80 limit)' : '⏳ Scanning next 10...';
+            status.innerHTML = isAuto ? '⏳ Scan All… 5/batch + auto-retry' : '⏳ Scanning next 10...';
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(function () { controller.abort(); }, 120000);
                 const r = await fetch('/api/scan-next', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ group: g, sessionIds, scanAll: !!isAuto })
+                    body: JSON.stringify({ group: g, sessionIds, scanAll: !!isAuto }),
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
                 const d = await r.json();
                 if (!d.success) {
                     status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed');
@@ -737,12 +741,19 @@
                 fetchContacts();
                 btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
 
-                // Scan All: continue jab tak pending > 0 (80 limit ignore)
                 if (isAuto === true) {
                     return (d.scanned > 0 && d.groupStats && d.groupStats.pending > 0);
                 }
             } catch (e) {
-                status.style.color = '#ef4444'; status.innerHTML = '❌ Network error';
+                if (isAuto && retryCount < 3 && isAutoScanningAll) {
+                    status.style.color = '#f59e0b';
+                    status.innerHTML = '⚠️ Network blip — retry ' + (retryCount + 1) + '/3 (5 sec)...';
+                    await new Promise(function (r) { setTimeout(r, 5000); });
+                    if (!isAutoScanningAll) return false;
+                    return await scanNextInGroup(true, retryCount + 1);
+                }
+                status.style.color = '#ef4444';
+                status.innerHTML = '❌ Network error' + (isAuto ? ' — Stop ho gaya. Dubara Scan All; pehle scanned safe hain' : '');
                 btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
                 return false;
             }
@@ -854,23 +865,54 @@
                 let html = '';
                 if (data.numbers && data.numbers.length) {
                     let sessionsMap = {};
+                    let pendingList = [];
                     data.numbers.forEach(item => {
-                        if (String(item.status).includes('Pending')) return;
-                        let match = String(item.status).match(/\((.*?)( \/ .*?)?\)/);
-                        let sName = match ? match[1] : 'Device';
+                        const st = String(item.status || '');
+                        const state = item.state || (st.includes('Pending') ? 'pending' : (st.includes('Sent') ? 'sent' : 'failed'));
+                        if (state === 'pending' || st.includes('Pending')) {
+                            pendingList.push(item);
+                            return;
+                        }
+                        let sName = item.session || 'Device';
+                        if (!item.session) {
+                            const match = st.match(/\(([^)/]+)/);
+                            if (match) sName = match[1].trim();
+                        }
                         if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] };
-                        if (String(item.status).includes('Sent')) sessionsMap[sName].sent++;
+                        if (state === 'sent' || st.includes('Sent')) sessionsMap[sName].sent++;
                         else sessionsMap[sName].failed++;
                         sessionsMap[sName].list.push(item);
                     });
+
+                    // Pending numbers block
+                    if (pendingList.length) {
+                        html += '<div style="margin-bottom:14px;border:1px solid #fde68a;border-radius:12px;overflow:hidden;">';
+                        html += '<div style="background:#fffbeb;padding:10px 14px;border-bottom:1px solid #fde68a;display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="var b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\'">';
+                        html += '<strong style="color:#b45309;font-size:13px;">⏳ Pending numbers</strong>';
+                        html += '<span style="font-size:12px;font-weight:700;color:#d97706;">' + pendingList.length + ' left · tap to view</span></div>';
+                        html += '<div style="display:none;max-height:220px;overflow-y:auto;padding:6px 10px;background:#fff;">';
+                        pendingList.forEach(item => {
+                            html += '<div style="display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid #f1f5f9;font-size:13px;"><span style="color:#334155;">' + item.phone + (item.name && item.name !== 'Customer' ? ' · ' + item.name : '') + '</span><span style="color:#d97706;font-weight:600;font-size:12px;">Pending</span></div>';
+                        });
+                        html += '</div></div>';
+                    }
+
                     Object.keys(sessionsMap).forEach(sName => {
                         let sData = sessionsMap[sName];
                         html += '<div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">';
                         html += '<div style="background:#f8fafc;padding:10px 14px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;"><strong style="color:#0f172a;font-size:13px;">📱 ' + sName + '</strong><span style="font-size:12px;"><span style="color:#059669;font-weight:700;margin-right:10px;">' + sData.sent + ' sent</span><span style="color:#dc2626;font-weight:700;">' + sData.failed + ' failed</span></span></div>';
-                        html += '<div style="max-height:220px;overflow-y:auto;padding:6px 10px;">';
+                        html += '<div style="max-height:260px;overflow-y:auto;padding:6px 10px;">';
                         sData.list.reverse().forEach(item => {
-                            let isSent = String(item.status).includes('Sent');
-                            html += '<div style="display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid #f1f5f9;font-size:13px;"><span style="color:#334155;">' + item.phone + '</span><span style="color:' + (isSent ? '#059669' : '#dc2626') + ';font-weight:600;font-size:12px;">' + (isSent ? 'Sent' : 'Failed') + '</span></div>';
+                            const isSent = (item.state === 'sent') || String(item.status).includes('Sent');
+                            let tpl = item.template || '';
+                            if (!tpl) {
+                                const m = String(item.status).match(/\/\s*([^)]+)\)/);
+                                if (m) tpl = m[1].trim();
+                            }
+                            html += '<div style="padding:10px 4px;border-bottom:1px solid #f1f5f9;">';
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;"><span style="color:#0f172a;font-weight:600;">' + item.phone + '</span><span style="color:' + (isSent ? '#059669' : '#dc2626') + ';font-weight:700;font-size:12px;">' + (isSent ? 'Sent' : 'Failed') + '</span></div>';
+                            html += '<div style="font-size:11px;color:#64748b;margin-top:3px;">WA: <b style="color:#2563eb;">' + sName + '</b>' + (tpl ? ' · Template: <b style="color:#7c3aed;">' + tpl + '</b>' : '') + '</div>';
+                            html += '</div>';
                         });
                         html += '</div></div>';
                     });
