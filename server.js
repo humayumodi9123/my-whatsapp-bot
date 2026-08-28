@@ -754,17 +754,26 @@ app.post('/send', async (req, res) => {
 
                 try {
                     if (!num.startsWith('91')) num = '91' + num; const jid = num + '@s.whatsapp.net';
-                    let finalMessage = ''; let finalImageBase64 = null; let tplName = '';
+                    let finalMessage = '';
+                    let finalFileBase64 = null;
+                    let fileMime = null;
+                    let fileName = null;
+                    let fileKind = null;
+                    let tplName = '';
                     let buttons = [];
                     if (useRotation) {
                         const tpl = templates[tplIndex % templates.length]; tplIndex++; tplName = tpl.name || '';
-                        finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName); finalImageBase64 = tpl.imageBase64 || null;
+                        finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
+                        finalFileBase64 = tpl.fileBase64 || tpl.imageBase64 || null;
+                        fileMime = tpl.fileMime || null;
+                        fileName = tpl.fileName || null;
+                        fileKind = tpl.fileKind || null;
                         buttons = Array.isArray(tpl.buttons) ? tpl.buttons : [];
                     } else {
-                        finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : ''; finalImageBase64 = imageBase64 || null;
+                        finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : '';
+                        finalFileBase64 = imageBase64 || null;
                     }
 
-                    // Action buttons → message footer (Call / Link / Reply) — har device pe dikhe
                     if (buttons.length) {
                         const lines = ['', '────────────'];
                         buttons.forEach(b => {
@@ -778,11 +787,45 @@ app.post('/send', async (req, res) => {
                         finalMessage = (finalMessage || '') + lines.join('\n');
                     }
 
+                    if (finalFileBase64 && !fileKind) {
+                        const head = String(finalFileBase64).slice(0, 80).toLowerCase();
+                        if (head.includes('image/')) fileKind = 'image';
+                        else if (head.includes('video/')) fileKind = 'video';
+                        else if (head.includes('audio/')) fileKind = 'audio';
+                        else fileKind = 'document';
+                        if (!fileMime && head.startsWith('data:')) {
+                            const m = head.match(/^data:([^;]+)/);
+                            if (m) fileMime = m[1];
+                        }
+                    }
+
                     let messageOptions;
-                    if (finalImageBase64) {
-                        const base64Data = finalImageBase64.includes(',') ? finalImageBase64.split(',')[1] : finalImageBase64;
-                        messageOptions = { image: Buffer.from(base64Data, 'base64'), caption: finalMessage };
-                    } else messageOptions = { text: finalMessage || ' ' };
+                    if (finalFileBase64) {
+                        const base64Data = finalFileBase64.includes(',') ? finalFileBase64.split(',')[1] : finalFileBase64;
+                        const buf = Buffer.from(base64Data, 'base64');
+                        if (fileKind === 'image') {
+                            messageOptions = { image: buf, caption: finalMessage || undefined };
+                        } else if (fileKind === 'video') {
+                            messageOptions = { video: buf, caption: finalMessage || undefined, mimetype: fileMime || 'video/mp4' };
+                        } else if (fileKind === 'audio') {
+                            if (finalMessage) await s.sock.sendMessage(jid, { text: finalMessage });
+                            messageOptions = { audio: buf, mimetype: fileMime || 'audio/mpeg', ptt: false };
+                        } else {
+                            let mime = fileMime || 'application/octet-stream';
+                            let fname = fileName || 'document';
+                            if (!fileName && mime.includes('pdf')) fname = 'document.pdf';
+                            if (!fileName && (mime.includes('sheet') || mime.includes('excel'))) fname = 'sheet.xlsx';
+                            if (!fileName && mime.includes('html')) fname = 'file.html';
+                            messageOptions = {
+                                document: buf,
+                                mimetype: mime,
+                                fileName: fname,
+                                caption: finalMessage || undefined
+                            };
+                        }
+                    } else {
+                        messageOptions = { text: finalMessage || ' ' };
+                    }
 
                     await s.sock.sendMessage(jid, messageOptions);
 
@@ -809,7 +852,7 @@ app.post('/send', async (req, res) => {
                         liveCampaign.numbers[idx].status = 'Sent ✅ (' + s.name + (tplName ? ' / ' + tplName : '') + ')';
                         liveCampaign.numbers[idx].state = 'sent';
                         liveCampaign.numbers[idx].session = s.name;
-                        liveCampaign.numbers[idx].template = tplName || (finalImageBase64 ? 'Media' : 'Message');
+                        liveCampaign.numbers[idx].template = tplName || (finalFileBase64 ? (fileKind || 'Media') : 'Message');
                     }
                     addHistory(num, finalMessage || 'Media Sent', s.name + (tplName ? ' | ' + tplName : ''));
                     saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
