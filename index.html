@@ -196,7 +196,10 @@
                 </div>
             </div>
 
-            <div class="form-group"><label>प्रमोशनल डिज़ाइन / पोस्टर:</label><input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()"></div>
+            <div class="form-group">
+                <label>Attachment (photo / video / PDF / Excel / any file):</label>
+                <input type="file" id="imageFile" accept="*/*" onchange="clearTemplateSelection()">
+            </div>
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
                 <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
@@ -370,7 +373,11 @@
             <h2 class="section-title">📝 Template Manager</h2>
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
-                <div class="form-group"><label>पोस्टर / फोटो:</label><input type="file" id="newTplImage" accept="image/*"></div>
+                <div class="form-group">
+                    <label>Attachment (photo / video / PDF / Excel / Word / HTML / any file):</label>
+                    <input type="file" id="newTplImage" accept="*/*">
+                    <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max ~16MB · PDF, xlsx, csv, doc, html, zip bhi chalega</p>
+                </div>
                 <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
 
                 <div style="background:#fff;border:1px dashed #86efac;border-radius:12px;padding:14px;margin-bottom:16px;">
@@ -741,12 +748,46 @@
             }
             return buttons;
         }
+        function fileKindFromMime(mime, fileName) {
+            const m = (mime || '').toLowerCase();
+            const n = (fileName || '').toLowerCase();
+            if (m.startsWith('image/')) return 'image';
+            if (m.startsWith('video/')) return 'video';
+            if (m.startsWith('audio/')) return 'audio';
+            if (n.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/)) return 'image';
+            if (n.match(/\.(mp4|mov|webm|mkv|3gp)$/)) return 'video';
+            return 'document';
+        }
         function saveNewTemplate() {
-            const name = document.getElementById('newTplName').value; const msg = document.getElementById('newTplMsg').value; const imgFile = document.getElementById('newTplImage').files[0];
-            if(!name || !msg) return showToast("⚠️ नाम और मैसेज डालना ज़रूरी है!", true);
+            const name = document.getElementById('newTplName').value;
+            const msg = document.getElementById('newTplMsg').value;
+            const imgFile = document.getElementById('newTplImage').files[0];
+            if (!name || !msg) return showToast('⚠️ नाम और मैसेज डालना ज़रूरी है!', true);
             const id = 'tpl_' + Date.now();
-            const payload = { id, name, message: msg, imageBase64: null, buttons: collectTemplateButtons() };
-            if(imgFile) { const r = new FileReader(); r.onload = e => { payload.imageBase64 = e.target.result; doSaveTemplate(payload); }; r.readAsDataURL(imgFile); } else { doSaveTemplate(payload); }
+            const payload = {
+                id, name, message: msg,
+                imageBase64: null,
+                fileBase64: null,
+                fileMime: null,
+                fileName: null,
+                fileKind: null,
+                buttons: collectTemplateButtons()
+            };
+            if (imgFile) {
+                if (imgFile.size > 16 * 1024 * 1024) return showToast('⚠️ File 16MB se badi hai', true);
+                const r = new FileReader();
+                r.onload = e => {
+                    payload.fileBase64 = e.target.result;
+                    payload.imageBase64 = e.target.result; // backward compat
+                    payload.fileMime = imgFile.type || 'application/octet-stream';
+                    payload.fileName = imgFile.name || 'file';
+                    payload.fileKind = fileKindFromMime(payload.fileMime, payload.fileName);
+                    doSaveTemplate(payload);
+                };
+                r.readAsDataURL(imgFile);
+            } else {
+                doSaveTemplate(payload);
+            }
         }
         function doSaveTemplate(payload) {
             allTemplates.push(payload);
@@ -773,8 +814,16 @@
             if (selectedTemplatesList.length === 0) { preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा.</p>'; return; }
             let html = `<div style="display:flex; flex-direction:column; gap:12px;">`;
             selectedTemplatesList.forEach((t, idx) => {
-                const hasMedia = t.imageBase64 && t.imageBase64.length > 20;
-                let mediaHtml = hasMedia ? `<img src="${t.imageBase64}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0; object-fit:cover;">` : `<div style="width:80px; height:80px; background:#f1f5f9; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#94a3b8;">No Media</div>`;
+                const hasMedia = (t.fileBase64 || t.imageBase64) && (t.fileBase64 || t.imageBase64).length > 20;
+                const kind = t.fileKind || 'image';
+                let mediaHtml;
+                if (hasMedia && kind === 'image') {
+                    mediaHtml = `<img src="${t.fileBase64 || t.imageBase64}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0; object-fit:cover;">`;
+                } else if (hasMedia) {
+                    mediaHtml = `<div style="width:90px;height:90px;background:#eff6ff;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;color:#1e40af;padding:6px;text-align:center;">📄<br>${(t.fileName || kind).substring(0, 18)}</div>`;
+                } else {
+                    mediaHtml = `<div style="width:80px; height:80px; background:#f1f5f9; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#94a3b8;">No Media</div>`;
+                }
                 html += `<div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;"><div style="flex-shrink:0;">${mediaHtml}</div><div style="flex:1; min-width:0;"><div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}</div><div style="font-size:12px; color:#475569; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${t.message || '(कोई मैसेज नहीं)'}</div></div></div>`;
             }); preview.innerHTML = html + `</div>`;
         }
@@ -1110,7 +1159,11 @@
                 templates: (templatesArr || []).map(t => ({
                     name: t.name,
                     message: t.message,
-                    imageBase64: t.imageBase64 || null,
+                    imageBase64: t.imageBase64 || t.fileBase64 || null,
+                    fileBase64: t.fileBase64 || t.imageBase64 || null,
+                    fileMime: t.fileMime || null,
+                    fileName: t.fileName || null,
+                    fileKind: t.fileKind || null,
                     buttons: t.buttons || []
                 }))
             };
