@@ -673,11 +673,27 @@ app.post('/send', async (req, res) => {
                 try {
                     if (!num.startsWith('91')) num = '91' + num; const jid = num + '@s.whatsapp.net';
                     let finalMessage = ''; let finalImageBase64 = null; let tplName = '';
+                    let buttons = [];
                     if (useRotation) {
                         const tpl = templates[tplIndex % templates.length]; tplIndex++; tplName = tpl.name || '';
                         finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName); finalImageBase64 = tpl.imageBase64 || null;
+                        buttons = Array.isArray(tpl.buttons) ? tpl.buttons : [];
                     } else {
                         finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : ''; finalImageBase64 = imageBase64 || null;
+                    }
+
+                    // Action buttons → message footer (Call / Link / Reply) — har device pe dikhe
+                    if (buttons.length) {
+                        const lines = ['', '────────────'];
+                        buttons.forEach(b => {
+                            const label = (b.text || '').trim();
+                            const val = (b.value || '').trim();
+                            if (!label || !val) return;
+                            if (b.type === 'call') lines.push('📞 *' + label + '*\n' + val);
+                            else if (b.type === 'url') lines.push('🔗 *' + label + '*\n' + val);
+                            else lines.push('💬 *' + label + '*\nReply: ' + val);
+                        });
+                        finalMessage = (finalMessage || '') + lines.join('\n');
                     }
 
                     let messageOptions;
@@ -687,6 +703,25 @@ app.post('/send', async (req, res) => {
                     } else messageOptions = { text: finalMessage || ' ' };
 
                     await s.sock.sendMessage(jid, messageOptions);
+
+                    // Try native-style buttons (optional — kuch accounts pe dikhte hain)
+                    if (buttons.length) {
+                        try {
+                            const nativeBtns = buttons.slice(0, 3).map((b, i) => ({
+                                buttonId: 'btn_' + i + '_' + (b.type || 'reply'),
+                                buttonText: { displayText: String(b.text || '').slice(0, 20) },
+                                type: 1
+                            }));
+                            if (nativeBtns.length) {
+                                await s.sock.sendMessage(jid, {
+                                    text: 'Quick actions:',
+                                    footer: 'Tap a option or use links above',
+                                    buttons: nativeBtns,
+                                    headerType: 1
+                                });
+                            }
+                        } catch (btnErr) { /* ignore — text buttons already in caption */ }
+                    }
                     liveCampaign.sent++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
                     if (liveCampaign.numbers[idx]) {
                         liveCampaign.numbers[idx].status = 'Sent ✅ (' + s.name + (tplName ? ' / ' + tplName : '') + ')';
