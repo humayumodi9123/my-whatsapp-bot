@@ -367,6 +367,48 @@
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
                 <div class="form-group"><label>पोस्टर / फोटो:</label><input type="file" id="newTplImage" accept="image/*"></div>
                 <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
+
+                <div style="background:#fff;border:1px dashed #86efac;border-radius:12px;padding:14px;margin-bottom:16px;">
+                    <div style="font-weight:700;color:#065f46;font-size:14px;margin-bottom:4px;">🔘 Action Buttons (optional)</div>
+                    <p style="margin:0 0 12px;font-size:11px;color:#64748b;">JA Mantra jaisi: Call Now · Claim Deal · Discuss. Call = number, Link = URL, Reply = customer text kare.</p>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:12px;">Button 1</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn1Text" placeholder="Call Now" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn1Type" style="width:110px;margin:0;">
+                                <option value="call">📞 Call</option>
+                                <option value="url">🔗 Link</option>
+                                <option value="reply">💬 Reply</option>
+                            </select>
+                            <input type="text" id="tplBtn1Value" placeholder="+91... or https://..." style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:12px;">Button 2</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn2Text" placeholder="Claim Deal" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn2Type" style="width:110px;margin:0;">
+                                <option value="url">🔗 Link</option>
+                                <option value="call">📞 Call</option>
+                                <option value="reply">💬 Reply</option>
+                            </select>
+                            <input type="text" id="tplBtn2Value" placeholder="https://..." style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label style="font-size:12px;">Button 3</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn3Text" placeholder="I want to discuss" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn3Type" style="width:110px;margin:0;">
+                                <option value="reply">💬 Reply</option>
+                                <option value="url">🔗 Link</option>
+                                <option value="call">📞 Call</option>
+                            </select>
+                            <input type="text" id="tplBtn3Value" placeholder="DISCUSS" style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                </div>
+
                 <button class="action-btn btn-success" onclick="saveNewTemplate()">💾 Save Template</button>
             </div>
             <div id="templateListArea"></div>
@@ -628,17 +670,40 @@
                 const safeMessage = (t.message || '').substring(0, 40);
                 const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
                 if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
-                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
+                const btnInfo = (t.buttons && t.buttons.length) ? (' · 🔘 ' + t.buttons.map(b => b.text).join(', ')) : '';
+                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span><br><span style="font-size:11px;color:#059669;">${btnInfo}</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
             }); applySelectedTemplates();
+        }
+        function collectTemplateButtons() {
+            const buttons = [];
+            for (let i = 1; i <= 3; i++) {
+                const text = (document.getElementById('tplBtn' + i + 'Text') || {}).value || '';
+                const type = (document.getElementById('tplBtn' + i + 'Type') || {}).value || 'reply';
+                const value = (document.getElementById('tplBtn' + i + 'Value') || {}).value || '';
+                if (String(text).trim() && String(value).trim()) {
+                    buttons.push({ text: String(text).trim(), type: type, value: String(value).trim() });
+                }
+            }
+            return buttons;
         }
         function saveNewTemplate() {
             const name = document.getElementById('newTplName').value; const msg = document.getElementById('newTplMsg').value; const imgFile = document.getElementById('newTplImage').files[0];
-            if(!name || !msg) return showToast("⚠️ नाम और मैसेज डालना ज़रूरी है!", true); 
-            const id = 'tpl_' + Date.now(); const payload = { id, name, message: msg, imageBase64: null };
+            if(!name || !msg) return showToast("⚠️ नाम और मैसेज डालना ज़रूरी है!", true);
+            const id = 'tpl_' + Date.now();
+            const payload = { id, name, message: msg, imageBase64: null, buttons: collectTemplateButtons() };
             if(imgFile) { const r = new FileReader(); r.onload = e => { payload.imageBase64 = e.target.result; doSaveTemplate(payload); }; r.readAsDataURL(imgFile); } else { doSaveTemplate(payload); }
         }
         function doSaveTemplate(payload) {
-            allTemplates.push(payload); try { document.getElementById('newTplName').value = ''; document.getElementById('newTplMsg').value = ''; document.getElementById('newTplImage').value = ''; } catch(e){}
+            allTemplates.push(payload);
+            try {
+                document.getElementById('newTplName').value = '';
+                document.getElementById('newTplMsg').value = '';
+                document.getElementById('newTplImage').value = '';
+                for (let i = 1; i <= 3; i++) {
+                    const t = document.getElementById('tplBtn' + i + 'Text'); if (t) t.value = '';
+                    const v = document.getElementById('tplBtn' + i + 'Value'); if (v) v.value = '';
+                }
+            } catch(e){}
             renderTemplates(); document.getElementById('templateDropdown').value = payload.id; applySelectedTemplates(); showToast(`✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!`);
             fetch('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }).catch(e => console.error("Template Save Error:", e));
         }
@@ -977,7 +1042,12 @@
                 numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64, sessionIds,
                 customBatch: (customBatch && customBatch > 0) ? customBatch : null,
                 customRestHours: (customRestHours && customRestHours > 0) ? customRestHours : null,
-                templates: (templatesArr || []).map(t => ({ name: t.name, message: t.message, imageBase64: t.imageBase64 || null }))
+                templates: (templatesArr || []).map(t => ({
+                    name: t.name,
+                    message: t.message,
+                    imageBase64: t.imageBase64 || null,
+                    buttons: t.buttons || []
+                }))
             };
             fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(async (r) => {
                 const d = await r.json().catch(() => ({})); if (!r.ok || d.success === false) { showToast(d.error || 'Start failed', true); document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; return; }
@@ -1016,5 +1086,4 @@
     </script>
 </body>
 </html>
-
 
