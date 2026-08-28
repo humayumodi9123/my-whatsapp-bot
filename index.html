@@ -282,6 +282,11 @@
                         <span class="slider"></span>
                     </label>
                 </div>
+
+                <button type="button" class="action-btn btn-danger" id="deleteCampaignBtn" onclick="deleteCampaign()" style="padding:14px;border-radius:14px;font-size:15px;">
+                    🗑️ Delete Campaign
+                </button>
+                <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;line-height:1.4;">Campaign band + clear · jo msg gaye wo History mein safe · phir naya campaign start kar sakte ho</p>
             </div>
 
             <div id="liveStatusBanner" style="display:none;margin-bottom:14px;"></div>
@@ -572,14 +577,33 @@
             showToast(isSleepOn ? "🌙 Night Sleep ON (Raat 10 baje pause hoga)" : "🚀 Night Sleep OFF (Aaj raat override ho gaya)");
         }
 
-        // 🌟 NEW: Pause/Resume Campaign Function
+        function deleteCampaign() {
+            if (!confirm('Current campaign delete / stop karein?\nJo messages already send ho chuke hain wo History mein rahenge.\nPending band ho jayenge.')) return;
+            const btn = document.getElementById('deleteCampaignBtn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Deleting...'; }
+            fetch('/api/campaign/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(r => r.json())
+                .then(d => {
+                    showToast(d.message || 'Campaign deleted');
+                    const pToggle = document.getElementById('pauseCampaignToggle');
+                    if (pToggle) pToggle.checked = false;
+                    const sendBtn = document.getElementById('sendBtn');
+                    if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
+                    fetchLiveStatus();
+                })
+                .catch(() => showToast('Network error', true))
+                .finally(() => {
+                    if (btn) { btn.disabled = false; btn.innerHTML = '🗑️ Delete Campaign'; }
+                });
+        }
+
         function togglePauseCampaign() {
             const isPaused = document.getElementById('pauseCampaignToggle').checked;
-            fetch('/api/toggle-pause', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pause: isPaused }) });
-            if(isPaused) {
-                showToast("🛑 Campaign Stopped/Paused!", true);
+            fetch('/api/toggle-pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pause: isPaused }) });
+            if (isPaused) {
+                showToast('🛑 Campaign Stopped/Paused!', true);
             } else {
-                showToast("🚀 Campaign Resumed!");
+                showToast('🚀 Campaign Resumed!');
             }
         }
 
@@ -1127,5 +1151,4 @@
     </script>
 </body>
 </html>
-
 
