@@ -6,7 +6,6 @@
     <title>Marketing Dashboard Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     
-    <!-- PDF & Excel/CSV Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -69,7 +68,6 @@
         input:checked + .slider { background-color: var(--success); }
         input:checked + .slider:before { transform: translateX(22px); }
         
-        /* 🌟 NEW: Danger Slider for Stop Button */
         input:checked + .slider.slider-danger { background-color: var(--danger); }
 
         #appToast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 30px; font-weight: 600; font-size: 14px; color: #fff; z-index: 9999; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); opacity: 0; pointer-events: none; }
@@ -196,7 +194,12 @@
                 </div>
             </div>
 
-            <div class="form-group"><label>प्रमोशनल डिज़ाइन / पोस्टर:</label><input type="file" id="imageFile" accept="image/*" onchange="clearTemplateSelection()"></div>
+            <!-- 🌟 UPDATED: File Input accepts all file types -->
+            <div class="form-group">
+                <label>फाइल अटैचमेंट (Photo, Video, PDF, Excel आदि):</label>
+                <input type="file" id="imageFile" onchange="clearTemplateSelection()">
+            </div>
+            
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
                 <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
@@ -234,7 +237,6 @@
         <div id="liveTrackingSec" class="content-section">
             <h2 class="section-title">📡 Live Campaign Monitor</h2>
 
-            <!-- Professional stats -->
             <div id="liveStatsRow" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:18px;">
                 <div style="background:linear-gradient(145deg,#0f172a,#1e293b);border-radius:16px;padding:16px 14px;color:#fff;box-shadow:0 8px 20px rgba(15,23,42,0.18);">
                     <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#94a3b8;font-weight:600;">Total</div>
@@ -254,7 +256,6 @@
                 </div>
             </div>
 
-            <!-- Controls -->
             <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px;">
                 <div style="background:#fff;padding:14px 16px;border-radius:14px;border:1px solid #fecaca;box-shadow:0 2px 8px rgba(239,68,68,0.06);display:flex;justify-content:space-between;align-items:center;gap:12px;">
                     <div style="min-width:0;">
@@ -365,7 +366,10 @@
             <h2 class="section-title">📝 Template Manager</h2>
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
-                <div class="form-group"><label>पोस्टर / फोटो:</label><input type="file" id="newTplImage" accept="image/*"></div>
+                
+                <!-- 🌟 UPDATED: File input id to generic name -->
+                <div class="form-group"><label>फाइल अटैचमेंट (Photo, Video, PDF, Excel आदि):</label><input type="file" id="newTplFile"></div>
+                
                 <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
 
                 <div style="background:#fff;border:1px dashed #86efac;border-radius:12px;padding:14px;margin-bottom:16px;">
@@ -451,7 +455,6 @@
                 const t = new Date();
                 df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
             }
-            // Default: All (total) — date input hidden
             onDateModeChange();
             fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
@@ -551,7 +554,6 @@
             showToast(isSleepOn ? "🌙 Night Sleep ON (Raat 10 baje pause hoga)" : "🚀 Night Sleep OFF (Aaj raat override ho gaya)");
         }
 
-        // 🌟 NEW: Pause/Resume Campaign Function
         function togglePauseCampaign() {
             const isPaused = document.getElementById('pauseCampaignToggle').checked;
             fetch('/api/toggle-pause', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pause: isPaused }) });
@@ -614,7 +616,7 @@
             fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
         }
         let contactListShowAll = false;
-        let contactListFilter = 'all'; // all | valid | invalid | pending
+        let contactListFilter = 'all';
 
         function renderGroupContacts() {
             const g = document.getElementById('groupSelect').value;
@@ -663,6 +665,8 @@
         }
 
         function fetchTemplates() { fetch('/api/templates?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }).catch(e => console.error(e)); }
+        
+        // 🌟 UPDATED: Render generic file previews
         function renderTemplates() {
             const drop = document.getElementById('templateDropdown'); const prevSelected = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
             drop.innerHTML = ''; document.getElementById('templateListArea').innerHTML = '';
@@ -670,8 +674,18 @@
                 const safeMessage = (t.message || '').substring(0, 40);
                 const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
                 if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
+                
+                const b64 = t.mediaBase64 || t.imageBase64;
+                let mediaIcon = '';
+                if (b64) {
+                    if (b64.startsWith('data:image/')) mediaIcon = '🖼️ Image';
+                    else if (b64.startsWith('data:video/')) mediaIcon = '🎥 Video';
+                    else mediaIcon = '📄 File: ' + (t.fileName || 'Doc');
+                }
+                const mediaTag = mediaIcon ? ` · <span style="color:#2563eb;">${mediaIcon}</span>` : '';
                 const btnInfo = (t.buttons && t.buttons.length) ? (' · 🔘 ' + t.buttons.map(b => b.text).join(', ')) : '';
-                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span><br><span style="font-size:11px;color:#059669;">${btnInfo}</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
+                
+                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong>${mediaTag}<br><span style="font-size:13px;">${safeMessage}...</span><br><span style="font-size:11px;color:#059669;">${btnInfo}</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
             }); applySelectedTemplates();
         }
         function collectTemplateButtons() {
@@ -686,19 +700,29 @@
             }
             return buttons;
         }
+        
+        // 🌟 UPDATED: File logic uses generic name
         function saveNewTemplate() {
-            const name = document.getElementById('newTplName').value; const msg = document.getElementById('newTplMsg').value; const imgFile = document.getElementById('newTplImage').files[0];
+            const name = document.getElementById('newTplName').value; const msg = document.getElementById('newTplMsg').value; 
+            const fileInput = document.getElementById('newTplFile');
+            const imgFile = fileInput ? fileInput.files[0] : null;
             if(!name || !msg) return showToast("⚠️ नाम और मैसेज डालना ज़रूरी है!", true);
             const id = 'tpl_' + Date.now();
-            const payload = { id, name, message: msg, imageBase64: null, buttons: collectTemplateButtons() };
-            if(imgFile) { const r = new FileReader(); r.onload = e => { payload.imageBase64 = e.target.result; doSaveTemplate(payload); }; r.readAsDataURL(imgFile); } else { doSaveTemplate(payload); }
+            const payload = { id, name, message: msg, mediaBase64: null, fileName: '', buttons: collectTemplateButtons() };
+            if (imgFile) {
+                payload.fileName = imgFile.name;
+                const r = new FileReader();
+                r.onload = e => { payload.mediaBase64 = e.target.result; doSaveTemplate(payload); };
+                r.readAsDataURL(imgFile);
+            } else { doSaveTemplate(payload); }
         }
+        
         function doSaveTemplate(payload) {
             allTemplates.push(payload);
             try {
                 document.getElementById('newTplName').value = '';
                 document.getElementById('newTplMsg').value = '';
-                document.getElementById('newTplImage').value = '';
+                const f = document.getElementById('newTplFile'); if (f) f.value = '';
                 for (let i = 1; i <= 3; i++) {
                     const t = document.getElementById('tplBtn' + i + 'Text'); if (t) t.value = '';
                     const v = document.getElementById('tplBtn' + i + 'Value'); if (v) v.value = '';
@@ -712,14 +736,26 @@
             allTemplates = allTemplates.filter(t => t.id !== id); renderTemplates(); showToast("🗑️ टेम्प्लेट डिलीट हो गया!", true);
             fetch('/api/templates/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) }).catch(e => console.error(e)); 
         }
+        
+        // 🌟 UPDATED: File logic preview
         function applySelectedTemplates() {
             const drop = document.getElementById('templateDropdown'); const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
             selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean); const preview = document.getElementById('selectedTemplatesPreview');
-            if (selectedTemplatesList.length === 0) { preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा.</p>'; return; }
+            if (selectedTemplatesList.length === 0) { preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/फाइल इस्तेमाल होगा.</p>'; return; }
             let html = `<div style="display:flex; flex-direction:column; gap:12px;">`;
             selectedTemplatesList.forEach((t, idx) => {
-                const hasMedia = t.imageBase64 && t.imageBase64.length > 20;
-                let mediaHtml = hasMedia ? `<img src="${t.imageBase64}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0; object-fit:cover;">` : `<div style="width:80px; height:80px; background:#f1f5f9; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#94a3b8;">No Media</div>`;
+                const b64 = t.mediaBase64 || t.imageBase64;
+                const hasMedia = !!b64;
+                let mediaHtml = `<div style="width:80px; height:80px; background:#f1f5f9; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#94a3b8;">No File</div>`;
+                if (hasMedia) {
+                    if (b64.startsWith('data:image/')) {
+                        mediaHtml = `<img src="${b64}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0; object-fit:cover;">`;
+                    } else {
+                        const icon = b64.startsWith('data:video/') ? '🎥' : '📄';
+                        const fName = t.fileName || 'Document';
+                        mediaHtml = `<div style="width:80px; height:80px; background:#e2e8f0; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;"><span style="font-size:24px;">${icon}</span><span style="font-size:9px;color:#475569;margin-top:4px;word-break:break-all;padding:0 4px;line-height:1.2;">${fName.substring(0,15)}</span></div>`;
+                    }
+                }
                 html += `<div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;"><div style="flex-shrink:0;">${mediaHtml}</div><div style="flex:1; min-width:0;"><div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}</div><div style="font-size:12px; color:#475569; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${t.message || '(कोई मैसेज नहीं)'}</div></div></div>`;
             }); preview.innerHTML = html + `</div>`;
         }
@@ -908,106 +944,7 @@
             }).catch(() => showToast('Network error', true));
         }
 
-        function fetchLiveStatus() {
-            fetch('/api/live-status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => {
-                if (data.sleepDisabled !== undefined) {
-                    const toggle = document.getElementById('nightSleepToggle');
-                    if (toggle) toggle.checked = !data.sleepDisabled;
-                }
-                if (data.isPaused !== undefined) {
-                    const pToggle = document.getElementById('pauseCampaignToggle');
-                    if (pToggle) pToggle.checked = data.isPaused;
-                }
-
-                const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-                setTxt('liveStatTotal', data.total || 0);
-                setTxt('liveStatSent', data.sent || 0);
-                setTxt('liveStatFailed', data.failed || 0);
-                setTxt('liveStatPending', data.pending || 0);
-
-                const banner = document.getElementById('liveStatusBanner');
-                if (banner) {
-                    if (data.isActive && data.isPaused) {
-                        banner.style.display = 'block';
-                        banner.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:14px;border-radius:12px;text-align:center;border:1px solid #fecaca;"><div style="font-size:15px;font-weight:700;">🛑 Campaign Paused</div><div style="font-size:12px;margin-top:4px;">' + (data.restReason || '') + '</div></div>';
-                    } else if (data.isActive && (data.status === 'resting' || data.status === 'night_rest')) {
-                        banner.style.display = 'block';
-                        banner.innerHTML = '<div style="background:#fef3c7;color:#92400e;padding:14px;border-radius:12px;text-align:center;border:1px solid #fde68a;"><div style="font-size:15px;font-weight:700;">⏸️ Rest Mode</div><div style="font-size:12px;margin-top:4px;">' + (data.restReason || '') + '</div></div>';
-                    } else if (data.isActive && data.status === 'sending') {
-                        banner.style.display = 'block';
-                        banner.innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:12px 14px;border-radius:12px;text-align:center;border:1px solid #a7f3d0;font-size:13px;font-weight:600;">🚀 Sending · Batch ' + (data.batchSize || 30) + ' → ' + (data.restHours || '2') + 'hr rest</div>';
-                    } else {
-                        banner.style.display = 'none';
-                        banner.innerHTML = '';
-                    }
-                }
-
-                let html = '';
-                if (data.numbers && data.numbers.length) {
-                    let sessionsMap = {};
-                    let pendingList = [];
-                    data.numbers.forEach(item => {
-                        const st = String(item.status || '');
-                        const state = item.state || (st.includes('Pending') ? 'pending' : (st.includes('Sent') ? 'sent' : 'failed'));
-                        if (state === 'pending' || st.includes('Pending')) {
-                            pendingList.push(item);
-                            return;
-                        }
-                        let sName = item.session || 'Device';
-                        if (!item.session) {
-                            const match = st.match(/\(([^)/]+)/);
-                            if (match) sName = match[1].trim();
-                        }
-                        if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] };
-                        if (state === 'sent' || st.includes('Sent')) sessionsMap[sName].sent++;
-                        else sessionsMap[sName].failed++;
-                        sessionsMap[sName].list.push(item);
-                    });
-
-                    // Pending numbers block
-                    if (pendingList.length) {
-                        html += '<div style="margin-bottom:14px;border:1px solid #fde68a;border-radius:12px;overflow:hidden;">';
-                        html += '<div style="background:#fffbeb;padding:10px 14px;border-bottom:1px solid #fde68a;display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="var b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\'">';
-                        html += '<strong style="color:#b45309;font-size:13px;">⏳ Pending numbers</strong>';
-                        html += '<span style="font-size:12px;font-weight:700;color:#d97706;">' + pendingList.length + ' left · tap to view</span></div>';
-                        html += '<div style="display:none;max-height:220px;overflow-y:auto;padding:6px 10px;background:#fff;">';
-                        pendingList.forEach(item => {
-                            html += '<div style="display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid #f1f5f9;font-size:13px;"><span style="color:#334155;">' + item.phone + (item.name && item.name !== 'Customer' ? ' · ' + item.name : '') + '</span><span style="color:#d97706;font-weight:600;font-size:12px;">Pending</span></div>';
-                        });
-                        html += '</div></div>';
-                    }
-
-                    Object.keys(sessionsMap).forEach(sName => {
-                        let sData = sessionsMap[sName];
-                        html += '<div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">';
-                        html += '<div style="background:#f8fafc;padding:10px 14px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;"><strong style="color:#0f172a;font-size:13px;">📱 ' + sName + '</strong><span style="font-size:12px;"><span style="color:#059669;font-weight:700;margin-right:10px;">' + sData.sent + ' sent</span><span style="color:#dc2626;font-weight:700;">' + sData.failed + ' failed</span></span></div>';
-                        html += '<div style="max-height:260px;overflow-y:auto;padding:6px 10px;">';
-                        sData.list.reverse().forEach(item => {
-                            const isSent = (item.state === 'sent') || String(item.status).includes('Sent');
-                            let tpl = item.template || '';
-                            if (!tpl) {
-                                const m = String(item.status).match(/\/\s*([^)]+)\)/);
-                                if (m) tpl = m[1].trim();
-                            }
-                            html += '<div style="padding:10px 4px;border-bottom:1px solid #f1f5f9;">';
-                            html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;"><span style="color:#0f172a;font-weight:600;">' + item.phone + '</span><span style="color:' + (isSent ? '#059669' : '#dc2626') + ';font-weight:700;font-size:12px;">' + (isSent ? 'Sent' : 'Failed') + '</span></div>';
-                            html += '<div style="font-size:11px;color:#64748b;margin-top:3px;">WA: <b style="color:#2563eb;">' + sName + '</b>' + (tpl ? ' · Template: <b style="color:#7c3aed;">' + tpl + '</b>' : '') + '</div>';
-                            html += '</div>';
-                        });
-                        html += '</div></div>';
-                    });
-                }
-                document.getElementById('liveList').innerHTML = html || '<div style="padding:28px 16px;text-align:center;color:#94a3b8;font-size:14px;">No active campaign right now</div>';
-                if (!data.isActive && data.total > 0 && data.pending === 0) {
-                    const btn = document.getElementById('sendBtn');
-                    if (btn) { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
-                    fetchStats();
-                }
-            }).catch(() => {});
-        }
-
-        function toggleTargetInput() { const t = document.getElementById('targetType').value; document.getElementById('groupTargetDiv').style.display = (t === 'group') ? 'block' : 'none'; document.getElementById('manualTargetDiv').style.display = (t === 'manual') ? 'block' : 'none'; }
-        
+        // 🌟 UPDATED: File logic uses generic name
         async function startSending() {
             let finalNumbers = []; const targetType = document.getElementById('targetType').value;
             if (targetType === 'group') {
@@ -1021,12 +958,22 @@
                 const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
                 finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
             }
-            applySelectedTemplates(); const msg = document.getElementById('message').value; const imgFile = document.getElementById('imageFile').files[0];
-            if (selectedTemplatesList.length > 0) { doSend(finalNumbers, msg, null, selectedTemplatesList); return; }
-            if (imgFile) { const r = new FileReader(); r.onload = (e) => { doSend(finalNumbers, msg, e.target.result, []); }; r.readAsDataURL(imgFile); } else { doSend(finalNumbers, msg, null, []); }
+            applySelectedTemplates(); const msg = document.getElementById('message').value; 
+            
+            // File input handle for generic files
+            const fileInput = document.getElementById('imageFile');
+            const imgFile = fileInput ? fileInput.files[0] : null;
+            const fileName = imgFile ? imgFile.name : '';
+            
+            if (selectedTemplatesList.length > 0) { doSend(finalNumbers, msg, null, '', selectedTemplatesList); return; }
+            if (imgFile) { 
+                const r = new FileReader(); 
+                r.onload = (e) => { doSend(finalNumbers, msg, e.target.result, fileName, []); }; 
+                r.readAsDataURL(imgFile); 
+            } else { doSend(finalNumbers, msg, null, '', []); }
         }
         
-        function doSend(numsObjArray, msg, imgBase64, templatesArr) {
+        function doSend(numsObjArray, msg, imgBase64, fileName, templatesArr) {
             const minD = document.getElementById('minDelay').value, maxD = document.getElementById('maxDelay').value;
             if (parseInt(minD) >= parseInt(maxD)) return showToast('⚠️ अधिकतम समय ज़्यादा होना चाहिए!', true);
             if (numsObjArray.length === 0) return showToast('⚠️ नंबर लिस्ट खाली है!', true);
@@ -1039,13 +986,15 @@
             const customBatch = batchEl && batchEl.value ? parseInt(batchEl.value, 10) : null;
             const customRestHours = restEl && restEl.value ? parseFloat(restEl.value) : null;
             const payload = {
-                numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64, sessionIds,
+                numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, 
+                imageBase64: imgBase64, fileName: fileName, sessionIds,
                 customBatch: (customBatch && customBatch > 0) ? customBatch : null,
                 customRestHours: (customRestHours && customRestHours > 0) ? customRestHours : null,
                 templates: (templatesArr || []).map(t => ({
                     name: t.name,
                     message: t.message,
-                    imageBase64: t.imageBase64 || null,
+                    imageBase64: t.mediaBase64 || t.imageBase64 || null,
+                    fileName: t.fileName || 'Attachment',
                     buttons: t.buttons || []
                 }))
             };
@@ -1086,4 +1035,3 @@
     </script>
 </body>
 </html>
-
