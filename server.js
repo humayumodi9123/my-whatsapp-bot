@@ -129,6 +129,15 @@ let liveCampaign = {
     isActive: false, isPaused: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [],
     status: 'idle', restReason: '', resumeAt: null, batchSize: 50, accountAgeDays: 0
 };
+let campaignCancelFlag = false;
+
+function resetLiveCampaign() {
+    campaignCancelFlag = true;
+    liveCampaign = {
+        isActive: false, isPaused: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [],
+        status: 'idle', restReason: '', resumeAt: null, batchSize: 50, accountAgeDays: 0
+    };
+}
 
 function getISTNow() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })); }
 function getAccountAgeDays() {
@@ -430,6 +439,9 @@ app.get('/api/live-status', (req, res) => res.json({ ...liveCampaign, sleepDisab
 
 // 🌟 NEW: Campaign Pause/Resume Toggle API
 app.post('/api/toggle-pause', (req, res) => {
+    if (!liveCampaign.isActive) {
+        return res.json({ success: true, isPaused: false, message: 'No active campaign' });
+    }
     liveCampaign.isPaused = !!req.body.pause;
     if (liveCampaign.isPaused) {
         liveCampaign.status = 'paused';
@@ -439,6 +451,21 @@ app.post('/api/toggle-pause', (req, res) => {
         liveCampaign.restReason = '';
     }
     res.json({ success: true, isPaused: liveCampaign.isPaused });
+});
+
+// Campaign poori tarah band + clear — next campaign ke liye
+app.post('/api/campaign/delete', (req, res) => {
+    const wasActive = !!liveCampaign.isActive;
+    const sent = liveCampaign.sent || 0;
+    const failed = liveCampaign.failed || 0;
+    resetLiveCampaign();
+    // Sessions ki rest timers clear nahi — anti-ban rest rehne do; sirf queue band
+    res.json({
+        success: true,
+        message: wasActive ? 'Campaign deleted / stopped' : 'No active campaign',
+        lastSent: sent,
+        lastFailed: failed
+    });
 });
 
 app.post('/api/toggle-sleep', (req, res) => {
@@ -629,6 +656,12 @@ app.post('/api/validate-numbers', async (req, res) => {
 
 app.post('/send', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
+    if (liveCampaign.isActive && !campaignCancelFlag) {
+        return res.status(400).json({
+            success: false,
+            error: 'Pehle campaign chal raha hai. Live Tracking → Delete Campaign karke naya start karo.'
+        });
+    }
     const { numbers, message, minDelay, maxDelay, imageBase64, templates, sessionIds, customBatch, customRestHours } = req.body;
     if (!Array.isArray(numbers) || numbers.length === 0) return res.status(400).json({ success: false, error: 'Number list empty!' });
 
@@ -658,6 +691,7 @@ app.post('/send', async (req, res) => {
 
     const useRotation = Array.isArray(templates) && templates.length > 0; let tplIndex = 0;
 
+    campaignCancelFlag = false;
     liveCampaign = {
         isActive: true, isPaused: false, total: uniqueNumbers.length, dailyLimit, alreadySentToday: alreadySent, sent: 0, failed: 0, pending: uniqueNumbers.length,
         numbers: uniqueNumbers.map(n => ({
@@ -679,32 +713,40 @@ app.post('/send', async (req, res) => {
     async function sessionWorker(sessionId) {
         const s = getSession(sessionId); if (!s) return;
         while (queue.length > 0) {
-            
-            // 🌟 NEW: Campaign Pause Check before sleeping/sending
-            while (liveCampaign.isPaused) {
+            if (campaignCancelFlag || !liveCampaign.isActive) {
+                queue.length = 0;
+                break;
+            }
+
+            while (liveCampaign.isPaused && !campaignCancelFlag && liveCampaign.isActive) {
                 liveCampaign.status = 'paused';
                 liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
                 await new Promise(r => setTimeout(r, 2000));
             }
+            if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
 
             while (s.restUntil && Date.now() < s.restUntil) {
+                if (campaignCancelFlag || !liveCampaign.isActive) break;
                 const left = s.restUntil - Date.now();
                 liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: ${restHoursLabel}hr rest after ${batchSize} msgs`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
                 await new Promise(r => setTimeout(r, Math.min(5000, left)));
             }
+            if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
             if (!s.connected || !s.sock) { await new Promise(r => setTimeout(r, 5000)); continue; }
             await waitForSendWindow();
+            if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
             liveCampaign.status = 'sending'; liveCampaign.restReason = ''; liveCampaign.resumeAt = null;
 
             let batchCount = 0;
             while (batchCount < batchSize && queue.length > 0) {
-                
-                // 🌟 NEW: Check Pause inside the message sending batch
-                while (liveCampaign.isPaused) {
+                if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
+
+                while (liveCampaign.isPaused && !campaignCancelFlag && liveCampaign.isActive) {
                     liveCampaign.status = 'paused';
                     liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
                     await new Promise(r => setTimeout(r, 2000));
                 }
+                if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
 
                 if (!s.connected || !s.sock) break; if (s.restUntil && Date.now() < s.restUntil) break;
                 const item = queue.shift(); if (!item) break;
@@ -794,7 +836,12 @@ app.post('/send', async (req, res) => {
     }
 
     await Promise.all(selectedIds.map(id => sessionWorker(id)));
-    liveCampaign.isActive = false; liveCampaign.status = 'idle'; liveCampaign.restReason = ''; liveCampaign.resumeAt = null;
+    if (!campaignCancelFlag) {
+        liveCampaign.isActive = false;
+        liveCampaign.status = 'idle';
+        liveCampaign.restReason = '';
+        liveCampaign.resumeAt = null;
+    }
 });
 
 (async () => {
