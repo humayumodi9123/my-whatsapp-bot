@@ -452,8 +452,9 @@ app.post('/api/scan-next', async (req, res) => {
         });
     }
 
-    // Ek request mein max 10 — frontend loop karega jab tak pending khatam
-    const chunk = scanAll ? 10 : Math.min(10, Math.max(1, dailyLimit - used));
+    // Scan All: 5/batch (lamba request = mobile/Render network error)
+    // Manual Scan next: max 10
+    const chunk = scanAll ? 5 : Math.min(10, Math.max(1, dailyLimit - used));
     let scanned = 0, valid = 0, invalid = 0;
     let rr = 0; // round-robin: eak ke baad eak WhatsApp
 
@@ -579,7 +580,15 @@ app.post('/send', async (req, res) => {
 
     liveCampaign = {
         isActive: true, isPaused: false, total: uniqueNumbers.length, dailyLimit, alreadySentToday: alreadySent, sent: 0, failed: 0, pending: uniqueNumbers.length,
-        numbers: uniqueNumbers.map(n => ({ phone: n.phone, status: 'Pending ⏳' })), status: 'sending', restReason: '', resumeAt: null, batchSize: SESSION_BATCH, accountAgeDays: getAccountAgeDays(),
+        numbers: uniqueNumbers.map(n => ({
+            phone: n.phone,
+            name: n.name || 'Customer',
+            status: 'Pending ⏳',
+            state: 'pending',
+            session: null,
+            template: null
+        })),
+        status: 'sending', restReason: '', resumeAt: null, batchSize: SESSION_BATCH, accountAgeDays: getAccountAgeDays(),
         sessions: selectedIds.map(id => { const s = getSession(id); return { id, name: s.name, resting: false }; })
     };
     res.json({ success: true, willSend: uniqueNumbers.length, sessions: selectedIds.length, batchPerSession: SESSION_BATCH });
@@ -639,9 +648,13 @@ app.post('/send', async (req, res) => {
 
                     await s.sock.sendMessage(jid, messageOptions);
                     liveCampaign.sent++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
-                    if (liveCampaign.numbers[idx]) liveCampaign.numbers[idx].status = `Sent ✅ (${s.name}${tplName ? ' / ' + tplName : ''})`;
-                    
-                    addHistory(num, finalMessage || 'Media Sent', s.name); 
+                    if (liveCampaign.numbers[idx]) {
+                        liveCampaign.numbers[idx].status = 'Sent ✅ (' + s.name + (tplName ? ' / ' + tplName : '') + ')';
+                        liveCampaign.numbers[idx].state = 'sent';
+                        liveCampaign.numbers[idx].session = s.name;
+                        liveCampaign.numbers[idx].template = tplName || (finalImageBase64 ? 'Media' : 'Message');
+                    }
+                    addHistory(num, finalMessage || 'Media Sent', s.name + (tplName ? ' | ' + tplName : ''));
                     saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
                     batchCount++; s.sentInBatch = batchCount;
 
@@ -649,7 +662,12 @@ app.post('/send', async (req, res) => {
                     await new Promise(r => setTimeout(r, delayMs));
                 } catch (e) {
                     liveCampaign.failed++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
-                    if (liveCampaign.numbers[idx]) liveCampaign.numbers[idx].status = `Invalid ❌ (${s.name})`;
+                    if (liveCampaign.numbers[idx]) {
+                        liveCampaign.numbers[idx].status = 'Failed ❌ (' + s.name + ')';
+                        liveCampaign.numbers[idx].state = 'failed';
+                        liveCampaign.numbers[idx].session = s.name;
+                        liveCampaign.numbers[idx].template = null;
+                    }
                     saveStats(new Date().toLocaleDateString('en-CA'), 0, 1); batchCount++; s.sentInBatch = batchCount;
                 }
             }
@@ -672,3 +690,4 @@ app.post('/send', async (req, res) => {
         setInterval(() => { runAutoScanTick().catch(() => {}); }, 3 * 60 * 1000);
     });
 })();
+
