@@ -534,7 +534,28 @@
         }
 
         async function createWASession() { const name = (document.getElementById('newSessionName').value || '').trim(); await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); document.getElementById('newSessionName').value = ''; const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
-        async function deleteWASession(id) { if (!confirm('Delete this WhatsApp session?')) return; await fetch('/api/sessions/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }); const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
+        async function deleteWASession(id) {
+            if (!confirm('Delete this WhatsApp session?')) return;
+            try {
+                const del = await fetch('/api/sessions/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const dj = await del.json().catch(() => ({}));
+                if (!del.ok || dj.success === false) {
+                    showToast(dj.error || 'Delete fail', true);
+                    return;
+                }
+                showToast('✅ WhatsApp session delete ho gaya');
+                await new Promise(r => setTimeout(r, 400));
+                const r = await fetch('/api/sessions?t=' + Date.now(), { cache: 'no-store' });
+                const d = await r.json();
+                renderSessionsUI(d.sessions || [], true);
+            } catch (e) {
+                showToast('Network error', true);
+            }
+        }
 
         function showSection(id, btn) {
             document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
@@ -598,7 +619,17 @@
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => showToast('✅ मैसेज अपडेट हो गया।')) }
 
-        function fetchContacts() { fetch('/api/contacts?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { allContacts = data; updateGroupDropdowns(); renderGroupContacts(); }).catch(e => console.error(e)); }
+        function fetchContacts() {
+            if (contactsSaveLock) return;
+            fetch('/api/contacts?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.json())
+                .then(data => {
+                    if (contactsSaveLock) return;
+                    allContacts = data;
+                    updateGroupDropdowns();
+                    renderGroupContacts();
+                }).catch(e => console.error(e));
+        }
         function updateGroupDropdowns() {
             const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
             const prevG1 = g1.value; const prevG2 = g2.value; 
@@ -886,26 +917,36 @@
             showToast(`✅ ${validList.length} valid numbers ki PDF download ho gayi!`);
         }
 
+        let contactsSaveLock = false;
         function removeInvalidNumbers() {
             const g = document.getElementById('groupSelect').value;
             if (!g || !allContacts[g]) return showToast('⚠️ Pehle group select karo!', true);
-            const before = allContacts[g].length;
             const invalidCount = allContacts[g].filter(c => c.waStatus === 'invalid').length;
             if (invalidCount === 0) return showToast('Is group mein koi Invalid number nahi hai.', true);
             if (!confirm('Group "' + g + '" se ' + invalidCount + ' Invalid numbers delete karein?\nValid + Pending list mein rahenge.')) return;
-            allContacts[g] = allContacts[g].filter(c => c.waStatus !== 'invalid');
+            contactsSaveLock = true;
             contactListFilter = 'all';
             contactListShowAll = false;
-            fetch('/api/contacts', {
+            fetch('/api/contacts/remove-invalid', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(allContacts)
-            }).then(() => {
+                body: JSON.stringify({ group: g })
+            }).then(r => r.json()).then(d => {
+                if (!d.success) {
+                    contactsSaveLock = false;
+                    return showToast(d.error || 'Delete fail', true);
+                }
+                if (d.contacts) allContacts = d.contacts;
+                else allContacts[g] = (allContacts[g] || []).filter(c => c.waStatus !== 'invalid');
                 renderGroupContacts();
                 updateGroupDropdowns();
                 document.getElementById('groupSelect').value = g;
-                showToast('✅ ' + invalidCount + ' invalid delete. Ab ' + allContacts[g].length + ' numbers (pehle ' + before + ')');
-            }).catch(() => showToast('Network error', true));
+                showToast('✅ ' + (d.removed || invalidCount) + ' invalid delete. Ab ' + (d.remaining != null ? d.remaining : allContacts[g].length) + ' numbers');
+                setTimeout(function () { contactsSaveLock = false; }, 2000);
+            }).catch(() => {
+                contactsSaveLock = false;
+                showToast('Network error', true);
+            });
         }
 
         function fetchLiveStatus() {
@@ -1086,4 +1127,5 @@
     </script>
 </body>
 </html>
+
 
