@@ -559,7 +559,7 @@ app.post('/api/validate-numbers', async (req, res) => {
 
 app.post('/send', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
-    const { numbers, message, minDelay, maxDelay, imageBase64, templates, sessionIds } = req.body;
+    const { numbers, message, minDelay, maxDelay, imageBase64, templates, sessionIds, customBatch, customRestHours } = req.body;
     if (!Array.isArray(numbers) || numbers.length === 0) return res.status(400).json({ success: false, error: 'Number list empty!' });
 
     let selectedIds = Array.isArray(sessionIds) && sessionIds.length ? sessionIds : Array.from(sessions.values()).filter(s => s.connected).map(s => s.id);
@@ -572,9 +572,19 @@ app.post('/send', async (req, res) => {
         if (p.length === 10 && !seenPhone.has(p)) { seenPhone.add(p); uniqueNumbers.push({ phone: p, name: n.name || 'Customer' }); }
     }
 
+    // Daily limit always applies (80 / WA etc.) — custom batch se bypass nahi
     const dailyLimit = getDailyLimit() * selectedIds.length; const alreadySent = getTodaySentCount();
     if (alreadySent >= dailyLimit) return res.status(400).json({ success: false, error: `Anti-Ban: aaj ka limit (${dailyLimit}) pure. Kal try karo.` });
     const remainingQuota = dailyLimit - alreadySent; if (uniqueNumbers.length > remainingQuota) uniqueNumbers = uniqueNumbers.slice(0, remainingQuota);
+
+    // Custom batch / rest — empty = default 30 / 2hr
+    let batchSize = SESSION_BATCH;
+    let restMs = SESSION_REST_MS;
+    const cb = parseInt(customBatch, 10);
+    const cr = parseFloat(customRestHours);
+    if (!isNaN(cb) && cb >= 1) batchSize = Math.min(50, Math.max(1, cb));
+    if (!isNaN(cr) && cr > 0) restMs = Math.min(12, Math.max(0.25, cr)) * 60 * 60 * 1000;
+    const restHoursLabel = (restMs / (60 * 60 * 1000)).toFixed(restMs % 3600000 === 0 ? 0 : 2);
 
     const useRotation = Array.isArray(templates) && templates.length > 0; let tplIndex = 0;
 
@@ -588,10 +598,10 @@ app.post('/send', async (req, res) => {
             session: null,
             template: null
         })),
-        status: 'sending', restReason: '', resumeAt: null, batchSize: SESSION_BATCH, accountAgeDays: getAccountAgeDays(),
+        status: 'sending', restReason: '', resumeAt: null, batchSize, restHours: restHoursLabel, accountAgeDays: getAccountAgeDays(),
         sessions: selectedIds.map(id => { const s = getSession(id); return { id, name: s.name, resting: false }; })
     };
-    res.json({ success: true, willSend: uniqueNumbers.length, sessions: selectedIds.length, batchPerSession: SESSION_BATCH });
+    res.json({ success: true, willSend: uniqueNumbers.length, sessions: selectedIds.length, batchPerSession: batchSize, restHours: restHoursLabel });
 
     const minD = Math.max(45, parseInt(minDelay) || 45); const maxD = Math.max(minD + 15, parseInt(maxDelay) || 90);
     const queue = uniqueNumbers.map((n, idx) => ({ ...n, idx }));
@@ -609,7 +619,7 @@ app.post('/send', async (req, res) => {
 
             while (s.restUntil && Date.now() < s.restUntil) {
                 const left = s.restUntil - Date.now();
-                liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: 2hr rest after ${SESSION_BATCH} msgs`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
+                liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: ${restHoursLabel}hr rest after ${batchSize} msgs`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
                 await new Promise(r => setTimeout(r, Math.min(5000, left)));
             }
             if (!s.connected || !s.sock) { await new Promise(r => setTimeout(r, 5000)); continue; }
@@ -617,7 +627,7 @@ app.post('/send', async (req, res) => {
             liveCampaign.status = 'sending'; liveCampaign.restReason = ''; liveCampaign.resumeAt = null;
 
             let batchCount = 0;
-            while (batchCount < SESSION_BATCH && queue.length > 0) {
+            while (batchCount < batchSize && queue.length > 0) {
                 
                 // 🌟 NEW: Check Pause inside the message sending batch
                 while (liveCampaign.isPaused) {
@@ -671,9 +681,9 @@ app.post('/send', async (req, res) => {
                     saveStats(new Date().toLocaleDateString('en-CA'), 0, 1); batchCount++; s.sentInBatch = batchCount;
                 }
             }
-            if (batchCount >= SESSION_BATCH && queue.length > 0) {
-                s.restUntil = Date.now() + SESSION_REST_MS; s.sentInBatch = 0;
-                liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: ${SESSION_BATCH} msgs done → 2hr rest. Doosre WA se continue...`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
+            if (batchCount >= batchSize && queue.length > 0) {
+                s.restUntil = Date.now() + restMs; s.sentInBatch = 0;
+                liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: ${batchSize} msgs done → ${restHoursLabel}hr rest. Doosre WA se continue...`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
             } else if (queue.length === 0) break;
         }
     }
