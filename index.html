@@ -516,7 +516,7 @@
                     if ('serviceWorker' in navigator) {
                         try { await navigator.serviceWorker.register('/sw.js'); } catch (e) {}
                     }
-                    notifyUser('Notifications ON', 'Ab connect, campaign, scan aur errors ki alert aayegi', { tag: 'notif-on' });
+                    pushNotif('welcome');
                     showToast('🔔 Notifications enable ho gayi');
                 } else {
                     showToast('Permission deny — browser settings check karo', true);
@@ -526,16 +526,87 @@
             }
         }
 
+        // Unique app-style lines (random pick)
+        const NOTIF_LINES = {
+            welcome: [
+                { t: '🔔 All set!', b: 'Website Banane Wala ready hai. Connect, campaign aur scan ki live alerts ON.' },
+                { t: '✨ Notifications unlocked', b: 'Ab important updates phone pe pop hongi — app jaisi feel.' },
+                { t: '🚀 You\'re live', b: 'Alerts ON. Campaign complete hone pe seedha phone pe khabar.' }
+            ],
+            waOn: [
+                { t: '🟢 WhatsApp is live', b: '{name} successfully connected. Campaigns ab is number se chal sakti hain.' },
+                { t: '✅ Linked & ready', b: '{name} online aa gaya. Dashboard pe check karo.' },
+                { t: '📲 Device connected', b: '{name} ka session active hai. Happy sending!' }
+            ],
+            waOff: [
+                { t: '🔴 Connection lost', b: '{name} offline / logout ho gaya. QR se dubara link karo.' },
+                { t: '⚠️ WhatsApp dropped', b: '{name} disconnect. Pending campaigns ruk sakti hain.' },
+                { t: '📵 Session ended', b: '{name} ab connected nahi. Device Settings mein reconnect karo.' }
+            ],
+            waRm: [
+                { t: '🗑️ Session removed', b: 'WhatsApp session list se hata diya gaya.' }
+            ],
+            campDone: [
+                { t: '🎉 Campaign finished!', b: '{name}\n✅ {sent} messages delivered. History mein details safe hain.' },
+                { t: '🏁 Done for now', b: '{name} complete · {sent} sent. Next batch ready jab chaaho.' },
+                { t: '✨ Mission complete', b: '{name} khatam. {sent} msgs gaye — Live Tracking pe summary dekho.' }
+            ],
+            campRest: [
+                { t: '☕ Taking a break', b: '{name} rest mode mein hai. Anti-ban timer chal raha hai — auto resume hoga.' },
+                { t: '⏸️ Pause for safety', b: '{name} · short rest after batch. WhatsApp ko natural lagna chahiye.' },
+                { t: '🌙 Cooling down', b: '{name} resting. Thodi der baad sending wapas start.' }
+            ],
+            scanDone: [
+                { t: '🔍 Scan complete!', b: '{detail}' },
+                { t: '✨ Numbers cleaned', b: '{detail}' },
+                { t: '📋 Validation done', b: '{detail}' }
+            ],
+            scanStop: [
+                { t: '⏹️ Scan stopped', b: '{detail}' },
+                { t: '✋ Scan paused', b: '{detail}' }
+            ],
+            scanErr: [
+                { t: '⚡ Scan hit a snag', b: '{detail}' },
+                { t: '😕 Network hiccup', b: '{detail}' }
+            ],
+            err: [
+                { t: '⚠️ Something went wrong', b: '{detail}' },
+                { t: '🔧 Needs attention', b: '{detail}' }
+            ],
+            offline: [
+                { t: '🌐 Can\'t reach server', b: 'Website / network offline lag raha hai. Site open karke check karo.' },
+                { t: '📡 Connection issue', b: 'Server respond nahi kar raha. Internet ya Render status dekho.' }
+            ]
+        };
+
+        function pickLine(key, vars) {
+            const arr = NOTIF_LINES[key] || [{ t: 'Website Banane Wala', b: '' }];
+            const line = arr[Math.floor(Math.random() * arr.length)];
+            let t = line.t;
+            let b = line.b;
+            if (vars) {
+                Object.keys(vars).forEach(k => {
+                    const re = new RegExp('\\{' + k + '\\}', 'g');
+                    t = t.replace(re, vars[k]);
+                    b = b.replace(re, vars[k]);
+                });
+            }
+            return { title: t, body: b };
+        }
+
         function notifyUser(title, body, opts) {
             if (!('Notification' in window) || Notification.permission !== 'granted') return;
             const options = Object.assign({
                 body: body || '',
-                icon: '/favicon.ico',
-                badge: '/favicon.ico',
+                icon: 'https://cdn-icons-png.flaticon.com/192/733/733585.png',
+                badge: 'https://cdn-icons-png.flaticon.com/96/733/733585.png',
                 tag: (opts && opts.tag) || ('wbw-' + Date.now()),
                 renotify: !!(opts && opts.renotify),
-                requireInteraction: !!(opts && opts.sticky)
+                requireInteraction: !!(opts && opts.sticky),
+                silent: false
             }, opts || {});
+            // Remove non-Notification props
+            delete options.sticky;
             try {
                 if (navigator.serviceWorker && navigator.serviceWorker.controller) {
                     navigator.serviceWorker.ready.then(reg => reg.showNotification(title, options)).catch(() => {
@@ -549,6 +620,11 @@
             }
         }
 
+        function pushNotif(kind, vars, opts) {
+            const line = pickLine(kind, vars || {});
+            notifyUser(line.title, line.body, Object.assign({ renotify: true }, opts || {}));
+        }
+
         function trackSessionsForNotif(list) {
             const map = {};
             (list || []).forEach(s => { map[s.id] = !!s.connected; });
@@ -557,13 +633,13 @@
                     const now = map[id];
                     const prev = notifState.sessionMap[id];
                     if (prev === undefined) return;
-                    const name = ((list || []).find(x => x.id === id) || {}).name || id;
-                    if (!prev && now) notifyUser('WhatsApp Connected', name + ' connect ho gaya ✅', { tag: 'wa-on-' + id, renotify: true });
-                    if (prev && !now) notifyUser('WhatsApp Disconnected', name + ' disconnect / offline ❌', { tag: 'wa-off-' + id, renotify: true, sticky: true });
+                    const name = ((list || []).find(x => x.id === id) || {}).name || 'WhatsApp';
+                    if (!prev && now) pushNotif('waOn', { name: name }, { tag: 'wa-on-' + id, renotify: true });
+                    if (prev && !now) pushNotif('waOff', { name: name }, { tag: 'wa-off-' + id, renotify: true, sticky: true });
                 });
                 Object.keys(notifState.sessionMap).forEach(id => {
                     if (map[id] === undefined) {
-                        notifyUser('WhatsApp Removed', 'Session delete / gayab: ' + id, { tag: 'wa-rm-' + id });
+                        pushNotif('waRm', {}, { tag: 'wa-rm-' + id });
                     }
                 });
             }
@@ -580,19 +656,18 @@
                 Object.keys(notifState.campaignMap).forEach(id => {
                     const prev = notifState.campaignMap[id];
                     if (prev && prev.active && !map[id]) {
-                        notifyUser('Campaign Complete', (prev.name || 'Campaign') + ' end · Sent ' + (prev.sent || 0), { tag: 'camp-end-' + id, renotify: true, sticky: true });
+                        pushNotif('campDone', { name: prev.name || 'Campaign', sent: String(prev.sent || 0) }, { tag: 'camp-end-' + id, renotify: true, sticky: true });
                     }
                 });
                 Object.keys(map).forEach(id => {
                     const cur = map[id];
                     const prev = notifState.campaignMap[id];
                     if (prev && prev.status !== 'resting' && cur.status === 'resting') {
-                        notifyUser('Campaign Rest', (cur.name || 'Campaign') + ' rest mode mein', { tag: 'camp-rest-' + id });
+                        pushNotif('campRest', { name: cur.name || 'Campaign' }, { tag: 'camp-rest-' + id });
                     }
                 });
             }
             notifState.campaignMap = map;
-            // merge non-active cleared
             Object.keys(notifState.campaignMap).forEach(id => {
                 if (!map[id]) delete notifState.campaignMap[id];
             });
@@ -603,12 +678,13 @@
             const now = Date.now();
             if (now - notifState.lastScanNotify < 4000 && type !== 'complete') return;
             notifState.lastScanNotify = now;
+            const d = detail || '';
             if (type === 'complete') {
-                notifyUser('Scan Complete', detail || 'Saare pending numbers scan ho gaye ✅', { tag: 'scan-done', renotify: true, sticky: true });
+                pushNotif('scanDone', { detail: d || 'Saare pending numbers check ho gaye. Valid list ready hai.' }, { tag: 'scan-done', renotify: true, sticky: true });
             } else if (type === 'stopped') {
-                notifyUser('Scan Ruk Gaya', detail || 'Scan All beech mein band / error', { tag: 'scan-stop', renotify: true, sticky: true });
+                pushNotif('scanStop', { detail: d || 'Scan All band. Jo scan ho chuke the woh safe hain.' }, { tag: 'scan-stop', renotify: true, sticky: true });
             } else if (type === 'error') {
-                notifyUser('Scan Error', detail || 'Network / scan error', { tag: 'scan-err', renotify: true });
+                pushNotif('scanErr', { detail: d || 'Network issue — thodi der baad dubara try karo.' }, { tag: 'scan-err', renotify: true });
             }
         }
 
@@ -618,7 +694,7 @@
             toast.innerHTML = msg; toast.style.opacity = '1'; toast.style.bottom = '40px';
             setTimeout(() => { toast.style.opacity = '0'; toast.style.bottom = '20px'; }, 3000);
             if (isError && msg && /network|error|fail|rakh|ruk/i.test(String(msg))) {
-                notifyUser('Error', String(msg).replace(/[❌⚠️]/g, '').trim(), { tag: 'err-' + String(msg).slice(0, 24) });
+                pushNotif('err', { detail: String(msg).replace(/[❌⚠️]/g, '').trim() }, { tag: 'err-' + String(msg).slice(0, 20) });
             }
         }
 
@@ -646,7 +722,7 @@
                 }).catch(() => {
                     if (!notifState.networkErrorNotified) {
                         notifState.networkErrorNotified = true;
-                        notifyUser('Website Offline', 'Server / network error — site open karke check karo', { tag: 'net-err', sticky: true });
+                        pushNotif('offline', {}, { tag: 'net-err', sticky: true });
                     }
                 });
                 fetchLiveStatus(); fetchStats();
