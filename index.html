@@ -197,8 +197,9 @@
             </div>
 
             <div class="form-group">
-                <label>Attachment (photo / video / PDF / Excel / any file):</label>
-                <input type="file" id="imageFile" accept="*/*" onchange="clearTemplateSelection()">
+                <label>Attachments (multi — photo / PDF / Excel / any):</label>
+                <input type="file" id="imageFile" accept="*/*" multiple onchange="clearTemplateSelection()">
+                <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max 5 files · template use karte ho to yahan ki files skip</p>
             </div>
             <div class="form-group">
                 <label>कैप्शन / मैसेज:</label>
@@ -287,12 +288,13 @@
                 </div>
 
                 <button type="button" class="action-btn btn-danger" id="deleteCampaignBtn" onclick="deleteCampaign()" style="padding:14px;border-radius:14px;font-size:15px;">
-                    🗑️ Delete Campaign
+                    🗑️ Delete Campaign(s)
                 </button>
-                <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;line-height:1.4;">Campaign band + clear · jo msg gaye wo History mein safe · phir naya campaign start kar sakte ho</p>
+                <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;line-height:1.4;">Selected / saari active campaigns band · History safe · alag WA se parallel campaign chal sakti hai</p>
             </div>
 
             <div id="liveStatusBanner" style="display:none;margin-bottom:14px;"></div>
+            <div id="liveCampaignTabs" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch;"></div>
             <div id="liveList" style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px;max-height:520px;overflow-y:auto;box-shadow:0 2px 10px rgba(15,23,42,0.04);"></div>
         </div>
 
@@ -374,9 +376,9 @@
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
                 <div class="form-group">
-                    <label>Attachment (photo / video / PDF / Excel / Word / HTML / any file):</label>
-                    <input type="file" id="newTplImage" accept="*/*">
-                    <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max ~16MB · PDF, xlsx, csv, doc, html, zip bhi chalega</p>
+                    <label>Attachments (multi select — kai photo / PDF / Excel…):</label>
+                    <input type="file" id="newTplImage" accept="*/*" multiple>
+                    <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max <b>5 files</b> · har file ~10MB · Ctrl/Cmd se multiple select</p>
                 </div>
                 <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
 
@@ -584,14 +586,22 @@
             showToast(isSleepOn ? "🌙 Night Sleep ON (Raat 10 baje pause hoga)" : "🚀 Night Sleep OFF (Aaj raat override ho gaya)");
         }
 
-        function deleteCampaign() {
-            if (!confirm('Current campaign delete / stop karein?\nJo messages already send ho chuke hain wo History mein rahenge.\nPending band ho jayenge.')) return;
+        function deleteCampaign(campaignId) {
+            const msg = campaignId
+                ? 'Is campaign ko delete / stop karein? History safe rahegi.'
+                : 'Saari active campaigns delete / stop? History safe rahegi.';
+            if (!confirm(msg)) return;
             const btn = document.getElementById('deleteCampaignBtn');
             if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Deleting...'; }
-            fetch('/api/campaign/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+            fetch('/api/campaign/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campaignId ? { campaignId: campaignId } : {})
+            })
                 .then(r => r.json())
                 .then(d => {
                     showToast(d.message || 'Campaign deleted');
+                    if (campaignId && selectedLiveCampaignId === campaignId) selectedLiveCampaignId = null;
                     const pToggle = document.getElementById('pauseCampaignToggle');
                     if (pToggle) pToggle.checked = false;
                     const sendBtn = document.getElementById('sendBtn');
@@ -600,7 +610,7 @@
                 })
                 .catch(() => showToast('Network error', true))
                 .finally(() => {
-                    if (btn) { btn.disabled = false; btn.innerHTML = '🗑️ Delete Campaign'; }
+                    if (btn) { btn.disabled = false; btn.innerHTML = '🗑️ Delete Campaign(s)'; }
                 });
         }
 
@@ -758,36 +768,61 @@
             if (n.match(/\.(mp4|mov|webm|mkv|3gp)$/)) return 'video';
             return 'document';
         }
-        function saveNewTemplate() {
+        function readFilesAsAttachments(fileList, maxFiles, maxEachMb) {
+            return new Promise((resolve, reject) => {
+                const files = Array.from(fileList || []).slice(0, maxFiles || 5);
+                if (!files.length) return resolve([]);
+                const out = [];
+                let i = 0;
+                const next = () => {
+                    if (i >= files.length) return resolve(out);
+                    const f = files[i++];
+                    if (f.size > (maxEachMb || 10) * 1024 * 1024) {
+                        return reject(new Error(f.name + ' bahut badi (max ' + (maxEachMb || 10) + 'MB)'));
+                    }
+                    const r = new FileReader();
+                    r.onload = e => {
+                        const mime = f.type || 'application/octet-stream';
+                        const name = f.name || ('file_' + i);
+                        out.push({
+                            fileBase64: e.target.result,
+                            fileMime: mime,
+                            fileName: name,
+                            fileKind: fileKindFromMime(mime, name)
+                        });
+                        next();
+                    };
+                    r.onerror = () => reject(new Error('File read fail: ' + f.name));
+                    r.readAsDataURL(f);
+                };
+                next();
+            });
+        }
+        async function saveNewTemplate() {
             const name = document.getElementById('newTplName').value;
             const msg = document.getElementById('newTplMsg').value;
-            const imgFile = document.getElementById('newTplImage').files[0];
+            const fileInput = document.getElementById('newTplImage');
             if (!name || !msg) return showToast('⚠️ नाम और मैसेज डालना ज़रूरी है!', true);
             const id = 'tpl_' + Date.now();
+            let attachments = [];
+            try {
+                attachments = await readFilesAsAttachments(fileInput.files, 5, 10);
+            } catch (e) {
+                return showToast('⚠️ ' + (e.message || 'File error'), true);
+            }
+            const first = attachments[0] || null;
             const payload = {
                 id, name, message: msg,
-                imageBase64: null,
-                fileBase64: null,
-                fileMime: null,
-                fileName: null,
-                fileKind: null,
+                attachments,
+                // backward compat (pehli file)
+                imageBase64: first ? first.fileBase64 : null,
+                fileBase64: first ? first.fileBase64 : null,
+                fileMime: first ? first.fileMime : null,
+                fileName: first ? first.fileName : null,
+                fileKind: first ? first.fileKind : null,
                 buttons: collectTemplateButtons()
             };
-            if (imgFile) {
-                if (imgFile.size > 16 * 1024 * 1024) return showToast('⚠️ File 16MB se badi hai', true);
-                const r = new FileReader();
-                r.onload = e => {
-                    payload.fileBase64 = e.target.result;
-                    payload.imageBase64 = e.target.result; // backward compat
-                    payload.fileMime = imgFile.type || 'application/octet-stream';
-                    payload.fileName = imgFile.name || 'file';
-                    payload.fileKind = fileKindFromMime(payload.fileMime, payload.fileName);
-                    doSaveTemplate(payload);
-                };
-                r.readAsDataURL(imgFile);
-            } else {
-                doSaveTemplate(payload);
-            }
+            doSaveTemplate(payload);
         }
         function doSaveTemplate(payload) {
             allTemplates.push(payload);
@@ -814,17 +849,25 @@
             if (selectedTemplatesList.length === 0) { preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा.</p>'; return; }
             let html = `<div style="display:flex; flex-direction:column; gap:12px;">`;
             selectedTemplatesList.forEach((t, idx) => {
-                const hasMedia = (t.fileBase64 || t.imageBase64) && (t.fileBase64 || t.imageBase64).length > 20;
-                const kind = t.fileKind || 'image';
-                let mediaHtml;
-                if (hasMedia && kind === 'image') {
-                    mediaHtml = `<img src="${t.fileBase64 || t.imageBase64}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid #e2e8f0; object-fit:cover;">`;
-                } else if (hasMedia) {
-                    mediaHtml = `<div style="width:90px;height:90px;background:#eff6ff;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;color:#1e40af;padding:6px;text-align:center;">📄<br>${(t.fileName || kind).substring(0, 18)}</div>`;
+                const atts = (t.attachments && t.attachments.length) ? t.attachments : (
+                    (t.fileBase64 || t.imageBase64) ? [{ fileBase64: t.fileBase64 || t.imageBase64, fileKind: t.fileKind || 'image', fileName: t.fileName }] : []
+                );
+                let mediaHtml = '';
+                if (!atts.length) {
+                    mediaHtml = `<div style="width:80px;height:80px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8;">No Media</div>`;
                 } else {
-                    mediaHtml = `<div style="width:80px; height:80px; background:#f1f5f9; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#94a3b8;">No Media</div>`;
+                    mediaHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;max-width:140px;">';
+                    atts.slice(0, 4).forEach(a => {
+                        if (a.fileKind === 'image' && a.fileBase64) {
+                            mediaHtml += `<img src="${a.fileBase64}" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #e2e8f0;">`;
+                        } else {
+                            mediaHtml += `<div style="width:56px;height:56px;background:#eff6ff;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#1e40af;text-align:center;padding:2px;">📄</div>`;
+                        }
+                    });
+                    if (atts.length > 4) mediaHtml += `<div style="font-size:10px;color:#64748b;">+${atts.length - 4}</div>`;
+                    mediaHtml += '</div>';
                 }
-                html += `<div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;"><div style="flex-shrink:0;">${mediaHtml}</div><div style="flex:1; min-width:0;"><div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}</div><div style="font-size:12px; color:#475569; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${t.message || '(कोई मैसेज नहीं)'}</div></div></div>`;
+                html += `<div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;"><div style="flex-shrink:0;">${mediaHtml}</div><div style="flex:1; min-width:0;"><div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}${atts.length ? ' · ' + atts.length + ' files' : ''}</div><div style="font-size:12px; color:#475569; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${t.message || '(कोई मैसेज नहीं)'}</div></div></div>`;
             }); preview.innerHTML = html + `</div>`;
         }
         function clearTemplateSelection() { Array.from(document.getElementById('templateDropdown').options).forEach(o => o.selected = false); selectedTemplatesList = []; document.getElementById('selectedTemplatesPreview').innerHTML = ''; }
@@ -1022,8 +1065,65 @@
             });
         }
 
+        let selectedLiveCampaignId = null;
+
+        function renderOneCampaignBody(camp) {
+            let html = '';
+            const nums = camp.numbers || [];
+            let sessionsMap = {};
+            let pendingList = [];
+            nums.forEach(item => {
+                const st = String(item.status || '');
+                const state = item.state || (st.includes('Pending') ? 'pending' : (st.includes('Sent') ? 'sent' : 'failed'));
+                if (state === 'pending' || st.includes('Pending')) {
+                    pendingList.push(item);
+                    return;
+                }
+                let sName = item.session || 'Device';
+                if (!item.session) {
+                    const match = st.match(/\(([^)/]+)/);
+                    if (match) sName = match[1].trim();
+                }
+                if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] };
+                if (state === 'sent' || st.includes('Sent')) sessionsMap[sName].sent++;
+                else sessionsMap[sName].failed++;
+                sessionsMap[sName].list.push(item);
+            });
+
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;">';
+            html += '<div style="font-size:13px;font-weight:700;color:#0f172a;">' + (camp.name || 'Campaign') + '</div>';
+            html += '<button type="button" class="action-btn btn-danger btn-sm" style="width:auto;padding:8px 12px;" onclick="deleteCampaign(\'' + camp.id + '\')">🗑️ Delete this</button>';
+            html += '</div>';
+            html += '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">Sent ' + (camp.sent || 0) + ' · Failed ' + (camp.failed || 0) + ' · Pending ' + (camp.pending || 0) + ' · Status: ' + (camp.status || '') + '</div>';
+
+            if (pendingList.length) {
+                html += '<div style="margin-bottom:14px;border:1px solid #fde68a;border-radius:12px;overflow:hidden;">';
+                html += '<div style="background:#fffbeb;padding:10px 14px;cursor:pointer;" onclick="var b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\'"><strong style="color:#b45309;">⏳ Pending ' + pendingList.length + '</strong> · tap</div>';
+                html += '<div style="display:none;max-height:180px;overflow-y:auto;padding:6px 10px;">';
+                pendingList.forEach(item => {
+                    html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:13px;"><span>' + item.phone + '</span><span style="color:#d97706;">Pending</span></div>';
+                });
+                html += '</div></div>';
+            }
+
+            Object.keys(sessionsMap).forEach(sName => {
+                const sData = sessionsMap[sName];
+                html += '<div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">';
+                html += '<div style="background:#f8fafc;padding:10px 14px;display:flex;justify-content:space-between;"><strong style="font-size:13px;">📱 ' + sName + '</strong><span style="font-size:12px;"><span style="color:#059669;font-weight:700;margin-right:8px;">' + sData.sent + ' sent</span><span style="color:#dc2626;font-weight:700;">' + sData.failed + ' failed</span></span></div>';
+                html += '<div style="max-height:240px;overflow-y:auto;padding:6px 10px;">';
+                sData.list.reverse().forEach(item => {
+                    const isSent = item.state === 'sent' || String(item.status).includes('Sent');
+                    const tpl = item.template || '';
+                    html += '<div style="padding:8px 4px;border-bottom:1px solid #f1f5f9;"><div style="display:flex;justify-content:space-between;font-size:13px;"><span style="font-weight:600;">' + item.phone + '</span><span style="color:' + (isSent ? '#059669' : '#dc2626') + ';font-weight:700;font-size:12px;">' + (isSent ? 'Sent' : 'Failed') + '</span></div>';
+                    html += '<div style="font-size:11px;color:#64748b;margin-top:2px;">WA: <b style="color:#2563eb;">' + sName + '</b>' + (tpl ? ' · Template: <b style="color:#7c3aed;">' + tpl + '</b>' : '') + '</div></div>';
+                });
+                html += '</div></div>';
+            });
+            return html || '<div style="padding:16px;text-align:center;color:#94a3b8;">No numbers yet</div>';
+        }
+
         function fetchLiveStatus() {
-            fetch('/api/live-status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => {
+            fetch('/api/live-status?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(data => {
                 if (data.sleepDisabled !== undefined) {
                     const toggle = document.getElementById('nightSleepToggle');
                     if (toggle) toggle.checked = !data.sleepDisabled;
@@ -1039,84 +1139,47 @@
                 setTxt('liveStatFailed', data.failed || 0);
                 setTxt('liveStatPending', data.pending || 0);
 
+                const camps = (data.campaigns || []).filter(c => c.isActive);
+                const tabs = document.getElementById('liveCampaignTabs');
                 const banner = document.getElementById('liveStatusBanner');
-                if (banner) {
-                    if (data.isActive && data.isPaused) {
-                        banner.style.display = 'block';
-                        banner.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:14px;border-radius:12px;text-align:center;border:1px solid #fecaca;"><div style="font-size:15px;font-weight:700;">🛑 Campaign Paused</div><div style="font-size:12px;margin-top:4px;">' + (data.restReason || '') + '</div></div>';
-                    } else if (data.isActive && (data.status === 'resting' || data.status === 'night_rest')) {
-                        banner.style.display = 'block';
-                        banner.innerHTML = '<div style="background:#fef3c7;color:#92400e;padding:14px;border-radius:12px;text-align:center;border:1px solid #fde68a;"><div style="font-size:15px;font-weight:700;">⏸️ Rest Mode</div><div style="font-size:12px;margin-top:4px;">' + (data.restReason || '') + '</div></div>';
-                    } else if (data.isActive && data.status === 'sending') {
-                        banner.style.display = 'block';
-                        banner.innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:12px 14px;border-radius:12px;text-align:center;border:1px solid #a7f3d0;font-size:13px;font-weight:600;">🚀 Sending · Batch ' + (data.batchSize || 30) + ' → ' + (data.restHours || '2') + 'hr rest</div>';
-                    } else {
-                        banner.style.display = 'none';
-                        banner.innerHTML = '';
-                    }
-                }
+                const listEl = document.getElementById('liveList');
 
-                let html = '';
-                if (data.numbers && data.numbers.length) {
-                    let sessionsMap = {};
-                    let pendingList = [];
-                    data.numbers.forEach(item => {
-                        const st = String(item.status || '');
-                        const state = item.state || (st.includes('Pending') ? 'pending' : (st.includes('Sent') ? 'sent' : 'failed'));
-                        if (state === 'pending' || st.includes('Pending')) {
-                            pendingList.push(item);
-                            return;
-                        }
-                        let sName = item.session || 'Device';
-                        if (!item.session) {
-                            const match = st.match(/\(([^)/]+)/);
-                            if (match) sName = match[1].trim();
-                        }
-                        if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] };
-                        if (state === 'sent' || st.includes('Sent')) sessionsMap[sName].sent++;
-                        else sessionsMap[sName].failed++;
-                        sessionsMap[sName].list.push(item);
-                    });
-
-                    // Pending numbers block
-                    if (pendingList.length) {
-                        html += '<div style="margin-bottom:14px;border:1px solid #fde68a;border-radius:12px;overflow:hidden;">';
-                        html += '<div style="background:#fffbeb;padding:10px 14px;border-bottom:1px solid #fde68a;display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="var b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\'">';
-                        html += '<strong style="color:#b45309;font-size:13px;">⏳ Pending numbers</strong>';
-                        html += '<span style="font-size:12px;font-weight:700;color:#d97706;">' + pendingList.length + ' left · tap to view</span></div>';
-                        html += '<div style="display:none;max-height:220px;overflow-y:auto;padding:6px 10px;background:#fff;">';
-                        pendingList.forEach(item => {
-                            html += '<div style="display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px solid #f1f5f9;font-size:13px;"><span style="color:#334155;">' + item.phone + (item.name && item.name !== 'Customer' ? ' · ' + item.name : '') + '</span><span style="color:#d97706;font-weight:600;font-size:12px;">Pending</span></div>';
-                        });
-                        html += '</div></div>';
-                    }
-
-                    Object.keys(sessionsMap).forEach(sName => {
-                        let sData = sessionsMap[sName];
-                        html += '<div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">';
-                        html += '<div style="background:#f8fafc;padding:10px 14px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;"><strong style="color:#0f172a;font-size:13px;">📱 ' + sName + '</strong><span style="font-size:12px;"><span style="color:#059669;font-weight:700;margin-right:10px;">' + sData.sent + ' sent</span><span style="color:#dc2626;font-weight:700;">' + sData.failed + ' failed</span></span></div>';
-                        html += '<div style="max-height:260px;overflow-y:auto;padding:6px 10px;">';
-                        sData.list.reverse().forEach(item => {
-                            const isSent = (item.state === 'sent') || String(item.status).includes('Sent');
-                            let tpl = item.template || '';
-                            if (!tpl) {
-                                const m = String(item.status).match(/\/\s*([^)]+)\)/);
-                                if (m) tpl = m[1].trim();
-                            }
-                            html += '<div style="padding:10px 4px;border-bottom:1px solid #f1f5f9;">';
-                            html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;"><span style="color:#0f172a;font-weight:600;">' + item.phone + '</span><span style="color:' + (isSent ? '#059669' : '#dc2626') + ';font-weight:700;font-size:12px;">' + (isSent ? 'Sent' : 'Failed') + '</span></div>';
-                            html += '<div style="font-size:11px;color:#64748b;margin-top:3px;">WA: <b style="color:#2563eb;">' + sName + '</b>' + (tpl ? ' · Template: <b style="color:#7c3aed;">' + tpl + '</b>' : '') + '</div>';
-                            html += '</div>';
-                        });
-                        html += '</div></div>';
-                    });
-                }
-                document.getElementById('liveList').innerHTML = html || '<div style="padding:28px 16px;text-align:center;color:#94a3b8;font-size:14px;">No active campaign right now</div>';
-                if (!data.isActive && data.total > 0 && data.pending === 0) {
+                if (!camps.length) {
+                    if (tabs) tabs.innerHTML = '';
+                    if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
+                    if (listEl) listEl.innerHTML = '<div style="padding:28px 16px;text-align:center;color:#94a3b8;font-size:14px;">No active campaign · alag WA se 2 campaigns saath chal sakti hain</div>';
+                    selectedLiveCampaignId = null;
                     const btn = document.getElementById('sendBtn');
                     if (btn) { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
-                    fetchStats();
+                    return;
                 }
+
+                if (!selectedLiveCampaignId || !camps.find(c => c.id === selectedLiveCampaignId)) {
+                    selectedLiveCampaignId = camps[0].id;
+                }
+
+                if (tabs) {
+                    tabs.innerHTML = camps.map(c => {
+                        const on = c.id === selectedLiveCampaignId;
+                        return '<button type="button" onclick="selectedLiveCampaignId=\'' + c.id + '\';fetchLiveStatus()" style="flex-shrink:0;border:none;padding:10px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;background:' + (on ? '#2563eb' : '#e2e8f0') + ';color:' + (on ? '#fff' : '#334155') + ';">' + (c.name || c.id).substring(0, 28) + (c.name && c.name.length > 28 ? '…' : '') + '</button>';
+                    }).join('');
+                }
+
+                const camp = camps.find(c => c.id === selectedLiveCampaignId) || camps[0];
+                if (banner) {
+                    banner.style.display = 'block';
+                    if (camp.isPaused) {
+                        banner.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:12px;text-align:center;font-weight:700;">🛑 This campaign paused</div>';
+                    } else if (camp.status === 'resting' || camp.status === 'night_rest') {
+                        banner.innerHTML = '<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:12px;text-align:center;font-weight:600;">⏸️ ' + (camp.restReason || 'Rest') + '</div>';
+                    } else {
+                        banner.innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:12px;border-radius:12px;text-align:center;font-size:13px;font-weight:600;">🚀 ' + camps.length + ' parallel campaign(s) · viewing: ' + (camp.name || '') + '</div>';
+                    }
+                }
+                if (listEl) listEl.innerHTML = renderOneCampaignBody(camp);
+
+                const btn = document.getElementById('sendBtn');
+                if (btn) { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
             }).catch(() => {});
         }
 
@@ -1135,16 +1198,24 @@
                 const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
                 finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
             }
-            applySelectedTemplates(); const msg = document.getElementById('message').value; const imgFile = document.getElementById('imageFile').files[0];
-            if (selectedTemplatesList.length > 0) { doSend(finalNumbers, msg, null, selectedTemplatesList); return; }
-            if (imgFile) { const r = new FileReader(); r.onload = (e) => { doSend(finalNumbers, msg, e.target.result, []); }; r.readAsDataURL(imgFile); } else { doSend(finalNumbers, msg, null, []); }
+            applySelectedTemplates();
+            const msg = document.getElementById('message').value;
+            const fileInput = document.getElementById('imageFile');
+            if (selectedTemplatesList.length > 0) {
+                doSend(finalNumbers, msg, null, [], selectedTemplatesList);
+                return;
+            }
+            readFilesAsAttachments(fileInput.files, 5, 10).then(atts => {
+                doSend(finalNumbers, msg, atts[0] ? atts[0].fileBase64 : null, atts, []);
+            }).catch(e => showToast('⚠️ ' + (e.message || 'File error'), true));
         }
         
-        function doSend(numsObjArray, msg, imgBase64, templatesArr) {
+        function doSend(numsObjArray, msg, imgBase64, campaignAttachments, templatesArr) {
             const minD = document.getElementById('minDelay').value, maxD = document.getElementById('maxDelay').value;
             if (parseInt(minD) >= parseInt(maxD)) return showToast('⚠️ अधिकतम समय ज़्यादा होना चाहिए!', true);
             if (numsObjArray.length === 0) return showToast('⚠️ नंबर लिस्ट खाली है!', true);
-            if ((!templatesArr || templatesArr.length === 0) && !msg && !imgBase64) return showToast('⚠️ टेम्प्लेट चुनें या मैसेज/इमेज डालें!', true);
+            const atts = campaignAttachments || [];
+            if ((!templatesArr || templatesArr.length === 0) && !msg && !imgBase64 && !atts.length) return showToast('⚠️ टेम्प्लेट चुनें या मैसेज/फाइल डालें!', true);
             const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
             if (!sessionIds.length) return showToast('⚠️ कम से कम 1 WhatsApp सेलेक्ट करें।', true);
             document.getElementById('sendBtn').disabled = true; document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
@@ -1153,19 +1224,1327 @@
             const customBatch = batchEl && batchEl.value ? parseInt(batchEl.value, 10) : null;
             const customRestHours = restEl && restEl.value ? parseFloat(restEl.value) : null;
             const payload = {
-                numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD, imageBase64: imgBase64, sessionIds,
+                numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD,
+                imageBase64: imgBase64,
+                attachments: atts,
+                sessionIds,
                 customBatch: (customBatch && customBatch > 0) ? customBatch : null,
                 customRestHours: (customRestHours && customRestHours > 0) ? customRestHours : null,
-                templates: (templatesArr || []).map(t => ({
-                    name: t.name,
-                    message: t.message,
-                    imageBase64: t.imageBase64 || t.fileBase64 || null,
-                    fileBase64: t.fileBase64 || t.imageBase64 || null,
-                    fileMime: t.fileMime || null,
-                    fileName: t.fileName || null,
-                    fileKind: t.fileKind || null,
-                    buttons: t.buttons || []
-                }))
+                templates: (templatesArr || []).map(t => {
+                    let attachments = Array.isArray(t.attachments) ? t.attachments : [];
+                    if (!attachments.length && (t.fileBase64 || t.imageBase64)) {
+                        attachments = [{
+                            fileBase64: t.fileBase64 || t.imageBase64,
+                            fileMime: t.fileMime || null,
+                            fileName: t.fileName || null,
+                            fileKind: t.fileKind || null
+                        }];
+                    }
+                    return {
+                        name: t.name,
+                        message: t.message,
+                        attachments,
+                        imageBase64: t.imageBase64 || t.fileBase64 || null,
+                        fileBase64: t.fileBase64 || t.imageBase64 || null,
+                        fileMime: t.fileMime || null,
+                        fileName: t.fileName || null,
+                        fileKind: t.fileKind || null,
+                        buttons: t.buttons || []
+                    };
+                })
+            };
+            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(async (r) => {
+                const d = await r.json().catch(() => ({})); if (!r.ok || d.success === false) { showToast(d.error || 'Start failed', true); document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; return; }
+                const liveBtn = document.querySelector('.sidebar-btn[onclick*="liveTrackingSec"]'); showSection('liveTrackingSec', liveBtn || document.querySelectorAll('.sidebar-btn')[2]); fetchLiveStatus();
+            }).catch(() => { document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; });
+        }
+        
+        function getPairingCode(sessionId, fresh) {
+            const phoneEl = document.getElementById('pairPhone'); const phone = (phoneEl && phoneEl.value || '').trim(); const display = document.getElementById('pairingCodeDisplay'); if (!display) return;
+            if (!phone && !fresh) { display.style.display = 'block'; display.style.color = '#ef4444'; display.innerText = 'Pehle is session ka WhatsApp number likho'; return; }
+            savedPairPhone = phone; const sid = sessionId || selectedPairSessionId; display.style.display = 'block'; display.style.color = '#64748b'; display.innerText = fresh ? '⏳ Fresh session (10-15 sec)...' : '⏳ Generating code...';
+            fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, sessionId: sid || undefined, forceFresh: !!fresh }) }).then(r => r.json()).then(d => {
+                display.style.display = 'block'; if (d.success && d.code) { display.style.color = '#2563eb'; const rawCode = String(d.raw || d.code).replace(/-/g, ''); display.innerHTML = `<div style="font-size:28px;letter-spacing:2px;user-select:all;">${d.code}</div><button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText('${rawCode}')">Copy Code</button>`; savedPairingCodeHTML = display.innerHTML; } else { display.style.color = '#ef4444'; display.innerText = d.error || 'Pairing fail'; savedPairingCodeHTML = display.innerHTML; }
+            }).catch(() => { display.style.color = '#ef4444'; display.innerText = 'Network error'; });
+        }
+
+        function loadHistoryTable() {
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">⏳ Data load हो रहा है...</td></tr>';
+            fetch('/api/history?t=' + Date.now(), { cache: "no-store" })
+            .then(r => r.json())
+            .then(data => {
+                if(!data || data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b;">अभी तक कोई हिस्ट्री नहीं है।</td></tr>'; return; }
+                let html = '';
+                const recent = data.slice(-100).reverse();
+                recent.forEach(row => {
+                    const safeMsg = (row.message || 'Media').substring(0, 30) + '...';
+                    html += `<tr><td style="font-size:12px; color:#475569;">${row.date}</td><td style="font-weight:600; color:#2563eb;">${row.session || '-'}</td><td style="font-weight:600;">${row.number}</td><td style="font-size:12px; color:#10b981;">✅ Sent<br><span style="color:#64748b; font-size:11px;">${safeMsg}</span></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            }).catch(() => { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Network Error!</td></tr>'; });
+        }
+
+        function downloadHistory() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { let csv = 'Date & Time,WhatsApp Device,Mobile Number,Message\n'; data.forEach(row => { csv += `"${row.date}","${row.session || '-'}","${row.number}","${(row.message||'').replace(/"/g, '""')}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Campaign_History.csv'); a.click(); }); }
+        function downloadPDF() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Campaign History", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.date, row.session || '-', row.number, (row.message||'Media').substring(0,20)]); }); doc.autoTable({ head: [["Date & Time", "WhatsApp", "Mobile Number", "Message Preview"]], body: tableRows, startY: 30 }); doc.save('History.pdf'); }); }
+    </script>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing Dashboard Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- PDF & Excel/CSV Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';</script>
+
+    <style>
+        :root { --primary: #2563eb; --secondary: #1e293b; --bg-color: #f1f5f9; --card-bg: #ffffff; --text-main: #334155; --text-muted: #64748b; --border-color: #e2e8f0; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        .topbar { width: 100%; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 16px 24px; display: flex; align-items: center; position: fixed; top: 0; z-index: 1001; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); box-sizing: border-box; }
+        .menu-toggle { background: rgba(255, 255, 255, 0.1); border: none; color: white; font-size: 20px; cursor: pointer; padding: 8px 12px; border-radius: 8px; transition: 0.3s; }
+        .brand-title { margin: 0 0 0 20px; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; background: linear-gradient(to right, #60a5fa, #ffffff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        
+        .sidebar { width: 260px; background: var(--card-bg); height: 100%; position: fixed; left: -260px; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); padding-top: 80px; border-right: 1px solid var(--border-color); z-index: 1000; box-shadow: 4px 0 15px rgba(0,0,0,0.03); display: flex; flex-direction: column; }
+        .sidebar.active { left: 0; }
+        .sidebar-menu { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+        .sidebar-btn { display: block; width: 90%; margin: 8px auto; padding: 14px 20px; text-align: left; background: none; border: none; font-size: 15px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-radius: 10px; transition: all 0.3s ease; }
+        .sidebar-btn:hover { background: #f8fafc; color: var(--secondary); transform: translateX(5px); }
+        .sidebar-btn.active { background: #eff6ff; color: var(--primary); border-left: 4px solid var(--primary); }
+        
+        .main-content { margin-top: 65px; padding: 20px; width: 100%; height: calc(100vh - 65px); box-sizing: border-box; overflow-y: auto; padding-bottom: 120px; scrollbar-width: thin; }
+        .content-section { display: none; max-width: 850px; margin: 0 auto; background: var(--card-bg); padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid rgba(255, 255, 255, 0.5); animation: fadeIn 0.4s ease-out; }
+        .content-section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        h2.section-title { color: var(--secondary); font-weight: 700; font-size: 22px; margin-top: 0; margin-bottom: 25px; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; }
+        
+        .stats-grid { display: flex; gap: 15px; margin-top: 20px; }
+        .stat-card { flex: 1; background: #ffffff; padding: 20px; border-radius: 16px; text-align: center; border: 1px solid var(--border-color); }
+        .stat-card.success { border-bottom: 4px solid var(--success); }
+        .stat-card.failed { border-bottom: 4px solid var(--danger); }
+        .stat-card h3 { margin: 0 0 10px 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; }
+        .stat-card .number { font-size: 36px; font-weight: 700; }
+        .number.green { color: var(--success); } .number.red { color: var(--danger); }
+        
+        .form-group { margin-bottom: 20px; }
+        label { font-weight: 600; color: var(--text-main); font-size: 14px; display: block; margin-bottom: 8px; }
+        textarea, input, select { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
+        textarea:focus, input:focus, select:focus { outline: none; border-color: var(--primary); background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+        
+        .action-btn { width: 100%; padding: 16px; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+        .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); }
+        .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+        .btn-sm { padding: 10px 15px; font-size: 14px; border-radius: 8px; }
+
+        .delay-box { display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
+
+        .contact-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .contact-table th, .contact-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+        .contact-table th { background: #f8fafc; color: var(--secondary); }
+        
+        .switch-wrapper { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+        .switch-text h3 { margin: 0 0 5px 0; color: var(--secondary); font-size: 17px; }
+        .switch-text p { margin: 0; color: var(--text-muted); font-size: 13px; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(22px); }
+        
+        /* 🌟 NEW: Danger Slider for Stop Button */
+        input:checked + .slider.slider-danger { background-color: var(--danger); }
+
+        #appToast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 30px; font-weight: 600; font-size: 14px; color: #fff; z-index: 9999; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); opacity: 0; pointer-events: none; }
+
+        @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid, .delay-box { flex-direction: column; } }
+    </style>
+</head>
+<body>
+
+    <div id="appToast"></div>
+
+    <div class="topbar">
+        <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('active')">&#9776;</button>
+        <h2 class="brand-title">Website Banane Wala</h2>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-menu">
+            <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
+            <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
+            <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
+            <button class="sidebar-btn" onclick="showSection('historySec', this)">📜 Campaign History</button>
+            <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contact Book</button>
+            <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Template Manager</button>
+            <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
+            <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <!-- 1. Dashboard -->
+        <div id="dashboard" class="content-section active">
+            <h2 class="section-title">Overview & Analytics</h2>
+
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;margin-bottom:18px;">
+                <label style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;display:block;">Date filter</label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <select id="dateMode" onchange="onDateModeChange()" style="width:auto;min-width:120px;margin:0;background:#fff;flex-shrink:0;">
+                        <option value="all" selected>All (total)</option>
+                        <option value="day">By date</option>
+                    </select>
+                    <input type="date" id="dateFilter" onchange="fetchStats()" style="margin:0;background:#fff;flex:1;min-width:140px;display:none;">
+                </div>
+                <p id="dateFilterHint" style="margin:8px 0 0;font-size:11px;color:#94a3b8;">Saare din ke total sent / failed</p>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:18px;">
+                <div style="background:linear-gradient(145deg,#ecfdf5,#d1fae5);border-radius:16px;padding:20px 18px;border:1px solid #a7f3d0;box-shadow:0 4px 14px rgba(16,185,129,0.12);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div>
+                            <div style="font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#047857;font-weight:700;">Messages Sent</div>
+                            <div id="sentCount" style="font-size:36px;font-weight:800;color:#059669;margin-top:6px;line-height:1;">0</div>
+                        </div>
+                        <div style="width:48px;height:48px;border-radius:14px;background:rgba(5,150,105,0.15);display:flex;align-items:center;justify-content:center;font-size:22px;">✓</div>
+                    </div>
+                    <div style="margin-top:12px;height:4px;background:rgba(5,150,105,0.2);border-radius:4px;overflow:hidden;">
+                        <div id="sentBar" style="height:100%;width:0%;background:#059669;border-radius:4px;transition:width 0.4s;"></div>
+                    </div>
+                </div>
+
+                <div style="background:linear-gradient(145deg,#fef2f2,#fee2e2);border-radius:16px;padding:20px 18px;border:1px solid #fecaca;box-shadow:0 4px 14px rgba(239,68,68,0.1);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div>
+                            <div style="font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#b91c1c;font-weight:700;">Failed Delivery</div>
+                            <div id="failedCount" style="font-size:36px;font-weight:800;color:#dc2626;margin-top:6px;line-height:1;">0</div>
+                        </div>
+                        <div style="width:48px;height:48px;border-radius:14px;background:rgba(220,38,38,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;color:#dc2626;font-weight:800;">✕</div>
+                    </div>
+                    <div style="margin-top:12px;height:4px;background:rgba(220,38,38,0.15);border-radius:4px;overflow:hidden;">
+                        <div id="failedBar" style="height:100%;width:0%;background:#dc2626;border-radius:4px;transition:width 0.4s;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="dashSummary" style="background:#0f172a;color:#e2e8f0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span style="color:#94a3b8;">Success rate</span>
+                <span id="successRate" style="font-weight:800;font-size:16px;color:#34d399;">—</span>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <button class="action-btn btn-success" style="padding:14px 12px;font-size:14px;border-radius:12px;" onclick="downloadHistory()">📥 CSV</button>
+                <button class="action-btn btn-danger" style="padding:14px 12px;font-size:14px;border-radius:12px;" onclick="downloadPDF()">📄 PDF</button>
+            </div>
+        </div>
+
+        <!-- 2. Campaign Sender -->
+        <div id="sendMsg" class="content-section">
+            <h2 class="section-title">New Marketing Campaign</h2>
+            <div style="background: linear-gradient(135deg,#ecfdf5,#f0fdf4); border:1px solid #86efac; border-radius:14px; padding:16px; margin-bottom:20px;">
+                <div style="font-weight:700; color:#065f46; font-size:15px; margin-bottom:8px;">🛡️ Anti-Ban AI Rules (auto ON)</div>
+                <ul style="margin:0; padding-left:18px; font-size:12px; color:#166534; line-height:1.6;">
+                    <li>Scan: <b>max 10 numbers</b> ek baar</li>
+                    <li>Auto batch: <b>30 / 40 / 50</b> msgs → phir <b>2 hours rest</b></li>
+                    <li>Daily limit: naya account ~80, baad mein max ~200 / day</li>
+                    <li>Time window: <b>8 AM – 10 PM IST</b> only</li>
+                </ul>
+            </div>
+            
+            <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
+                <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (AI Smart Mix):</label>
+                <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()"></select>
+                <div id="selectedTemplatesPreview" style="margin-top:12px;"></div>
+            </div>
+
+            <div class="form-group" style="background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <label>🎯 किसे मैसेज भेजना है?</label>
+                <select id="targetType" onchange="toggleTargetInput()">
+                    <option value="group">Contact Book (Group) से चुनें</option>
+                    <option value="manual">मैन्युअल नंबर / फाइल अपलोड करें</option>
+                </select>
+                
+                <div id="groupTargetDiv" style="margin-top: 15px;">
+                    <select id="campaignGroupDropdown"><option value="">-- ग्रुप चुनें --</option></select>
+                </div>
+
+                <div id="manualTargetDiv" style="display: none; margin-top: 15px;">
+                    <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #10b981; margin-bottom: 10px;">
+                        <label style="color: #10b981;">📄 PDF या Excel (CSV) फाइल से नंबर निकालें:</label>
+                        <input type="file" id="campaignFileInput" accept=".csv, .xlsx, .xls, .pdf" onchange="processCampaignFile(event)">
+                    </div>
+                    <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें..." style="height:100px;"></textarea>
+                    <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 10) + Clean Duplicates</button>
+                    <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Attachments (multi — photo / PDF / Excel / any):</label>
+                <input type="file" id="imageFile" accept="*/*" multiple onchange="clearTemplateSelection()">
+                <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max 5 files · template use karte ho to yahan ki files skip</p>
+            </div>
+            <div class="form-group">
+                <label>कैप्शन / मैसेज:</label>
+                <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
+            </div>
+
+            <div class="delay-box">
+                <div style="flex: 1;"><label>कम से कम समय (Sec):</label><input type="number" id="minDelay" value="60" min="45"></div>
+                <div style="flex: 1;"><label>अधिकतम समय (Sec):</label><input type="number" id="maxDelay" value="120" min="60"></div>
+            </div>
+
+            <div class="form-group" style="background:linear-gradient(135deg,#f8fafc,#eff6ff);padding:16px;border-radius:14px;border:1px dashed #93c5fd;">
+                <div style="font-weight:700;color:#1e40af;font-size:14px;margin-bottom:6px;">⚙️ Custom Batch & Rest (optional)</div>
+                <p style="margin:0 0 12px;font-size:11px;color:#64748b;line-height:1.4;">Khali chhodo = default (30 msgs → 2 hr rest). Custom bhi daily 80/WA limit follow karega.</p>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;">Batch size (msgs)</label>
+                        <input type="number" id="customBatch" placeholder="e.g. 5" min="1" max="50" style="margin:0;">
+                    </div>
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;">Rest after batch (hours)</label>
+                        <input type="number" id="customRestHours" placeholder="e.g. 1" min="0.25" max="12" step="0.25" style="margin:0;">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
+                <label>📱 Kis WhatsApp se bhejna hai? (multi select)</label>
+                <div id="campaignSessionPick" style="margin-top:8px;"></div>
+            </div>
+
+            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign (Multi-WA)</button>
+        </div>
+
+        <!-- 3. Live Tracking -->
+        <div id="liveTrackingSec" class="content-section">
+            <h2 class="section-title">📡 Live Campaign Monitor</h2>
+
+            <!-- Professional stats -->
+            <div id="liveStatsRow" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:18px;">
+                <div style="background:linear-gradient(145deg,#0f172a,#1e293b);border-radius:16px;padding:16px 14px;color:#fff;box-shadow:0 8px 20px rgba(15,23,42,0.18);">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#94a3b8;font-weight:600;">Total</div>
+                    <div id="liveStatTotal" style="font-size:28px;font-weight:800;margin-top:4px;">0</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#ecfdf5,#d1fae5);border-radius:16px;padding:16px 14px;border:1px solid #a7f3d0;">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#047857;font-weight:600;">Sent</div>
+                    <div id="liveStatSent" style="font-size:28px;font-weight:800;margin-top:4px;color:#059669;">0</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#fef2f2,#fee2e2);border-radius:16px;padding:16px 14px;border:1px solid #fecaca;">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#b91c1c;font-weight:600;">Failed</div>
+                    <div id="liveStatFailed" style="font-size:28px;font-weight:800;margin-top:4px;color:#dc2626;">0</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#fffbeb,#fef3c7);border-radius:16px;padding:16px 14px;border:1px solid #fde68a;">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#b45309;font-weight:600;">Pending</div>
+                    <div id="liveStatPending" style="font-size:28px;font-weight:800;margin-top:4px;color:#d97706;">0</div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px;">
+                <div style="background:#fff;padding:14px 16px;border-radius:14px;border:1px solid #fecaca;box-shadow:0 2px 8px rgba(239,68,68,0.06);display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                    <div style="min-width:0;">
+                        <div style="font-weight:700;font-size:14px;color:#991b1b;display:flex;align-items:center;gap:6px;">
+                            <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span>
+                            Stop / Pause Campaign
+                        </div>
+                        <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;line-height:1.4;">ON = messages ruk jayenge · OFF = dobara start</p>
+                    </div>
+                    <label class="switch" style="flex-shrink:0;">
+                        <input type="checkbox" id="pauseCampaignToggle" onchange="togglePauseCampaign()">
+                        <span class="slider slider-danger"></span>
+                    </label>
+                </div>
+
+                <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);padding:14px 16px;border-radius:14px;box-shadow:0 4px 14px rgba(15,23,42,0.25);display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                    <div style="min-width:0;">
+                        <div style="font-weight:700;font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:16px;">🔒</span> Night Sleep Lock
+                        </div>
+                        <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;line-height:1.4;">10 PM – 8 AM IST auto pause · OFF = aaj raat bhejo</p>
+                    </div>
+                    <label class="switch" style="flex-shrink:0;">
+                        <input type="checkbox" id="nightSleepToggle" checked onchange="toggleNightSleep()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <button type="button" class="action-btn btn-danger" id="deleteCampaignBtn" onclick="deleteCampaign()" style="padding:14px;border-radius:14px;font-size:15px;">
+                    🗑️ Delete Campaign(s)
+                </button>
+                <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;line-height:1.4;">Selected / saari active campaigns band · History safe · alag WA se parallel campaign chal sakti hai</p>
+            </div>
+
+            <div id="liveStatusBanner" style="display:none;margin-bottom:14px;"></div>
+            <div id="liveCampaignTabs" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch;"></div>
+            <div id="liveList" style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px;max-height:520px;overflow-y:auto;box-shadow:0 2px 10px rgba(15,23,42,0.04);"></div>
+        </div>
+
+        <!-- 4. Campaign History -->
+        <div id="historySec" class="content-section">
+            <h2 class="section-title">📜 Campaign History & Logs</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <button class="action-btn btn-success" style="flex: 1; padding: 12px;" onclick="downloadHistory()">📥 Download CSV</button>
+                <button class="action-btn btn-primary" style="flex: 1; padding: 12px;" onclick="loadHistoryTable()">🔄 Refresh Data</button>
+            </div>
+            <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow-x: auto;">
+                <table class="contact-table" id="historyTable" style="min-width: 650px;">
+                    <thead>
+                        <tr>
+                            <th>Date & Time (IST)</th>
+                            <th>WhatsApp Device</th>
+                            <th>Mobile Number</th>
+                            <th>Message Preview</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 5. Contact Book -->
+        <div id="contactBook" class="content-section">
+            <h2 class="section-title">📇 Contact Book & List Upload</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <input type="text" id="newGroupName" placeholder="नया ग्रुप बनाएं (उदा: Retailers)" style="flex: 1;">
+                <button class="action-btn btn-primary btn-sm" style="width: auto;" onclick="createNewGroup()">+ Create</button>
+            </div>
+            <div class="form-group"><label>ग्रुप चुनें:</label><select id="groupSelect" onchange="contactListShowAll=false;contactListFilter='all';renderGroupContacts()"><option value="">-- ग्रुप सेलेक्ट करें --</option></select></div>
+            <div id="contactManagerDiv" style="display: none; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #2563eb; margin-bottom: 20px;">
+                    <label style="color: #2563eb;">📂 Excel, CSV या PDF फाइल अपलोड करें:</label>
+                    <input type="file" id="contactFileInput" accept=".csv, .xlsx, .xls, .pdf" style="margin-bottom: 10px;">
+                    <button class="action-btn btn-primary btn-sm" onclick="processContactFile()">Upload File</button>
+                </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <input type="text" id="addName" placeholder="Name" style="flex: 1;">
+                    <input type="text" id="addPhone" placeholder="Mobile Number" style="flex: 1;">
+                    <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add 1 No.</button>
+                </div>
+
+                <div style="background:#fff; padding:12px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:15px;">
+                    <label style="font-size:13px; color:#1e293b; margin-bottom:6px;">📱 Scan ke liye WhatsApp select karo (Multi-WA):</label>
+                    <div id="scanSessionPick"></div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap:wrap;">
+                    <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 10</button>
+                    <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px; background:linear-gradient(135deg, #059669 0%, #047857 100%);" id="scanAllBtn" onclick="toggleScanAll()">🔍 Scan All Pending</button>
+                    <button class="action-btn btn-primary btn-sm" style="flex:1; min-width:140px;" onclick="downloadValidNumbersPDF()">📥 Download Valid PDF</button>
+                    <button class="action-btn btn-danger btn-sm" style="flex:1; min-width:140px;" onclick="removeInvalidNumbers()">🗑️ Delete Invalid</button>
+                </div>
+                
+                <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#e2e8f0;color:#1e293b;" onclick="contactListFilter='all';contactListShowAll=false;renderGroupContacts()">All</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#d1fae5;color:#065f46;" onclick="contactListFilter='valid';contactListShowAll=false;renderGroupContacts()">Valid</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#fee2e2;color:#991b1b;" onclick="contactListFilter='invalid';contactListShowAll=false;renderGroupContacts()">Invalid</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#fef3c7;color:#92400e;" onclick="contactListFilter='pending';contactListShowAll=false;renderGroupContacts()">Pending</button>
+                </div>
+                <div style="max-height:420px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff;">
+                    <table class="contact-table" id="contactTable" style="margin-top:0;">
+                        <thead><tr><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
+                        <tbody id="contactTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. Template Manager -->
+        <div id="templateSec" class="content-section">
+            <h2 class="section-title">📝 Template Manager</h2>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
+                <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
+                <div class="form-group">
+                    <label>Attachments (multi select — kai photo / PDF / Excel…):</label>
+                    <input type="file" id="newTplImage" accept="*/*" multiple>
+                    <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max <b>5 files</b> · har file ~10MB · Ctrl/Cmd se multiple select</p>
+                </div>
+                <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
+
+                <div style="background:#fff;border:1px dashed #86efac;border-radius:12px;padding:14px;margin-bottom:16px;">
+                    <div style="font-weight:700;color:#065f46;font-size:14px;margin-bottom:4px;">🔘 Action Buttons (optional)</div>
+                    <p style="margin:0 0 12px;font-size:11px;color:#64748b;">JA Mantra jaisi: Call Now · Claim Deal · Discuss. Call = number, Link = URL, Reply = customer text kare.</p>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:12px;">Button 1</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn1Text" placeholder="Call Now" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn1Type" style="width:110px;margin:0;">
+                                <option value="call">📞 Call</option>
+                                <option value="url">🔗 Link</option>
+                                <option value="reply">💬 Reply</option>
+                            </select>
+                            <input type="text" id="tplBtn1Value" placeholder="+91... or https://..." style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:12px;">Button 2</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn2Text" placeholder="Claim Deal" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn2Type" style="width:110px;margin:0;">
+                                <option value="url">🔗 Link</option>
+                                <option value="call">📞 Call</option>
+                                <option value="reply">💬 Reply</option>
+                            </select>
+                            <input type="text" id="tplBtn2Value" placeholder="https://..." style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label style="font-size:12px;">Button 3</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn3Text" placeholder="I want to discuss" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn3Type" style="width:110px;margin:0;">
+                                <option value="reply">💬 Reply</option>
+                                <option value="url">🔗 Link</option>
+                                <option value="call">📞 Call</option>
+                            </select>
+                            <input type="text" id="tplBtn3Value" placeholder="DISCUSS" style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                </div>
+
+                <button class="action-btn btn-success" onclick="saveNewTemplate()">💾 Save Template</button>
+            </div>
+            <div id="templateListArea"></div>
+        </div>
+
+        <!-- 7. Smart Auto Reply -->
+        <div id="autoReply" class="content-section">
+            <h2 class="section-title">Smart Auto-Reply</h2>
+            <div class="switch-wrapper">
+                <div class="switch-text"><h3>Auto-Reply Assistant</h3><p>ग्राहकों को अपने आप तुरंत जवाब भेजें।</p></div>
+                <label class="switch"><input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()"><span class="slider"></span></label>
+            </div>
+            <div class="form-group"><label>वेलकम मैसेज सेट करें:</label><textarea id="editAutoReplyMsg" style="height:180px;"></textarea></div>
+            <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
+        </div>
+
+        <!-- 8. Connect Device -->
+        <div id="connectWp" class="content-section">
+            <h2 class="section-title">Multi WhatsApp Login</h2>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <input type="text" id="newSessionName" placeholder="Name (e.g. Business 2)" style="flex:1;">
+                <button class="action-btn btn-primary btn-sm" style="width:auto;" onclick="createWASession()">+ Add WhatsApp</button>
+            </div>
+            <div id="sessionsList"></div>
+        </div>
+    </div>
+
+    <script>
+        let allTemplates = []; let selectedTemplatesList = []; let allContacts = {}; 
+        function showToast(msg, isError = false) {
+            let toast = document.getElementById('appToast');
+            toast.style.backgroundColor = isError ? '#ef4444' : '#10b981';
+            toast.innerHTML = msg; toast.style.opacity = '1'; toast.style.bottom = '40px';
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.bottom = '20px'; }, 3000);
+        }
+
+        window.onload = () => {
+            const df = document.getElementById('dateFilter');
+            if (df && !df.value) {
+                const t = new Date();
+                df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+            }
+            // Default: All (total) — date input hidden
+            onDateModeChange();
+            fetchLiveStatus(); fetchTemplates(); fetchContacts();
+            setInterval(() => {
+                fetch('/status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => {
+                    renderSessionsUI(d.sessions || []);
+                    document.getElementById('autoReplyToggle').checked = d.autoReply;
+                    if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
+                }).catch(() => {});
+                fetchLiveStatus(); fetchStats();
+            }, 3000);
+        }
+
+        let selectedPairSessionId = null; let savedPairPhone = ''; let savedPairingCodeHTML = ''; let lastSessionsSnapshot = '';
+        function selectForPairing(id) { selectedPairSessionId = id; savedPairingCodeHTML = ''; fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {}); }
+
+        function renderSessionsUI(list, force) {
+            const box = document.getElementById('sessionsList'); 
+            const pick = document.getElementById('campaignSessionPick');
+            const scanPick = document.getElementById('scanSessionPick'); 
+            
+            const active = document.activeElement; if (active && active.id === 'pairPhone' && !force) return;
+            const phoneEl = document.getElementById('pairPhone'); if (phoneEl) savedPairPhone = phoneEl.value || savedPairPhone;
+            const codeEl = document.getElementById('pairingCodeDisplay'); if (codeEl && codeEl.innerHTML && codeEl.style.display !== 'none') { savedPairingCodeHTML = codeEl.innerHTML; }
+            const snap = JSON.stringify((list || []).map(s => [s.id, s.connected, s.resting, s.name, s.qrCode ? 1 : 0]));
+            if (!force && snap === lastSessionsSnapshot && box && box.innerHTML && selectedPairSessionId) {
+                (list || []).forEach(s => { if (!s.connected && s.qrCode) { const img = box.querySelector('img[data-sid="' + s.id + '"]'); if (img && img.getAttribute('src') !== s.qrCode) img.setAttribute('src', s.qrCode); } }); return;
+            }
+            lastSessionsSnapshot = snap;
+            
+            if (box) {
+                if (!list.length) { box.innerHTML = '<p style="color:#64748b;">Koi session nahi — Add WhatsApp dabao.</p>'; } 
+                else {
+                    box.innerHTML = list.map(s => {
+                        const status = s.connected ? (s.resting ? '<span style="color:#f59e0b">⏸️ Resting</span>' : '<span style="color:#10b981">✅ Connected</span>') : '<span style="color:#f59e0b">⏳ Waiting for login...</span>';
+                        const qr = (!s.connected && s.qrCode) ? `<div style="text-align:center; margin-top:15px;"><img data-sid="${s.id}" src="${s.qrCode}" style="width:160px; height:160px; border-radius:8px; border:2px solid #e2e8f0; padding:4px;"><p style="font-size:13px; color:#1e293b; font-weight:700; margin:5px 0;">📷 Scan QR Code</p><p style="font-size:12px; color:#94a3b8; margin:5px 0;">--- YA PHIR ---</p></div>` : (!s.connected ? `<div style="text-align:center; margin-top:10px; font-size:12px; color:#f59e0b;">⏳ QR Loading... (Thoda wait karein)</div>` : '');
+                        const isPairing = selectedPairSessionId === s.id; const phoneVal = (savedPairPhone || '').replace(/"/g, '&quot;');
+                        const codeBlock = (isPairing && savedPairingCodeHTML) ? `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;user-select:all;">${savedPairingCodeHTML}</div>` : `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;display:none;user-select:all;"></div>`;
+                        const pairPanel = isPairing ? (`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;"><div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>${s.name}</b></div><input type="text" id="pairPhone" inputmode="numeric" autocomplete="off" value="${phoneVal}" placeholder="WhatsApp number" style="text-align:center;font-size:16px;width:100%;" oninput="savedPairPhone=this.value"><button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode('${s.id}', false)">Get 8-Digit Code</button><button type="button" class="action-btn btn-success" style="margin-top:8px;" onclick="getPairingCode('${s.id}', true)">Fresh Code (reset session)</button>${codeBlock}</div>`) : '';
+                        const pairBtn = s.connected ? '' : `<button type="button" class="action-btn btn-sm btn-primary" style="width:auto;${isPairing ? 'outline:2px solid #2563eb;' : ''}" onclick="selectForPairing('${s.id}')">${isPairing ? '✓ Pairing selected' : 'Link with Phone Number (Code)'}</button>`;
+                        return `<div style="background:#fff;border:1px solid ${isPairing ? '#2563eb' : '#e2e8f0'};border-radius:12px;padding:14px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><strong>${s.name}</strong><span style="font-size:12px;">${status}</span></div>${qr}<div style="margin-top:8px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">${pairBtn}<button type="button" class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession('${s.id}')">Delete</button></div>${pairPanel}</div>`;
+                    }).join('');
+                }
+            }
+            
+            const populateCheckboxesWithSelectAll = (container, className) => {
+                if (!container) return;
+                const connected = list.filter(s => s.connected); 
+                const prevChecked = new Set(Array.from(container.querySelectorAll('.' + className + ':checked')).map(c => c.value));
+                if (!connected.length) { 
+                    container.innerHTML = '<span style="color:#ef4444;font-size:13px;">Pehle Device Settings se WhatsApp connect karo.</span>'; 
+                } else { 
+                    const allChecked = (prevChecked.size === connected.length || prevChecked.size === 0) ? 'checked' : '';
+                    let html = `<div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #e2e8f0;">
+                        <label style="display:inline-flex; align-items:center; gap:6px; font-size:14px; font-weight:700; color:#2563eb; cursor:pointer;">
+                            <input type="checkbox" id="selectAll_${className}" ${allChecked} onchange="
+                                const isChecked = this.checked; 
+                                document.querySelectorAll('.${className}').forEach(c => c.checked = isChecked);
+                            "> 
+                            ☑️ Select All (All On/Off)
+                        </label>
+                    </div>`;
+                    
+                    html += connected.map(s => { 
+                        const chk = prevChecked.size === 0 || prevChecked.has(s.id) ? 'checked' : ''; 
+                        return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;cursor:pointer;">
+                            <input type="checkbox" class="${className}" value="${s.id}" ${chk} onchange="
+                                const allBoxes = document.querySelectorAll('.${className}');
+                                const allCheckedBox = document.getElementById('selectAll_${className}');
+                                const anyUnchecked = Array.from(allBoxes).some(b => !b.checked);
+                                if(allCheckedBox) allCheckedBox.checked = !anyUnchecked;
+                            "> ${s.name}
+                        </label>`; 
+                    }).join(''); 
+                    container.innerHTML = html; 
+                }
+            };
+
+            populateCheckboxesWithSelectAll(pick, 'waSessionChk');
+            populateCheckboxesWithSelectAll(scanPick, 'scanSessionChk');
+        }
+
+        async function createWASession() { const name = (document.getElementById('newSessionName').value || '').trim(); await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); document.getElementById('newSessionName').value = ''; const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
+        async function deleteWASession(id) {
+            if (!confirm('Delete this WhatsApp session?')) return;
+            try {
+                const del = await fetch('/api/sessions/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const dj = await del.json().catch(() => ({}));
+                if (!del.ok || dj.success === false) {
+                    showToast(dj.error || 'Delete fail', true);
+                    return;
+                }
+                showToast('✅ WhatsApp session delete ho gaya');
+                await new Promise(r => setTimeout(r, 400));
+                const r = await fetch('/api/sessions?t=' + Date.now(), { cache: 'no-store' });
+                const d = await r.json();
+                renderSessionsUI(d.sessions || [], true);
+            } catch (e) {
+                showToast('Network error', true);
+            }
+        }
+
+        function showSection(id, btn) {
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
+            if (id === 'historySec') loadHistoryTable();
+        }
+
+        function toggleNightSleep() {
+            const isSleepOn = document.getElementById('nightSleepToggle').checked;
+            fetch('/api/toggle-sleep', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ disable: !isSleepOn }) });
+            showToast(isSleepOn ? "🌙 Night Sleep ON (Raat 10 baje pause hoga)" : "🚀 Night Sleep OFF (Aaj raat override ho gaya)");
+        }
+
+        function deleteCampaign(campaignId) {
+            const msg = campaignId
+                ? 'Is campaign ko delete / stop karein? History safe rahegi.'
+                : 'Saari active campaigns delete / stop? History safe rahegi.';
+            if (!confirm(msg)) return;
+            const btn = document.getElementById('deleteCampaignBtn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Deleting...'; }
+            fetch('/api/campaign/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campaignId ? { campaignId: campaignId } : {})
+            })
+                .then(r => r.json())
+                .then(d => {
+                    showToast(d.message || 'Campaign deleted');
+                    if (campaignId && selectedLiveCampaignId === campaignId) selectedLiveCampaignId = null;
+                    const pToggle = document.getElementById('pauseCampaignToggle');
+                    if (pToggle) pToggle.checked = false;
+                    const sendBtn = document.getElementById('sendBtn');
+                    if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
+                    fetchLiveStatus();
+                })
+                .catch(() => showToast('Network error', true))
+                .finally(() => {
+                    if (btn) { btn.disabled = false; btn.innerHTML = '🗑️ Delete Campaign(s)'; }
+                });
+        }
+
+        function togglePauseCampaign() {
+            const isPaused = document.getElementById('pauseCampaignToggle').checked;
+            fetch('/api/toggle-pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pause: isPaused }) });
+            if (isPaused) {
+                showToast('🛑 Campaign Stopped/Paused!', true);
+            } else {
+                showToast('🚀 Campaign Resumed!');
+            }
+        }
+
+        function onDateModeChange() {
+            const mode = (document.getElementById('dateMode') || {}).value || 'all';
+            const dateEl = document.getElementById('dateFilter');
+            const hint = document.getElementById('dateFilterHint');
+            if (dateEl) dateEl.style.display = (mode === 'day') ? 'block' : 'none';
+            if (hint) hint.textContent = mode === 'all' ? 'Saare din ke total sent / failed' : 'Selected date ke stats';
+            if (mode === 'day' && dateEl && !dateEl.value) {
+                const t = new Date();
+                dateEl.value = t.toISOString().slice(0, 10);
+            }
+            fetchStats();
+        }
+
+        function fetchStats() {
+            const mode = (document.getElementById('dateMode') || {}).value || 'all';
+            const dateEl = document.getElementById('dateFilter');
+            const q = (mode === 'day' && dateEl && dateEl.value) ? ('date=' + dateEl.value + '&') : '';
+            fetch('/api/stats?' + q + 't=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(d => {
+                const sent = d.sent || 0;
+                const failed = d.failed || 0;
+                const total = sent + failed;
+                const elS = document.getElementById('sentCount');
+                const elF = document.getElementById('failedCount');
+                if (elS) elS.innerText = sent;
+                if (elF) elF.innerText = failed;
+                const barS = document.getElementById('sentBar');
+                const barF = document.getElementById('failedBar');
+                if (barS) barS.style.width = total ? Math.round((sent / total) * 100) + '%' : '0%';
+                if (barF) barF.style.width = total ? Math.round((failed / total) * 100) + '%' : '0%';
+                const rate = document.getElementById('successRate');
+                if (rate) rate.innerText = total ? (Math.round((sent / total) * 100) + '%') : '—';
+            }).catch(() => {});
+        }
+        function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
+        function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => showToast('✅ मैसेज अपडेट हो गया।')) }
+
+        function fetchContacts() {
+            if (contactsSaveLock) return;
+            fetch('/api/contacts?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.json())
+                .then(data => {
+                    if (contactsSaveLock) return;
+                    allContacts = data;
+                    updateGroupDropdowns();
+                    renderGroupContacts();
+                }).catch(e => console.error(e));
+        }
+        function updateGroupDropdowns() {
+            const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
+            const prevG1 = g1.value; const prevG2 = g2.value; 
+            g1.innerHTML = '<option value="">-- ग्रुप सेलेक्ट करें --</option>'; g2.innerHTML = '<option value="">-- ग्रुप चुनें --</option>';
+            Object.keys(allContacts).forEach(g => { g1.innerHTML += `<option value="${g}">${g} (${allContacts[g].length})</option>`; g2.innerHTML += `<option value="${g}">${g} (${allContacts[g].length} Contacts)</option>`; });
+            if(allContacts[prevG1]) g1.value = prevG1; if(allContacts[prevG2]) g2.value = prevG2;
+        }
+        function createNewGroup() {
+            const name = document.getElementById('newGroupName').value.trim();
+            if(!name) return showToast("⚠️ कृपया ग्रुप का नाम लिखें!", true); if(allContacts[name]) return showToast("⚠️ यह ग्रुप पहले से मौजूद है!", true);
+            allContacts[name] = []; try { document.getElementById('newGroupName').value = ''; } catch(e){}
+            updateGroupDropdowns(); document.getElementById('groupSelect').value = name; renderGroupContacts(); showToast(`✅ '${name}' ग्रुप सफलतापूर्वक बन गया!`);
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
+        }
+        let contactListShowAll = false;
+        let contactListFilter = 'all'; // all | valid | invalid | pending
+
+        function renderGroupContacts() {
+            const g = document.getElementById('groupSelect').value;
+            const div = document.getElementById('contactManagerDiv');
+            const tbody = document.getElementById('contactTableBody');
+            if (!g) { div.style.display = 'none'; return; }
+            div.style.display = 'block';
+
+            let list = allContacts[g] || [];
+            if (contactListFilter === 'valid') list = list.filter(c => c.waStatus === 'valid');
+            else if (contactListFilter === 'invalid') list = list.filter(c => c.waStatus === 'invalid');
+            else if (contactListFilter === 'pending') list = list.filter(c => !c.waStatus || c.waStatus === 'pending');
+
+            const PAGE = 30;
+            const MAX_SHOW = contactListShowAll ? list.length : PAGE;
+            const show = list.slice(0, MAX_SHOW);
+            let html = '';
+            for (let i = 0; i < show.length; i++) {
+                const st = show[i].waStatus;
+                let badge = '<span style="color:#f59e0b">Pending</span>';
+                if (st === 'valid') badge = '<span style="color:#10b981">Valid ✅</span>';
+                if (st === 'invalid') badge = '<span style="color:#ef4444">Invalid ❌</span>';
+                html += `<tr><td>${show[i].name || 'Customer'}</td><td>${show[i].phone}</td><td>${badge}</td></tr>`;
+            }
+            if (list.length > MAX_SHOW) {
+                const left = list.length - MAX_SHOW;
+                html += `<tr style="cursor:pointer;background:#eff6ff;" onclick="contactListShowAll=true;renderGroupContacts()">
+                    <td colspan="3" style="text-align:center;color:#2563eb;font-size:14px;font-weight:700;padding:14px;">
+                        👇 ... और ${left} — क्लिक करके पूरी लिस्ट देखें (कुल ${list.length})
+                    </td>
+                </tr>`;
+            } else if (list.length > PAGE && contactListShowAll) {
+                html += `<tr style="cursor:pointer;background:#f8fafc;" onclick="contactListShowAll=false;renderGroupContacts()">
+                    <td colspan="3" style="text-align:center;color:#64748b;font-size:13px;padding:12px;">▲ कम दिखाएं (पहली ${PAGE})</td>
+                </tr>`;
+            }
+            tbody.innerHTML = html || `<tr><td colspan="3" style="text-align:center;color:#64748b;">इस फ़िल्टर में कोई नंबर नहीं</td></tr>`;
+        }
+        function addSingleContact() {
+            const g = document.getElementById('groupSelect').value; const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
+            if(!g) return showToast("⚠️ पहले ग्रुप सेलेक्ट करें!", true); if(!n || !p) return showToast("⚠️ नाम और नंबर दोनों डालें!", true);
+            allContacts[g].push({name: n, phone: p, waStatus: null}); 
+            try { document.getElementById('addName').value = ''; document.getElementById('addPhone').value = ''; } catch(e){}
+            renderGroupContacts(); updateGroupDropdowns(); document.getElementById('groupSelect').value = g; showToast(`✅ ${n} का नंबर जुड़ गया!`);
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
+        }
+
+        function fetchTemplates() { fetch('/api/templates?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }).catch(e => console.error(e)); }
+        function renderTemplates() {
+            const drop = document.getElementById('templateDropdown'); const prevSelected = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
+            drop.innerHTML = ''; document.getElementById('templateListArea').innerHTML = '';
+            allTemplates.forEach(t => {
+                const safeMessage = (t.message || '').substring(0, 40);
+                const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
+                if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
+                const btnInfo = (t.buttons && t.buttons.length) ? (' · 🔘 ' + t.buttons.map(b => b.text).join(', ')) : '';
+                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span><br><span style="font-size:11px;color:#059669;">${btnInfo}</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
+            }); applySelectedTemplates();
+        }
+        function collectTemplateButtons() {
+            const buttons = [];
+            for (let i = 1; i <= 3; i++) {
+                const text = (document.getElementById('tplBtn' + i + 'Text') || {}).value || '';
+                const type = (document.getElementById('tplBtn' + i + 'Type') || {}).value || 'reply';
+                const value = (document.getElementById('tplBtn' + i + 'Value') || {}).value || '';
+                if (String(text).trim() && String(value).trim()) {
+                    buttons.push({ text: String(text).trim(), type: type, value: String(value).trim() });
+                }
+            }
+            return buttons;
+        }
+        function fileKindFromMime(mime, fileName) {
+            const m = (mime || '').toLowerCase();
+            const n = (fileName || '').toLowerCase();
+            if (m.startsWith('image/')) return 'image';
+            if (m.startsWith('video/')) return 'video';
+            if (m.startsWith('audio/')) return 'audio';
+            if (n.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/)) return 'image';
+            if (n.match(/\.(mp4|mov|webm|mkv|3gp)$/)) return 'video';
+            return 'document';
+        }
+        function readFilesAsAttachments(fileList, maxFiles, maxEachMb) {
+            return new Promise((resolve, reject) => {
+                const files = Array.from(fileList || []).slice(0, maxFiles || 5);
+                if (!files.length) return resolve([]);
+                const out = [];
+                let i = 0;
+                const next = () => {
+                    if (i >= files.length) return resolve(out);
+                    const f = files[i++];
+                    if (f.size > (maxEachMb || 10) * 1024 * 1024) {
+                        return reject(new Error(f.name + ' bahut badi (max ' + (maxEachMb || 10) + 'MB)'));
+                    }
+                    const r = new FileReader();
+                    r.onload = e => {
+                        const mime = f.type || 'application/octet-stream';
+                        const name = f.name || ('file_' + i);
+                        out.push({
+                            fileBase64: e.target.result,
+                            fileMime: mime,
+                            fileName: name,
+                            fileKind: fileKindFromMime(mime, name)
+                        });
+                        next();
+                    };
+                    r.onerror = () => reject(new Error('File read fail: ' + f.name));
+                    r.readAsDataURL(f);
+                };
+                next();
+            });
+        }
+        async function saveNewTemplate() {
+            const name = document.getElementById('newTplName').value;
+            const msg = document.getElementById('newTplMsg').value;
+            const fileInput = document.getElementById('newTplImage');
+            if (!name || !msg) return showToast('⚠️ नाम और मैसेज डालना ज़रूरी है!', true);
+            const id = 'tpl_' + Date.now();
+            let attachments = [];
+            try {
+                attachments = await readFilesAsAttachments(fileInput.files, 5, 10);
+            } catch (e) {
+                return showToast('⚠️ ' + (e.message || 'File error'), true);
+            }
+            const first = attachments[0] || null;
+            const payload = {
+                id, name, message: msg,
+                attachments,
+                // backward compat (pehli file)
+                imageBase64: first ? first.fileBase64 : null,
+                fileBase64: first ? first.fileBase64 : null,
+                fileMime: first ? first.fileMime : null,
+                fileName: first ? first.fileName : null,
+                fileKind: first ? first.fileKind : null,
+                buttons: collectTemplateButtons()
+            };
+            doSaveTemplate(payload);
+        }
+        function doSaveTemplate(payload) {
+            allTemplates.push(payload);
+            try {
+                document.getElementById('newTplName').value = '';
+                document.getElementById('newTplMsg').value = '';
+                document.getElementById('newTplImage').value = '';
+                for (let i = 1; i <= 3; i++) {
+                    const t = document.getElementById('tplBtn' + i + 'Text'); if (t) t.value = '';
+                    const v = document.getElementById('tplBtn' + i + 'Value'); if (v) v.value = '';
+                }
+            } catch(e){}
+            renderTemplates(); document.getElementById('templateDropdown').value = payload.id; applySelectedTemplates(); showToast(`✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!`);
+            fetch('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }).catch(e => console.error("Template Save Error:", e));
+        }
+        function deleteTemplate(id) { 
+            if(!confirm("क्या आप सच में इसे डिलीट करना चाहते हैं?")) return;
+            allTemplates = allTemplates.filter(t => t.id !== id); renderTemplates(); showToast("🗑️ टेम्प्लेट डिलीट हो गया!", true);
+            fetch('/api/templates/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) }).catch(e => console.error(e)); 
+        }
+        function applySelectedTemplates() {
+            const drop = document.getElementById('templateDropdown'); const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
+            selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean); const preview = document.getElementById('selectedTemplatesPreview');
+            if (selectedTemplatesList.length === 0) { preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा.</p>'; return; }
+            let html = `<div style="display:flex; flex-direction:column; gap:12px;">`;
+            selectedTemplatesList.forEach((t, idx) => {
+                const atts = (t.attachments && t.attachments.length) ? t.attachments : (
+                    (t.fileBase64 || t.imageBase64) ? [{ fileBase64: t.fileBase64 || t.imageBase64, fileKind: t.fileKind || 'image', fileName: t.fileName }] : []
+                );
+                let mediaHtml = '';
+                if (!atts.length) {
+                    mediaHtml = `<div style="width:80px;height:80px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8;">No Media</div>`;
+                } else {
+                    mediaHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;max-width:140px;">';
+                    atts.slice(0, 4).forEach(a => {
+                        if (a.fileKind === 'image' && a.fileBase64) {
+                            mediaHtml += `<img src="${a.fileBase64}" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #e2e8f0;">`;
+                        } else {
+                            mediaHtml += `<div style="width:56px;height:56px;background:#eff6ff;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#1e40af;text-align:center;padding:2px;">📄</div>`;
+                        }
+                    });
+                    if (atts.length > 4) mediaHtml += `<div style="font-size:10px;color:#64748b;">+${atts.length - 4}</div>`;
+                    mediaHtml += '</div>';
+                }
+                html += `<div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;"><div style="flex-shrink:0;">${mediaHtml}</div><div style="flex:1; min-width:0;"><div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}${atts.length ? ' · ' + atts.length + ' files' : ''}</div><div style="font-size:12px; color:#475569; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${t.message || '(कोई मैसेज नहीं)'}</div></div></div>`;
+            }); preview.innerHTML = html + `</div>`;
+        }
+        function clearTemplateSelection() { Array.from(document.getElementById('templateDropdown').options).forEach(o => o.selected = false); selectedTemplatesList = []; document.getElementById('selectedTemplatesPreview').innerHTML = ''; }
+
+        function setUploadStatus(msg, color) {
+            let el = document.getElementById('uploadStatusMsg');
+            if (!el) { el = document.createElement('p'); el.id = 'uploadStatusMsg'; el.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;'; const box = document.getElementById('contactFileInput') || document.getElementById('campaignFileInput'); if (box && box.parentNode) box.parentNode.appendChild(el); }
+            el.style.display = msg ? 'block' : 'none'; el.style.color = color || '#f59e0b'; el.innerHTML = msg || '';
+        }
+        function extractDataFromFile(file, callback, onProgress) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext === 'pdf') {
+                const reader = new FileReader(); reader.onerror = () => { showToast('PDF read error', true); callback([]); };
+                reader.onload = async function(e) {
+                    try {
+                        const typedarray = new Uint8Array(e.target.result); const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise; const total = pdf.numPages; const phoneSet = new Set(); const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
+                        for (let i = 1; i <= total; i++) {
+                            if (onProgress) onProgress(i, total); const page = await pdf.getPage(i); const textContent = await page.getTextContent(); const pageText = textContent.items.map(item => item.str).join(' '); let m; regex.lastIndex = 0;
+                            while ((m = regex.exec(pageText)) !== null) { const num = m[0].replace(/\D/g, '').slice(-10); if (num.length === 10) phoneSet.add(num); }
+                            if (i % 3 === 0) await new Promise(r => setTimeout(r, 0));
+                        }
+                        callback(Array.from(phoneSet).map(num => ['Customer', num]));
+                    } catch (err) { showToast('PDF process error', true); callback([]); }
+                }; reader.readAsArrayBuffer(file);
+            } else if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
+                const reader = new FileReader(); reader.onload = function(e) { try { const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, { type: 'array' }); const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 }); callback(json); } catch (err) { showToast('Excel/CSV read error', true); callback([]); } }; reader.readAsArrayBuffer(file);
+            } else { showToast("केवल PDF, Excel या CSV फाइल ही अपलोड करें।", true); callback([]); }
+        }
+        function processCampaignFile(event) {
+            const file = event.target.files[0]; if (!file) return; setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
+            extractDataFromFile(file, (data) => {
+                let numbersStr = data.map(row => { let phone = row.length >= 2 ? String(row[1]) : String(row[0]); return phone ? phone.replace(/\D/g, '').slice(-10) : ''; }).filter(n => n.length === 10).join('\n');
+                let existing = document.getElementById('numbers').value; document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
+                const count = numbersStr ? numbersStr.split('\n').filter(Boolean).length : 0; setUploadStatus(`✅ ${count} numbers निकाले गए`, '#10b981'); showToast(`✅ ${count} नंबर निकाल लिए गए!`);
+                try { document.getElementById('campaignFileInput').value = ''; } catch(e){}
+            }, (page, total) => { setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b'); });
+        }
+        function processContactFile() {
+            const file = document.getElementById('contactFileInput').files[0]; const g = document.getElementById('groupSelect').value;
+            if (!file || !g) return showToast("⚠️ फाइल और ग्रुप दोनों सेलेक्ट करें!", true); setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
+            extractDataFromFile(file, (data) => {
+                if (!allContacts[g]) allContacts[g] = []; const existing = new Set(allContacts[g].map(c => c.phone)); let added = 0;
+                data.forEach(row => {
+                    if (!row || row.length === 0) return; let name = row.length >= 2 ? String(row[0]).trim() : 'Customer'; let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]); let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
+                    if (phone.length === 10 && !existing.has(phone)) { allContacts[g].push({ name: name, phone: phone }); existing.add(phone); added++; }
+                });
+                if (added > 0) { renderGroupContacts(); updateGroupDropdowns(); document.getElementById('groupSelect').value = g; fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }); setUploadStatus(`✅ ${added} numbers add हो गए`, '#10b981'); showToast(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए!`); } else { setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444'); showToast("⚠️ कोई नया सही मोबाइल नंबर नहीं मिला।", true); }
+                try { document.getElementById('contactFileInput').value = ''; } catch(e){}
+            }, (page, total) => { setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b'); });
+        }
+
+        async function scanCampaignNumbers() {
+            const ta = document.getElementById('numbers'); const status = document.getElementById('scanCampaignStatus'); const btn = document.getElementById('scanCampaignBtn');
+            let lines = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+            if (lines.length === 0) return showToast('⚠️ पहले नंबर डालो!', true);
+            if (lines.length > 10) { if (!confirm(`Anti-Ban: max 10 scan.\nOK = pehle 10 scan karo`)) return; lines = lines.slice(0, 10); }
+            btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b'; status.innerHTML = `⏳ Scanning ${lines.length}...`;
+            try {
+                const r = await fetch('/api/validate-numbers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: lines.map(n => ({ phone: n, name: 'Customer' })) }) });
+                const d = await r.json();
+                if (!d.success) { status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed'); return; }
+                const rest = ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(10);
+                ta.value = (d.valid || []).map(c => c.phone).concat(rest).join('\n');
+                status.style.color = '#10b981'; status.innerHTML = `✅ Scan: Valid <b>${d.validCount}</b> | Invalid: ${d.invalid} | Dup: ${d.duplicatesRemoved}`;
+            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 10) + Clean Duplicates'; }
+        }
+
+        async function scanNextInGroup(isAuto = false, retryCount = 0) {
+            const g = document.getElementById('groupSelect').value; const status = document.getElementById('scanContactStatus'); const btn = document.getElementById('scanContactBtn');
+            if (!g) { showToast('⚠️ Group select karo!', true); return false; }
+            const sessionIds = Array.from(document.querySelectorAll('.scanSessionChk:checked')).map(c => c.value);
+            if (!sessionIds.length) { showToast('⚠️ Scan ke liye kam se kam 1 WhatsApp select karo!', true); return false; }
+
+            btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b';
+            status.innerHTML = isAuto ? '⏳ Scan All… 5/batch + auto-retry' : '⏳ Scanning next 10...';
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(function () { controller.abort(); }, 120000);
+                const r = await fetch('/api/scan-next', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group: g, sessionIds, scanAll: !!isAuto }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                const d = await r.json();
+                if (!d.success) {
+                    status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed');
+                    btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
+                    return false;
+                }
+                status.style.color = '#10b981';
+                const pendingLeft = (d.groupStats && d.groupStats.pending != null) ? d.groupStats.pending : '?';
+                status.innerHTML = '✅ +' + d.scanned + ' (Valid ' + d.valid + ' / Invalid ' + d.invalid + ')' +
+                    (d.waUsed ? (' · ' + d.waUsed + ' WA · ' + (d.delayMode || '')) : '') +
+                    ' · Pending left: ' + pendingLeft +
+                    (d.unlimited ? ' · No daily limit' : '');
+                fetchContacts();
+                btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
+
+                if (isAuto === true) {
+                    return (d.scanned > 0 && d.groupStats && d.groupStats.pending > 0);
+                }
+            } catch (e) {
+                if (isAuto && retryCount < 3 && isAutoScanningAll) {
+                    status.style.color = '#f59e0b';
+                    status.innerHTML = '⚠️ Network blip — retry ' + (retryCount + 1) + '/3 (5 sec)...';
+                    await new Promise(function (r) { setTimeout(r, 5000); });
+                    if (!isAutoScanningAll) return false;
+                    return await scanNextInGroup(true, retryCount + 1);
+                }
+                status.style.color = '#ef4444';
+                status.innerHTML = '❌ Network error' + (isAuto ? ' — Stop ho gaya. Dubara Scan All; pehle scanned safe hain' : '');
+                btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
+                return false;
+            }
+        }
+
+        let isAutoScanningAll = false;
+        async function toggleScanAll() {
+            const btn = document.getElementById('scanAllBtn');
+            if (isAutoScanningAll) {
+                isAutoScanningAll = false;
+                btn.innerHTML = '🔍 Scan All Pending';
+                btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                return;
+            }
+            
+            const g = document.getElementById('groupSelect').value;
+            if (!g) return showToast('⚠️ Pehle group select karo!', true);
+            
+            isAutoScanningAll = true;
+            btn.innerHTML = '🛑 Stop Scanning';
+            btn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+            showToast("⏳ Auto-scanning chalu ho gayi hai...");
+            
+            while (isAutoScanningAll) {
+                const hasMore = await scanNextInGroup(true);
+                if (!hasMore) {
+                    isAutoScanningAll = false;
+                    break;
+                }
+                await new Promise(r => setTimeout(r, 2000));
+            }
+            
+            btn.innerHTML = '🔍 Scan All Pending';
+            btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+            if (!isAutoScanningAll) showToast("✅ Scan All process pura ho gaya ya limit poori ho gayi!");
+        }
+
+        function downloadValidNumbersPDF() {
+            const g = document.getElementById('groupSelect').value;
+            if(!g || !allContacts[g]) return showToast("⚠️ Pehle group select karo!", true);
+            const validList = (allContacts[g] || []).filter(c => c.waStatus === 'valid');
+            if(validList.length === 0) return showToast("⚠️ Is group mein koi bhi Valid WhatsApp number nahi mila! Pehle scan karo.", true);
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.text(`Valid WhatsApp Numbers - Group: ${g}`, 14, 20);
+            const tableRows = validList.map((c, idx) => [idx + 1, c.name || 'Customer', c.phone]);
+            doc.autoTable({ head: [["#", "Name", "Mobile Number"]], body: tableRows, startY: 30 });
+            doc.save(`${g}_Valid_WhatsApp_Numbers.pdf`);
+            showToast(`✅ ${validList.length} valid numbers ki PDF download ho gayi!`);
+        }
+
+        let contactsSaveLock = false;
+        function removeInvalidNumbers() {
+            const g = document.getElementById('groupSelect').value;
+            if (!g || !allContacts[g]) return showToast('⚠️ Pehle group select karo!', true);
+            const invalidCount = allContacts[g].filter(c => c.waStatus === 'invalid').length;
+            if (invalidCount === 0) return showToast('Is group mein koi Invalid number nahi hai.', true);
+            if (!confirm('Group "' + g + '" se ' + invalidCount + ' Invalid numbers delete karein?\nValid + Pending list mein rahenge.')) return;
+            contactsSaveLock = true;
+            contactListFilter = 'all';
+            contactListShowAll = false;
+            fetch('/api/contacts/remove-invalid', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group: g })
+            }).then(r => r.json()).then(d => {
+                if (!d.success) {
+                    contactsSaveLock = false;
+                    return showToast(d.error || 'Delete fail', true);
+                }
+                if (d.contacts) allContacts = d.contacts;
+                else allContacts[g] = (allContacts[g] || []).filter(c => c.waStatus !== 'invalid');
+                renderGroupContacts();
+                updateGroupDropdowns();
+                document.getElementById('groupSelect').value = g;
+                showToast('✅ ' + (d.removed || invalidCount) + ' invalid delete. Ab ' + (d.remaining != null ? d.remaining : allContacts[g].length) + ' numbers');
+                setTimeout(function () { contactsSaveLock = false; }, 2000);
+            }).catch(() => {
+                contactsSaveLock = false;
+                showToast('Network error', true);
+            });
+        }
+
+        let selectedLiveCampaignId = null;
+
+        function renderOneCampaignBody(camp) {
+            let html = '';
+            const nums = camp.numbers || [];
+            let sessionsMap = {};
+            let pendingList = [];
+            nums.forEach(item => {
+                const st = String(item.status || '');
+                const state = item.state || (st.includes('Pending') ? 'pending' : (st.includes('Sent') ? 'sent' : 'failed'));
+                if (state === 'pending' || st.includes('Pending')) {
+                    pendingList.push(item);
+                    return;
+                }
+                let sName = item.session || 'Device';
+                if (!item.session) {
+                    const match = st.match(/\(([^)/]+)/);
+                    if (match) sName = match[1].trim();
+                }
+                if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] };
+                if (state === 'sent' || st.includes('Sent')) sessionsMap[sName].sent++;
+                else sessionsMap[sName].failed++;
+                sessionsMap[sName].list.push(item);
+            });
+
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;">';
+            html += '<div style="font-size:13px;font-weight:700;color:#0f172a;">' + (camp.name || 'Campaign') + '</div>';
+            html += '<button type="button" class="action-btn btn-danger btn-sm" style="width:auto;padding:8px 12px;" onclick="deleteCampaign(\'' + camp.id + '\')">🗑️ Delete this</button>';
+            html += '</div>';
+            html += '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">Sent ' + (camp.sent || 0) + ' · Failed ' + (camp.failed || 0) + ' · Pending ' + (camp.pending || 0) + ' · Status: ' + (camp.status || '') + '</div>';
+
+            if (pendingList.length) {
+                html += '<div style="margin-bottom:14px;border:1px solid #fde68a;border-radius:12px;overflow:hidden;">';
+                html += '<div style="background:#fffbeb;padding:10px 14px;cursor:pointer;" onclick="var b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\'"><strong style="color:#b45309;">⏳ Pending ' + pendingList.length + '</strong> · tap</div>';
+                html += '<div style="display:none;max-height:180px;overflow-y:auto;padding:6px 10px;">';
+                pendingList.forEach(item => {
+                    html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:13px;"><span>' + item.phone + '</span><span style="color:#d97706;">Pending</span></div>';
+                });
+                html += '</div></div>';
+            }
+
+            Object.keys(sessionsMap).forEach(sName => {
+                const sData = sessionsMap[sName];
+                html += '<div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">';
+                html += '<div style="background:#f8fafc;padding:10px 14px;display:flex;justify-content:space-between;"><strong style="font-size:13px;">📱 ' + sName + '</strong><span style="font-size:12px;"><span style="color:#059669;font-weight:700;margin-right:8px;">' + sData.sent + ' sent</span><span style="color:#dc2626;font-weight:700;">' + sData.failed + ' failed</span></span></div>';
+                html += '<div style="max-height:240px;overflow-y:auto;padding:6px 10px;">';
+                sData.list.reverse().forEach(item => {
+                    const isSent = item.state === 'sent' || String(item.status).includes('Sent');
+                    const tpl = item.template || '';
+                    html += '<div style="padding:8px 4px;border-bottom:1px solid #f1f5f9;"><div style="display:flex;justify-content:space-between;font-size:13px;"><span style="font-weight:600;">' + item.phone + '</span><span style="color:' + (isSent ? '#059669' : '#dc2626') + ';font-weight:700;font-size:12px;">' + (isSent ? 'Sent' : 'Failed') + '</span></div>';
+                    html += '<div style="font-size:11px;color:#64748b;margin-top:2px;">WA: <b style="color:#2563eb;">' + sName + '</b>' + (tpl ? ' · Template: <b style="color:#7c3aed;">' + tpl + '</b>' : '') + '</div></div>';
+                });
+                html += '</div></div>';
+            });
+            return html || '<div style="padding:16px;text-align:center;color:#94a3b8;">No numbers yet</div>';
+        }
+
+        function fetchLiveStatus() {
+            fetch('/api/live-status?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(data => {
+                if (data.sleepDisabled !== undefined) {
+                    const toggle = document.getElementById('nightSleepToggle');
+                    if (toggle) toggle.checked = !data.sleepDisabled;
+                }
+                if (data.isPaused !== undefined) {
+                    const pToggle = document.getElementById('pauseCampaignToggle');
+                    if (pToggle) pToggle.checked = data.isPaused;
+                }
+
+                const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+                setTxt('liveStatTotal', data.total || 0);
+                setTxt('liveStatSent', data.sent || 0);
+                setTxt('liveStatFailed', data.failed || 0);
+                setTxt('liveStatPending', data.pending || 0);
+
+                const camps = (data.campaigns || []).filter(c => c.isActive);
+                const tabs = document.getElementById('liveCampaignTabs');
+                const banner = document.getElementById('liveStatusBanner');
+                const listEl = document.getElementById('liveList');
+
+                if (!camps.length) {
+                    if (tabs) tabs.innerHTML = '';
+                    if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
+                    if (listEl) listEl.innerHTML = '<div style="padding:28px 16px;text-align:center;color:#94a3b8;font-size:14px;">No active campaign · alag WA se 2 campaigns saath chal sakti hain</div>';
+                    selectedLiveCampaignId = null;
+                    const btn = document.getElementById('sendBtn');
+                    if (btn) { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
+                    return;
+                }
+
+                if (!selectedLiveCampaignId || !camps.find(c => c.id === selectedLiveCampaignId)) {
+                    selectedLiveCampaignId = camps[0].id;
+                }
+
+                if (tabs) {
+                    tabs.innerHTML = camps.map(c => {
+                        const on = c.id === selectedLiveCampaignId;
+                        return '<button type="button" onclick="selectedLiveCampaignId=\'' + c.id + '\';fetchLiveStatus()" style="flex-shrink:0;border:none;padding:10px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;background:' + (on ? '#2563eb' : '#e2e8f0') + ';color:' + (on ? '#fff' : '#334155') + ';">' + (c.name || c.id).substring(0, 28) + (c.name && c.name.length > 28 ? '…' : '') + '</button>';
+                    }).join('');
+                }
+
+                const camp = camps.find(c => c.id === selectedLiveCampaignId) || camps[0];
+                if (banner) {
+                    banner.style.display = 'block';
+                    if (camp.isPaused) {
+                        banner.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:12px;text-align:center;font-weight:700;">🛑 This campaign paused</div>';
+                    } else if (camp.status === 'resting' || camp.status === 'night_rest') {
+                        banner.innerHTML = '<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:12px;text-align:center;font-weight:600;">⏸️ ' + (camp.restReason || 'Rest') + '</div>';
+                    } else {
+                        banner.innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:12px;border-radius:12px;text-align:center;font-size:13px;font-weight:600;">🚀 ' + camps.length + ' parallel campaign(s) · viewing: ' + (camp.name || '') + '</div>';
+                    }
+                }
+                if (listEl) listEl.innerHTML = renderOneCampaignBody(camp);
+
+                const btn = document.getElementById('sendBtn');
+                if (btn) { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
+            }).catch(() => {});
+        }
+
+        function toggleTargetInput() { const t = document.getElementById('targetType').value; document.getElementById('groupTargetDiv').style.display = (t === 'group') ? 'block' : 'none'; document.getElementById('manualTargetDiv').style.display = (t === 'manual') ? 'block' : 'none'; }
+        
+        async function startSending() {
+            let finalNumbers = []; const targetType = document.getElementById('targetType').value;
+            if (targetType === 'group') {
+                const g = document.getElementById('campaignGroupDropdown').value;
+                if (!g || !allContacts[g]) return showToast('⚠️ कृपया एक ग्रुप चुनें!', true);
+                finalNumbers = (allContacts[g] || []).filter(c => c.waStatus === 'valid');
+                if (finalNumbers.length === 0) return showToast('⚠️ Is group mein koi Valid number nahi. Pehle scan karo.', true);
+                const skipped = allContacts[g].length - finalNumbers.length;
+                if (skipped > 0) showToast('ℹ️ ' + finalNumbers.length + ' Valid pe bhejenge · ' + skipped + ' Pending/Invalid skip');
+            } else {
+                const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
+                finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
+            }
+            applySelectedTemplates();
+            const msg = document.getElementById('message').value;
+            const fileInput = document.getElementById('imageFile');
+            if (selectedTemplatesList.length > 0) {
+                doSend(finalNumbers, msg, null, [], selectedTemplatesList);
+                return;
+            }
+            readFilesAsAttachments(fileInput.files, 5, 10).then(atts => {
+                doSend(finalNumbers, msg, atts[0] ? atts[0].fileBase64 : null, atts, []);
+            }).catch(e => showToast('⚠️ ' + (e.message || 'File error'), true));
+        }
+        
+        function doSend(numsObjArray, msg, imgBase64, campaignAttachments, templatesArr) {
+            const minD = document.getElementById('minDelay').value, maxD = document.getElementById('maxDelay').value;
+            if (parseInt(minD) >= parseInt(maxD)) return showToast('⚠️ अधिकतम समय ज़्यादा होना चाहिए!', true);
+            if (numsObjArray.length === 0) return showToast('⚠️ नंबर लिस्ट खाली है!', true);
+            const atts = campaignAttachments || [];
+            if ((!templatesArr || templatesArr.length === 0) && !msg && !imgBase64 && !atts.length) return showToast('⚠️ टेम्प्लेट चुनें या मैसेज/फाइल डालें!', true);
+            const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
+            if (!sessionIds.length) return showToast('⚠️ कम से कम 1 WhatsApp सेलेक्ट करें।', true);
+            document.getElementById('sendBtn').disabled = true; document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
+            const batchEl = document.getElementById('customBatch');
+            const restEl = document.getElementById('customRestHours');
+            const customBatch = batchEl && batchEl.value ? parseInt(batchEl.value, 10) : null;
+            const customRestHours = restEl && restEl.value ? parseFloat(restEl.value) : null;
+            const payload = {
+                numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD,
+                imageBase64: imgBase64,
+                attachments: atts,
+                sessionIds,
+                customBatch: (customBatch && customBatch > 0) ? customBatch : null,
+                customRestHours: (customRestHours && customRestHours > 0) ? customRestHours : null,
+                templates: (templatesArr || []).map(t => {
+                    let attachments = Array.isArray(t.attachments) ? t.attachments : [];
+                    if (!attachments.length && (t.fileBase64 || t.imageBase64)) {
+                        attachments = [{
+                            fileBase64: t.fileBase64 || t.imageBase64,
+                            fileMime: t.fileMime || null,
+                            fileName: t.fileName || null,
+                            fileKind: t.fileKind || null
+                        }];
+                    }
+                    return {
+                        name: t.name,
+                        message: t.message,
+                        attachments,
+                        imageBase64: t.imageBase64 || t.fileBase64 || null,
+                        fileBase64: t.fileBase64 || t.imageBase64 || null,
+                        fileMime: t.fileMime || null,
+                        fileName: t.fileName || null,
+                        fileKind: t.fileKind || null,
+                        buttons: t.buttons || []
+                    };
+                })
             };
             fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(async (r) => {
                 const d = await r.json().catch(() => ({})); if (!r.ok || d.success === false) { showToast(d.error || 'Start failed', true); document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; return; }
