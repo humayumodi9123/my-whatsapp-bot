@@ -1,904 +1,1293 @@
-const express = require('express');
-const cors = require('cors');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode');
-const fs = require('fs');
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing Dashboard Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- PDF & Excel/CSV Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';</script>
 
-// Render crash prevent — Baileys errors process ko kill na karein
-process.on('unhandledRejection', (err) => {
-    console.error('[unhandledRejection]', err && err.message ? err.message : err);
-});
-process.on('uncaughtException', (err) => {
-    console.error('[uncaughtException]', err && err.message ? err.message : err);
-});
+    <style>
+        :root { --primary: #2563eb; --secondary: #1e293b; --bg-color: #f1f5f9; --card-bg: #ffffff; --text-main: #334155; --text-muted: #64748b; --border-color: #e2e8f0; --success: #10b981; --danger: #ef4444; --warning: #f59e0b; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        .topbar { width: 100%; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 16px 24px; display: flex; align-items: center; position: fixed; top: 0; z-index: 1001; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); box-sizing: border-box; }
+        .menu-toggle { background: rgba(255, 255, 255, 0.1); border: none; color: white; font-size: 20px; cursor: pointer; padding: 8px 12px; border-radius: 8px; transition: 0.3s; }
+        .brand-title { margin: 0 0 0 20px; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; background: linear-gradient(to right, #60a5fa, #ffffff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        
+        .sidebar { width: 260px; background: var(--card-bg); height: 100%; position: fixed; left: -260px; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); padding-top: 80px; border-right: 1px solid var(--border-color); z-index: 1000; box-shadow: 4px 0 15px rgba(0,0,0,0.03); display: flex; flex-direction: column; }
+        .sidebar.active { left: 0; }
+        .sidebar-menu { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+        .sidebar-btn { display: block; width: 90%; margin: 8px auto; padding: 14px 20px; text-align: left; background: none; border: none; font-size: 15px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-radius: 10px; transition: all 0.3s ease; }
+        .sidebar-btn:hover { background: #f8fafc; color: var(--secondary); transform: translateX(5px); }
+        .sidebar-btn.active { background: #eff6ff; color: var(--primary); border-left: 4px solid var(--primary); }
+        
+        .main-content { margin-top: 65px; padding: 20px; width: 100%; height: calc(100vh - 65px); box-sizing: border-box; overflow-y: auto; padding-bottom: 120px; scrollbar-width: thin; }
+        .content-section { display: none; max-width: 850px; margin: 0 auto; background: var(--card-bg); padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid rgba(255, 255, 255, 0.5); animation: fadeIn 0.4s ease-out; }
+        .content-section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        h2.section-title { color: var(--secondary); font-weight: 700; font-size: 22px; margin-top: 0; margin-bottom: 25px; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; }
+        
+        .stats-grid { display: flex; gap: 15px; margin-top: 20px; }
+        .stat-card { flex: 1; background: #ffffff; padding: 20px; border-radius: 16px; text-align: center; border: 1px solid var(--border-color); }
+        .stat-card.success { border-bottom: 4px solid var(--success); }
+        .stat-card.failed { border-bottom: 4px solid var(--danger); }
+        .stat-card h3 { margin: 0 0 10px 0; font-size: 13px; color: var(--text-muted); text-transform: uppercase; }
+        .stat-card .number { font-size: 36px; font-weight: 700; }
+        .number.green { color: var(--success); } .number.red { color: var(--danger); }
+        
+        .form-group { margin-bottom: 20px; }
+        label { font-weight: 600; color: var(--text-main); font-size: 14px; display: block; margin-bottom: 8px; }
+        textarea, input, select { width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 15px; background: #f8fafc; transition: all 0.3s; }
+        textarea:focus, input:focus, select:focus { outline: none; border-color: var(--primary); background: #ffffff; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+        
+        .action-btn { width: 100%; padding: 16px; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+        .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%); }
+        .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+        .btn-sm { padding: 10px 15px; font-size: 14px; border-radius: 8px; }
 
-let MongoClient = null;
-try { MongoClient = require('mongodb').MongoClient; } catch (e) { console.log('mongodb package not installed'); }
+        .delay-box { display: flex; gap: 15px; margin-bottom: 25px; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.static(__dirname));
+        .contact-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .contact-table th, .contact-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+        .contact-table th { background: #f8fafc; color: var(--secondary); }
+        
+        .switch-wrapper { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+        .switch-text h3 { margin: 0 0 5px 0; color: var(--secondary); font-size: 17px; }
+        .switch-text p { margin: 0; color: var(--text-muted); font-size: 13px; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(22px); }
+        
+        /* 🌟 NEW: Danger Slider for Stop Button */
+        input:checked + .slider.slider-danger { background-color: var(--danger); }
 
-const sessions = new Map();
-const deletedSessionIds = new Set(); // user-deleted — reconnect mat karo
-const SESSION_BATCH = 30;          
-const SESSION_REST_MS = 2 * 60 * 60 * 1000;
-let skipSleepUntil = 0;
+        #appToast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 30px; font-weight: 600; font-size: 14px; color: #fff; z-index: 9999; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); opacity: 0; pointer-events: none; }
 
-let isAutoReplyEnabled = true;
-let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n*1️⃣* - सर्विस और प्रोडक्ट\n*2️⃣* - प्राइस लिस्ट\n*3️⃣* - हमसे बात करने के लिए`;
+        @media (max-width: 768px) { .content-section { padding: 20px; } .stats-grid, .delay-box { flex-direction: column; } }
+    </style>
+</head>
+<body>
 
-function listSessionsPublic() {
-    return Array.from(sessions.values()).map(s => ({
-        id: s.id, name: s.name, connected: !!s.connected, qrCode: s.qrCode || null,
-        restUntil: s.restUntil || null, resting: !!(s.restUntil && Date.now() < s.restUntil),
-        sentInBatch: s.sentInBatch || 0, batchSize: s.batchSize || SESSION_BATCH
-    }));
-}
-function anyConnected() { return Array.from(sessions.values()).some(s => s.connected && s.sock); }
+    <div id="appToast"></div>
 
-function getSelectedOrRandomSock(sessionIds) {
-    let activeSessions = Array.from(sessions.values()).filter(s => s.connected && s.sock);
-    if (sessionIds && sessionIds.length > 0) {
-        let filtered = activeSessions.filter(s => sessionIds.includes(s.id));
-        if (filtered.length > 0) activeSessions = filtered;
-    }
-    if (activeSessions.length === 0) return null;
-    const randomIndex = Math.floor(Math.random() * activeSessions.length);
-    return activeSessions[randomIndex].sock;
-}
+    <div class="topbar">
+        <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('active')">&#9776;</button>
+        <h2 class="brand-title">Website Banane Wala</h2>
+    </div>
 
-function getSession(id) { return sessions.get(id) || null; }
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-menu">
+            <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
+            <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
+            <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
+            <button class="sidebar-btn" onclick="showSection('historySec', this)">📜 Campaign History</button>
+            <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contact Book</button>
+            <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Template Manager</button>
+            <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
+            <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
+        </div>
+    </div>
 
-const statsFile = __dirname + '/stats.json';
-const historyFile = __dirname + '/history.json';
-const templatesFile = __dirname + '/templates.json';
-const contactsFile = __dirname + '/contacts.json';
-const connectionMetaFile = __dirname + '/connection_meta.json';
+    <div class="main-content">
+        <!-- 1. Dashboard -->
+        <div id="dashboard" class="content-section active">
+            <h2 class="section-title">Overview & Analytics</h2>
 
-const MONGODB_URI = process.env.MONGODB_URI || '';
-let mongoClient = null;
-let db = null;
-let useMongo = false;
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;margin-bottom:18px;">
+                <label style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;display:block;">Date filter</label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <select id="dateMode" onchange="onDateModeChange()" style="width:auto;min-width:120px;margin:0;background:#fff;flex-shrink:0;">
+                        <option value="all" selected>All (total)</option>
+                        <option value="day">By date</option>
+                    </select>
+                    <input type="date" id="dateFilter" onchange="fetchStats()" style="margin:0;background:#fff;flex:1;min-width:140px;display:none;">
+                </div>
+                <p id="dateFilterHint" style="margin:8px 0 0;font-size:11px;color:#94a3b8;">Saare din ke total sent / failed</p>
+            </div>
 
-let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {} };
+            <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:18px;">
+                <div style="background:linear-gradient(145deg,#ecfdf5,#d1fae5);border-radius:16px;padding:20px 18px;border:1px solid #a7f3d0;box-shadow:0 4px 14px rgba(16,185,129,0.12);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div>
+                            <div style="font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#047857;font-weight:700;">Messages Sent</div>
+                            <div id="sentCount" style="font-size:36px;font-weight:800;color:#059669;margin-top:6px;line-height:1;">0</div>
+                        </div>
+                        <div style="width:48px;height:48px;border-radius:14px;background:rgba(5,150,105,0.15);display:flex;align-items:center;justify-content:center;font-size:22px;">✓</div>
+                    </div>
+                    <div style="margin-top:12px;height:4px;background:rgba(5,150,105,0.2);border-radius:4px;overflow:hidden;">
+                        <div id="sentBar" style="height:100%;width:0%;background:#059669;border-radius:4px;transition:width 0.4s;"></div>
+                    </div>
+                </div>
 
-async function initMongo() {
-    if (!MONGODB_URI || !MongoClient) {
-        cache.contacts = getJsonFile(contactsFile) || {}; cache.templates = getJsonFile(templatesFile) || [];
-        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {};
-        return;
-    }
-    try {
-        mongoClient = new MongoClient(MONGODB_URI);
-        await mongoClient.connect();
-        db = mongoClient.db('whatsapp_bot');
-        useMongo = true;
+                <div style="background:linear-gradient(145deg,#fef2f2,#fee2e2);border-radius:16px;padding:20px 18px;border:1px solid #fecaca;box-shadow:0 4px 14px rgba(239,68,68,0.1);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <div>
+                            <div style="font-size:11px;letter-spacing:0.7px;text-transform:uppercase;color:#b91c1c;font-weight:700;">Failed Delivery</div>
+                            <div id="failedCount" style="font-size:36px;font-weight:800;color:#dc2626;margin-top:6px;line-height:1;">0</div>
+                        </div>
+                        <div style="width:48px;height:48px;border-radius:14px;background:rgba(220,38,38,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;color:#dc2626;font-weight:800;">✕</div>
+                    </div>
+                    <div style="margin-top:12px;height:4px;background:rgba(220,38,38,0.15);border-radius:4px;overflow:hidden;">
+                        <div id="failedBar" style="height:100%;width:0%;background:#dc2626;border-radius:4px;transition:width 0.4s;"></div>
+                    </div>
+                </div>
+            </div>
 
-        const col = (name) => db.collection(name);
-        const contactsDoc = await col('contacts').findOne({ _id: 'main' });
-        const templatesDoc = await col('templates').findOne({ _id: 'main' });
-        const historyDoc = await col('history').findOne({ _id: 'main' });
-        const statsDoc = await col('stats').findOne({ _id: 'main' });
-        const metaDoc = await col('meta').findOne({ _id: 'main' });
+            <div id="dashSummary" style="background:#0f172a;color:#e2e8f0;border-radius:14px;padding:14px 16px;margin-bottom:18px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span style="color:#94a3b8;">Success rate</span>
+                <span id="successRate" style="font-weight:800;font-size:16px;color:#34d399;">—</span>
+            </div>
 
-        cache.contacts = (contactsDoc && contactsDoc.data) ? contactsDoc.data : {};
-        cache.templates = (templatesDoc && templatesDoc.data) ? templatesDoc.data : [];
-        cache.history = (historyDoc && historyDoc.data) ? historyDoc.data : [];
-        cache.stats = (statsDoc && statsDoc.data) ? statsDoc.data : {};
-        cache.meta = (metaDoc && metaDoc.data) ? metaDoc.data : {};
-    } catch (e) { useMongo = false; }
-}
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <button class="action-btn btn-success" style="padding:14px 12px;font-size:14px;border-radius:12px;" onclick="downloadHistory()">📥 CSV</button>
+                <button class="action-btn btn-danger" style="padding:14px 12px;font-size:14px;border-radius:12px;" onclick="downloadPDF()">📄 PDF</button>
+            </div>
+        </div>
 
-async function persist(key, data) {
-    cache[key] = data;
-    if (useMongo && db) {
-        try { await db.collection(key).updateOne({ _id: 'main' }, { $set: { data, updatedAt: new Date() } }, { upsert: true }); } catch (e) {}
-    } else {
-        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile };
-        if (map[key]) saveJsonFile(map[key], data);
-    }
-}
+        <!-- 2. Campaign Sender -->
+        <div id="sendMsg" class="content-section">
+            <h2 class="section-title">New Marketing Campaign</h2>
+            <div style="background: linear-gradient(135deg,#ecfdf5,#f0fdf4); border:1px solid #86efac; border-radius:14px; padding:16px; margin-bottom:20px;">
+                <div style="font-weight:700; color:#065f46; font-size:15px; margin-bottom:8px;">🛡️ Anti-Ban AI Rules (auto ON)</div>
+                <ul style="margin:0; padding-left:18px; font-size:12px; color:#166534; line-height:1.6;">
+                    <li>Scan: <b>max 10 numbers</b> ek baar</li>
+                    <li>Auto batch: <b>30 / 40 / 50</b> msgs → phir <b>2 hours rest</b></li>
+                    <li>Daily limit: naya account ~80, baad mein max ~200 / day</li>
+                    <li>Time window: <b>8 AM – 10 PM IST</b> only</li>
+                </ul>
+            </div>
+            
+            <div class="form-group" style="background: #eff6ff; padding: 15px; border-radius: 12px; border: 1px dashed #2563eb;">
+                <label style="color: #2563eb;">📂 मल्टीपल टेम्प्लेट चुनें (AI Smart Mix):</label>
+                <select id="templateDropdown" multiple size="5" style="height:120px;" onchange="applySelectedTemplates()"></select>
+                <div id="selectedTemplatesPreview" style="margin-top:12px;"></div>
+            </div>
 
-function getJsonFile(file) { try { return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)) : null; } catch(e) { return null; } }
-function saveJsonFile(file, data) { try { fs.writeFileSync(file, JSON.stringify(data, null, 2)); } catch(e) {} }
+            <div class="form-group" style="background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <label>🎯 किसे मैसेज भेजना है?</label>
+                <select id="targetType" onchange="toggleTargetInput()">
+                    <option value="group">Contact Book (Group) से चुनें</option>
+                    <option value="manual">मैन्युअल नंबर / फाइल अपलोड करें</option>
+                </select>
+                
+                <div id="groupTargetDiv" style="margin-top: 15px;">
+                    <select id="campaignGroupDropdown"><option value="">-- ग्रुप चुनें --</option></select>
+                </div>
 
-function getStats() { return cache.stats || {}; }
-function saveStats(date, sent, failed) {
-    const stats = getStats();
-    if (!stats[date]) stats[date] = { sent: 0, failed: 0 };
-    stats[date].sent += sent; stats[date].failed += failed;
-    persist('stats', stats);
-}
+                <div id="manualTargetDiv" style="display: none; margin-top: 15px;">
+                    <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #10b981; margin-bottom: 10px;">
+                        <label style="color: #10b981;">📄 PDF या Excel (CSV) फाइल से नंबर निकालें:</label>
+                        <input type="file" id="campaignFileInput" accept=".csv, .xlsx, .xls, .pdf" onchange="processCampaignFile(event)">
+                    </div>
+                    <textarea id="numbers" placeholder="यहाँ नंबर पेस्ट करें..." style="height:100px;"></textarea>
+                    <button class="action-btn btn-success btn-sm" style="margin-top:10px;" id="scanCampaignBtn" onclick="scanCampaignNumbers()">🔍 Scan (max 10) + Clean Duplicates</button>
+                    <p id="scanCampaignStatus" style="font-size:13px; margin-top:8px; display:none;"></p>
+                </div>
+            </div>
 
-function getHistory() { return cache.history || []; }
-function addHistory(number, messageSent, sessionName) {
-    const istTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    let list = getHistory(); 
-    list.push({ number: number, message: messageSent, session: sessionName || 'Unknown', date: istTime });
-    if (list.length > 50000) list = list.slice(-50000);
-    persist('history', list);
-}
+            <div class="form-group">
+                <label>Attachments (multi — photo / PDF / Excel / any):</label>
+                <input type="file" id="imageFile" accept="*/*" multiple onchange="clearTemplateSelection()">
+                <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max 5 files · template use karte ho to yahan ki files skip</p>
+            </div>
+            <div class="form-group">
+                <label>कैप्शन / मैसेज:</label>
+                <textarea id="message" placeholder="नमस्ते [Name], आपके लिए शानदार ऑफर..." style="height:120px;" oninput="clearTemplateSelection()"></textarea>
+            </div>
 
-function getTemplates() { return cache.templates || []; }
-function getContacts() { return cache.contacts || {}; }
-function getMeta() { return cache.meta || {}; }
+            <div class="delay-box">
+                <div style="flex: 1;"><label>कम से कम समय (Sec):</label><input type="number" id="minDelay" value="60" min="45"></div>
+                <div style="flex: 1;"><label>अधिकतम समय (Sec):</label><input type="number" id="maxDelay" value="120" min="60"></div>
+            </div>
 
-let liveCampaign = {
-    isActive: false, isPaused: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [],
-    status: 'idle', restReason: '', resumeAt: null, batchSize: 50, accountAgeDays: 0
-};
-let campaignCancelFlag = false;
+            <div class="form-group" style="background:linear-gradient(135deg,#f8fafc,#eff6ff);padding:16px;border-radius:14px;border:1px dashed #93c5fd;">
+                <div style="font-weight:700;color:#1e40af;font-size:14px;margin-bottom:6px;">⚙️ Custom Batch & Rest (optional)</div>
+                <p style="margin:0 0 12px;font-size:11px;color:#64748b;line-height:1.4;">Khali chhodo = default (30 msgs → 2 hr rest). Custom bhi daily 80/WA limit follow karega.</p>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;">Batch size (msgs)</label>
+                        <input type="number" id="customBatch" placeholder="e.g. 5" min="1" max="50" style="margin:0;">
+                    </div>
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;">Rest after batch (hours)</label>
+                        <input type="number" id="customRestHours" placeholder="e.g. 1" min="0.25" max="12" step="0.25" style="margin:0;">
+                    </div>
+                </div>
+            </div>
 
-function resetLiveCampaign() {
-    campaignCancelFlag = true;
-    liveCampaign = {
-        isActive: false, isPaused: false, total: 0, sent: 0, failed: 0, pending: 0, numbers: [],
-        status: 'idle', restReason: '', resumeAt: null, batchSize: 50, accountAgeDays: 0
-    };
-}
+            <div class="form-group" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
+                <label>📱 Kis WhatsApp se bhejna hai? (multi select)</label>
+                <div id="campaignSessionPick" style="margin-top:8px;"></div>
+            </div>
 
-function getISTNow() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })); }
-function getAccountAgeDays() {
-    const meta = getMeta(); if (!meta || !meta.firstConnectedAt) return 0;
-    return Math.floor((new Date() - new Date(meta.firstConnectedAt)) / (1000 * 60 * 60 * 24));
-}
-function getDailyLimit() { const age = getAccountAgeDays(); return age < 3 ? 80 : (age < 7 ? 150 : 200); }
-function getTodaySentCount() { const today = new Date().toLocaleDateString('en-CA'); const stats = getStats(); return (stats[today] && stats[today].sent) ? stats[today].sent : 0; }
-function getDailyScanLimit() { return getAccountAgeDays() < 3 ? 80 : 200; }
-function getTodayScanCount() { const today = new Date().toLocaleDateString('en-CA'); const meta = getMeta(); if (!meta.scanByDate) meta.scanByDate = {}; return meta.scanByDate[today] || 0; }
-function addTodayScanCount(n) { const today = new Date().toLocaleDateString('en-CA'); const meta = { ...getMeta() }; if (!meta.scanByDate) meta.scanByDate = {}; meta.scanByDate[today] = (meta.scanByDate[today] || 0) + n; persist('meta', meta); }
+            <button class="action-btn btn-primary" id="sendBtn" onclick="startSending()">🚀 Start Campaign (Multi-WA)</button>
+        </div>
 
-function getGroupScanStats(groupContacts) {
-    const list = groupContacts || [];
-    let pending = 0, valid = 0, invalid = 0;
-    list.forEach(c => {
-        if (c.waStatus === 'valid') valid++;
-        else if (c.waStatus === 'invalid') invalid++;
-        else pending++;
-    });
-    return { total: list.length, valid, invalid, pending, scanned: valid + invalid };
-}
+        <!-- 3. Live Tracking -->
+        <div id="liveTrackingSec" class="content-section">
+            <h2 class="section-title">📡 Live Campaign Monitor</h2>
 
-function getScanSocks(sessionIds) {
-    let list = Array.from(sessions.values()).filter(s => s.connected && s.sock);
-    if (sessionIds && sessionIds.length > 0) {
-        const filtered = list.filter(s => sessionIds.includes(s.id));
-        if (filtered.length) list = filtered;
-    }
-    return list;
-}
+            <!-- Professional stats -->
+            <div id="liveStatsRow" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:18px;">
+                <div style="background:linear-gradient(145deg,#0f172a,#1e293b);border-radius:16px;padding:16px 14px;color:#fff;box-shadow:0 8px 20px rgba(15,23,42,0.18);">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#94a3b8;font-weight:600;">Total</div>
+                    <div id="liveStatTotal" style="font-size:28px;font-weight:800;margin-top:4px;">0</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#ecfdf5,#d1fae5);border-radius:16px;padding:16px 14px;border:1px solid #a7f3d0;">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#047857;font-weight:600;">Sent</div>
+                    <div id="liveStatSent" style="font-size:28px;font-weight:800;margin-top:4px;color:#059669;">0</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#fef2f2,#fee2e2);border-radius:16px;padding:16px 14px;border:1px solid #fecaca;">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#b91c1c;font-weight:600;">Failed</div>
+                    <div id="liveStatFailed" style="font-size:28px;font-weight:800;margin-top:4px;color:#dc2626;">0</div>
+                </div>
+                <div style="background:linear-gradient(145deg,#fffbeb,#fef3c7);border-radius:16px;padding:16px 14px;border:1px solid #fde68a;">
+                    <div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#b45309;font-weight:600;">Pending</div>
+                    <div id="liveStatPending" style="font-size:28px;font-weight:800;margin-top:4px;color:#d97706;">0</div>
+                </div>
+            </div>
 
-async function checkOneNumberOnWA(phone10, sessionIds, preferredSock) {
-    const sock = preferredSock || getSelectedOrRandomSock(sessionIds);
-    if (!sock) return false;
-    try {
-        const r = await sock.onWhatsApp('91' + phone10 + '@s.whatsapp.net');
-        return Array.isArray(r) && r[0] && r[0].exists !== false;
-    } catch (e) { return false; }
-}
+            <!-- Controls -->
+            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px;">
+                <div style="background:#fff;padding:14px 16px;border-radius:14px;border:1px solid #fecaca;box-shadow:0 2px 8px rgba(239,68,68,0.06);display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                    <div style="min-width:0;">
+                        <div style="font-weight:700;font-size:14px;color:#991b1b;display:flex;align-items:center;gap:6px;">
+                            <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span>
+                            Stop / Pause Campaign
+                        </div>
+                        <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;line-height:1.4;">ON = messages ruk jayenge · OFF = dobara start</p>
+                    </div>
+                    <label class="switch" style="flex-shrink:0;">
+                        <input type="checkbox" id="pauseCampaignToggle" onchange="togglePauseCampaign()">
+                        <span class="slider slider-danger"></span>
+                    </label>
+                </div>
 
-function scanDelayMs(waCount) {
-    // Multi WA: 2–3 sec | Single WA: 2.5–5 sec (random)
-    if (waCount >= 2) return 2000 + Math.floor(Math.random() * 1001);
-    return 2500 + Math.floor(Math.random() * 2501);
-}
+                <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);padding:14px 16px;border-radius:14px;box-shadow:0 4px 14px rgba(15,23,42,0.25);display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                    <div style="min-width:0;">
+                        <div style="font-weight:700;font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:16px;">🔒</span> Night Sleep Lock
+                        </div>
+                        <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;line-height:1.4;">10 PM – 8 AM IST auto pause · OFF = aaj raat bhejo</p>
+                    </div>
+                    <label class="switch" style="flex-shrink:0;">
+                        <input type="checkbox" id="nightSleepToggle" checked onchange="toggleNightSleep()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
 
-let autoScanRunning = false;
-async function runAutoScanTick() {
-    if (autoScanRunning || !anyConnected() || (liveCampaign && liveCampaign.isActive)) return;
-    const ist = getISTNow();
-    if (ist.getHours() < 8 || ist.getHours() >= 22) {
-        if (Date.now() > skipSleepUntil) return;
-    }
+                <button type="button" class="action-btn btn-danger" id="deleteCampaignBtn" onclick="deleteCampaign()" style="padding:14px;border-radius:14px;font-size:15px;">
+                    🗑️ Delete Campaign(s)
+                </button>
+                <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;line-height:1.4;">Selected / saari active campaigns band · History safe · alag WA se parallel campaign chal sakti hai</p>
+            </div>
 
-    const dailyLimit = getDailyScanLimit();
-    const used = getTodayScanCount();
-    if (used >= dailyLimit) return;
+            <div id="liveStatusBanner" style="display:none;margin-bottom:14px;"></div>
+            <div id="liveCampaignTabs" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch;"></div>
+            <div id="liveList" style="background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px;max-height:520px;overflow-y:auto;box-shadow:0 2px 10px rgba(15,23,42,0.04);"></div>
+        </div>
 
-    const chunk = Math.min(10, dailyLimit - used);
-    const contacts = getContacts();
-    const pendingItems = [];
-    Object.keys(contacts).forEach(g => {
-        (contacts[g] || []).forEach((c, idx) => {
-            if (!c.waStatus || c.waStatus === 'pending') pendingItems.push({ group: g, index: idx, contact: c });
-        });
-    });
-    if (pendingItems.length === 0) return;
+        <!-- 4. Campaign History -->
+        <div id="historySec" class="content-section">
+            <h2 class="section-title">📜 Campaign History & Logs</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <button class="action-btn btn-success" style="flex: 1; padding: 12px;" onclick="downloadHistory()">📥 Download CSV</button>
+                <button class="action-btn btn-primary" style="flex: 1; padding: 12px;" onclick="loadHistoryTable()">🔄 Refresh Data</button>
+            </div>
+            <div style="background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow-x: auto;">
+                <table class="contact-table" id="historyTable" style="min-width: 650px;">
+                    <thead>
+                        <tr>
+                            <th>Date & Time (IST)</th>
+                            <th>WhatsApp Device</th>
+                            <th>Mobile Number</th>
+                            <th>Message Preview</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
-    autoScanRunning = true;
-    let scannedNow = 0;
-    try {
-        for (const item of pendingItems.slice(0, chunk)) {
-            const phone = String(item.contact.phone || '').replace(/\D/g, '').slice(-10);
-            if (phone.length !== 10) { contacts[item.group][item.index].waStatus = 'invalid'; scannedNow++; continue; }
-            const ok = await checkOneNumberOnWA(phone, []);
-            contacts[item.group][item.index].waStatus = ok ? 'valid' : 'invalid';
-            contacts[item.group][item.index].phone = phone;
-            scannedNow++;
-            await new Promise(r => setTimeout(r, 2500));
+        <!-- 5. Contact Book -->
+        <div id="contactBook" class="content-section">
+            <h2 class="section-title">📇 Contact Book & List Upload</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                <input type="text" id="newGroupName" placeholder="नया ग्रुप बनाएं (उदा: Retailers)" style="flex: 1;">
+                <button class="action-btn btn-primary btn-sm" style="width: auto;" onclick="createNewGroup()">+ Create</button>
+            </div>
+            <div class="form-group"><label>ग्रुप चुनें:</label><select id="groupSelect" onchange="contactListShowAll=false;contactListFilter='all';renderGroupContacts()"><option value="">-- ग्रुप सेलेक्ट करें --</option></select></div>
+            <div id="contactManagerDiv" style="display: none; background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <div style="background: #fff; padding: 15px; border-radius: 8px; border: 1px dashed #2563eb; margin-bottom: 20px;">
+                    <label style="color: #2563eb;">📂 Excel, CSV या PDF फाइल अपलोड करें:</label>
+                    <input type="file" id="contactFileInput" accept=".csv, .xlsx, .xls, .pdf" style="margin-bottom: 10px;">
+                    <button class="action-btn btn-primary btn-sm" onclick="processContactFile()">Upload File</button>
+                </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <input type="text" id="addName" placeholder="Name" style="flex: 1;">
+                    <input type="text" id="addPhone" placeholder="Mobile Number" style="flex: 1;">
+                    <button class="action-btn btn-success btn-sm" style="width: auto;" onclick="addSingleContact()">Add 1 No.</button>
+                </div>
+
+                <div style="background:#fff; padding:12px; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:15px;">
+                    <label style="font-size:13px; color:#1e293b; margin-bottom:6px;">📱 Scan ke liye WhatsApp select karo (Multi-WA):</label>
+                    <div id="scanSessionPick"></div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap:wrap;">
+                    <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px;" id="scanContactBtn" onclick="scanNextInGroup()">🔍 Scan next 10</button>
+                    <button class="action-btn btn-success btn-sm" style="flex:1; min-width:140px; background:linear-gradient(135deg, #059669 0%, #047857 100%);" id="scanAllBtn" onclick="toggleScanAll()">🔍 Scan All Pending</button>
+                    <button class="action-btn btn-primary btn-sm" style="flex:1; min-width:140px;" onclick="downloadValidNumbersPDF()">📥 Download Valid PDF</button>
+                    <button class="action-btn btn-danger btn-sm" style="flex:1; min-width:140px;" onclick="removeInvalidNumbers()">🗑️ Delete Invalid</button>
+                </div>
+                
+                <p id="scanContactStatus" style="font-size:13px; margin-bottom:10px; display:none;"></p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#e2e8f0;color:#1e293b;" onclick="contactListFilter='all';contactListShowAll=false;renderGroupContacts()">All</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#d1fae5;color:#065f46;" onclick="contactListFilter='valid';contactListShowAll=false;renderGroupContacts()">Valid</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#fee2e2;color:#991b1b;" onclick="contactListFilter='invalid';contactListShowAll=false;renderGroupContacts()">Invalid</button>
+                    <button type="button" class="action-btn btn-sm" style="width:auto;background:#fef3c7;color:#92400e;" onclick="contactListFilter='pending';contactListShowAll=false;renderGroupContacts()">Pending</button>
+                </div>
+                <div style="max-height:420px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:10px;background:#fff;">
+                    <table class="contact-table" id="contactTable" style="margin-top:0;">
+                        <thead><tr><th>Name</th><th>Phone</th><th>Status</th></tr></thead>
+                        <tbody id="contactTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. Template Manager -->
+        <div id="templateSec" class="content-section">
+            <h2 class="section-title">📝 Template Manager</h2>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
+                <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
+                <div class="form-group">
+                    <label>Attachments (multi select — kai photo / PDF / Excel…):</label>
+                    <input type="file" id="newTplImage" accept="*/*" multiple>
+                    <p style="margin:6px 0 0;font-size:11px;color:#64748b;">Max <b>5 files</b> · har file ~10MB · Ctrl/Cmd se multiple select</p>
+                </div>
+                <div class="form-group"><label>कैप्शन (मैसेज):</label><textarea id="newTplMsg" style="height:80px;"></textarea></div>
+
+                <div style="background:#fff;border:1px dashed #86efac;border-radius:12px;padding:14px;margin-bottom:16px;">
+                    <div style="font-weight:700;color:#065f46;font-size:14px;margin-bottom:4px;">🔘 Action Buttons (optional)</div>
+                    <p style="margin:0 0 12px;font-size:11px;color:#64748b;">JA Mantra jaisi: Call Now · Claim Deal · Discuss. Call = number, Link = URL, Reply = customer text kare.</p>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:12px;">Button 1</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn1Text" placeholder="Call Now" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn1Type" style="width:110px;margin:0;">
+                                <option value="call">📞 Call</option>
+                                <option value="url">🔗 Link</option>
+                                <option value="reply">💬 Reply</option>
+                            </select>
+                            <input type="text" id="tplBtn1Value" placeholder="+91... or https://..." style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label style="font-size:12px;">Button 2</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn2Text" placeholder="Claim Deal" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn2Type" style="width:110px;margin:0;">
+                                <option value="url">🔗 Link</option>
+                                <option value="call">📞 Call</option>
+                                <option value="reply">💬 Reply</option>
+                            </select>
+                            <input type="text" id="tplBtn2Value" placeholder="https://..." style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label style="font-size:12px;">Button 3</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="tplBtn3Text" placeholder="I want to discuss" style="flex:1;min-width:100px;margin:0;">
+                            <select id="tplBtn3Type" style="width:110px;margin:0;">
+                                <option value="reply">💬 Reply</option>
+                                <option value="url">🔗 Link</option>
+                                <option value="call">📞 Call</option>
+                            </select>
+                            <input type="text" id="tplBtn3Value" placeholder="DISCUSS" style="flex:1.4;min-width:120px;margin:0;">
+                        </div>
+                    </div>
+                </div>
+
+                <button class="action-btn btn-success" onclick="saveNewTemplate()">💾 Save Template</button>
+            </div>
+            <div id="templateListArea"></div>
+        </div>
+
+        <!-- 7. Smart Auto Reply -->
+        <div id="autoReply" class="content-section">
+            <h2 class="section-title">Smart Auto-Reply</h2>
+            <div class="switch-wrapper">
+                <div class="switch-text"><h3>Auto-Reply Assistant</h3><p>ग्राहकों को अपने आप तुरंत जवाब भेजें।</p></div>
+                <label class="switch"><input type="checkbox" id="autoReplyToggle" onchange="toggleAutoReply()"><span class="slider"></span></label>
+            </div>
+            <div class="form-group"><label>वेलकम मैसेज सेट करें:</label><textarea id="editAutoReplyMsg" style="height:180px;"></textarea></div>
+            <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Message</button>
+        </div>
+
+        <!-- 8. Connect Device -->
+        <div id="connectWp" class="content-section">
+            <h2 class="section-title">Multi WhatsApp Login</h2>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <input type="text" id="newSessionName" placeholder="Name (e.g. Business 2)" style="flex:1;">
+                <button class="action-btn btn-primary btn-sm" style="width:auto;" onclick="createWASession()">+ Add WhatsApp</button>
+            </div>
+            <div id="sessionsList"></div>
+        </div>
+    </div>
+
+    <script>
+        let allTemplates = []; let selectedTemplatesList = []; let allContacts = {}; 
+        function showToast(msg, isError = false) {
+            let toast = document.getElementById('appToast');
+            toast.style.backgroundColor = isError ? '#ef4444' : '#10b981';
+            toast.innerHTML = msg; toast.style.opacity = '1'; toast.style.bottom = '40px';
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.bottom = '20px'; }, 3000);
         }
-        if (scannedNow > 0) { addTodayScanCount(scannedNow); await persist('contacts', contacts); }
-    } catch (e) {} finally { autoScanRunning = false; }
-}
 
-function msUntilNext8AM_IST() {
-    const ist = getISTNow(); const h = ist.getHours(), m = ist.getMinutes(), s = ist.getSeconds();
-    const msSinceMidnight = ((h * 60 + m) * 60 + s) * 1000;
-    const eightAM = 8 * 60 * 60 * 1000;
-    if (h >= 8 && h < 22) return 0;
-    if (h < 8) return eightAM - msSinceMidnight;
-    return (24 * 60 * 60 * 1000 - msSinceMidnight) + eightAM;
-}
-
-async function smartSleep(ms, reason) {
-    const resumeAt = new Date(Date.now() + ms);
-    liveCampaign.status = (reason.includes('Night')) ? 'night_rest' : 'resting';
-    liveCampaign.restReason = reason; liveCampaign.resumeAt = resumeAt.toISOString();
-    let left = ms;
-    while (left > 0) {
-        await new Promise(r => setTimeout(r, Math.min(5000, left)));
-        if (reason.includes('Night') && Date.now() < skipSleepUntil) {
-            break;
+        window.onload = () => {
+            const df = document.getElementById('dateFilter');
+            if (df && !df.value) {
+                const t = new Date();
+                df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+            }
+            // Default: All (total) — date input hidden
+            onDateModeChange();
+            fetchLiveStatus(); fetchTemplates(); fetchContacts();
+            setInterval(() => {
+                fetch('/status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => {
+                    renderSessionsUI(d.sessions || []);
+                    document.getElementById('autoReplyToggle').checked = d.autoReply;
+                    if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
+                }).catch(() => {});
+                fetchLiveStatus(); fetchStats();
+            }, 3000);
         }
-        left = resumeAt.getTime() - Date.now();
-        liveCampaign.resumeAt = new Date(Date.now() + left).toISOString();
-    }
-    liveCampaign.status = 'sending'; liveCampaign.restReason = ''; liveCampaign.resumeAt = null;
-}
-async function waitForSendWindow() { 
-    if (Date.now() < skipSleepUntil) return; 
-    const waitMs = msUntilNext8AM_IST(); 
-    if (waitMs > 0) await smartSleep(waitMs, 'Night Rest (10 PM – 8 AM IST)'); 
-}
 
-function pathJoinAuth(sessionId) { return (__dirname + '/auth_sessions/' + sessionId).replace(/\\/g, '/'); }
+        let selectedPairSessionId = null; let savedPairPhone = ''; let savedPairingCodeHTML = ''; let lastSessionsSnapshot = '';
+        function selectForPairing(id) { selectedPairSessionId = id; savedPairingCodeHTML = ''; fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => renderSessionsUI(d.sessions || [], true)).catch(() => {}); }
 
-async function clearSessionAuth(sessionId) {
-    if (useMongo && db) {
-        await db.collection('auth_keys').deleteMany({ _id: { $regex: `^${sessionId}-` } });
-    } else {
-        try { fs.rmSync(pathJoinAuth(sessionId), { recursive: true, force: true }); } catch (e) {}
-    }
-}
-
-async function getAuthState(sessionId) {
-    if (useMongo && db) {
-        const col = db.collection('auth_keys');
-        const writeData = async (data, id) => {
-            const str = JSON.stringify(data, BufferJSON.replacer);
-            await col.updateOne({ _id: `${sessionId}-${id}` }, { $set: { data: str } }, { upsert: true });
-        };
-        const readData = async (id) => {
-            const doc = await col.findOne({ _id: `${sessionId}-${id}` });
-            return doc && doc.data ? JSON.parse(doc.data, BufferJSON.reviver) : null;
-        };
-        const removeData = async (id) => { await col.deleteOne({ _id: `${sessionId}-${id}` }); };
-
-        let creds = await readData('creds');
-        if (!creds) { creds = initAuthCreds(); await writeData(creds, 'creds'); }
-
-        return {
-            state: {
-                creds,
-                keys: {
-                    get: async (type, ids) => {
-                        const data = {};
-                        await Promise.all(ids.map(async id => { let value = await readData(`${type}-${id}`); data[id] = value; }));
-                        return data;
-                    },
-                    set: async (data) => {
-                        const tasks = [];
-                        for (const category in data) {
-                            for (const id in data[category]) {
-                                const value = data[category][id]; const key = `${category}-${id}`;
-                                tasks.push(value ? writeData(value, key) : removeData(key));
-                            }
-                        }
-                        await Promise.all(tasks);
-                    }
+        function renderSessionsUI(list, force) {
+            const box = document.getElementById('sessionsList'); 
+            const pick = document.getElementById('campaignSessionPick');
+            const scanPick = document.getElementById('scanSessionPick'); 
+            
+            const active = document.activeElement; if (active && active.id === 'pairPhone' && !force) return;
+            const phoneEl = document.getElementById('pairPhone'); if (phoneEl) savedPairPhone = phoneEl.value || savedPairPhone;
+            const codeEl = document.getElementById('pairingCodeDisplay'); if (codeEl && codeEl.innerHTML && codeEl.style.display !== 'none') { savedPairingCodeHTML = codeEl.innerHTML; }
+            const snap = JSON.stringify((list || []).map(s => [s.id, s.connected, s.resting, s.name, s.qrCode ? 1 : 0]));
+            if (!force && snap === lastSessionsSnapshot && box && box.innerHTML && selectedPairSessionId) {
+                (list || []).forEach(s => { if (!s.connected && s.qrCode) { const img = box.querySelector('img[data-sid="' + s.id + '"]'); if (img && img.getAttribute('src') !== s.qrCode) img.setAttribute('src', s.qrCode); } }); return;
+            }
+            lastSessionsSnapshot = snap;
+            
+            if (box) {
+                if (!list.length) { box.innerHTML = '<p style="color:#64748b;">Koi session nahi — Add WhatsApp dabao.</p>'; } 
+                else {
+                    box.innerHTML = list.map(s => {
+                        const status = s.connected ? (s.resting ? '<span style="color:#f59e0b">⏸️ Resting</span>' : '<span style="color:#10b981">✅ Connected</span>') : '<span style="color:#f59e0b">⏳ Waiting for login...</span>';
+                        const qr = (!s.connected && s.qrCode) ? `<div style="text-align:center; margin-top:15px;"><img data-sid="${s.id}" src="${s.qrCode}" style="width:160px; height:160px; border-radius:8px; border:2px solid #e2e8f0; padding:4px;"><p style="font-size:13px; color:#1e293b; font-weight:700; margin:5px 0;">📷 Scan QR Code</p><p style="font-size:12px; color:#94a3b8; margin:5px 0;">--- YA PHIR ---</p></div>` : (!s.connected ? `<div style="text-align:center; margin-top:10px; font-size:12px; color:#f59e0b;">⏳ QR Loading... (Thoda wait karein)</div>` : '');
+                        const isPairing = selectedPairSessionId === s.id; const phoneVal = (savedPairPhone || '').replace(/"/g, '&quot;');
+                        const codeBlock = (isPairing && savedPairingCodeHTML) ? `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;user-select:all;">${savedPairingCodeHTML}</div>` : `<div id="pairingCodeDisplay" style="font-size:22px;font-weight:800;color:#2563eb;margin-top:12px;text-align:center;display:none;user-select:all;"></div>`;
+                        const pairPanel = isPairing ? (`<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;text-align:left;"><div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:8px;">📲 Pairing: <b>${s.name}</b></div><input type="text" id="pairPhone" inputmode="numeric" autocomplete="off" value="${phoneVal}" placeholder="WhatsApp number" style="text-align:center;font-size:16px;width:100%;" oninput="savedPairPhone=this.value"><button type="button" class="action-btn btn-primary" style="margin-top:10px;" onclick="getPairingCode('${s.id}', false)">Get 8-Digit Code</button><button type="button" class="action-btn btn-success" style="margin-top:8px;" onclick="getPairingCode('${s.id}', true)">Fresh Code (reset session)</button>${codeBlock}</div>`) : '';
+                        const pairBtn = s.connected ? '' : `<button type="button" class="action-btn btn-sm btn-primary" style="width:auto;${isPairing ? 'outline:2px solid #2563eb;' : ''}" onclick="selectForPairing('${s.id}')">${isPairing ? '✓ Pairing selected' : 'Link with Phone Number (Code)'}</button>`;
+                        return `<div style="background:#fff;border:1px solid ${isPairing ? '#2563eb' : '#e2e8f0'};border-radius:12px;padding:14px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><strong>${s.name}</strong><span style="font-size:12px;">${status}</span></div>${qr}<div style="margin-top:8px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">${pairBtn}<button type="button" class="action-btn btn-sm btn-danger" style="width:auto;" onclick="deleteWASession('${s.id}')">Delete</button></div>${pairPanel}</div>`;
+                    }).join('');
                 }
-            },
-            saveCreds: () => writeData(creds, 'creds')
-        };
-    } else {
-        const authDir = pathJoinAuth(sessionId);
-        const { state, saveCreds } = await useMultiFileAuthState(authDir);
-        return { state, saveCreds };
-    }
-}
-
-async function startSession(sessionId, sessionName) {
-    if (deletedSessionIds.has(sessionId)) {
-        console.log(`[${sessionId}] skip start — user deleted`);
-        return;
-    }
-    const { state, saveCreds } = await getAuthState(sessionId);
-    const sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
-
-    const session = sessions.get(sessionId) || {
-        id: sessionId, name: sessionName || sessionId, sock: null, connected: false,
-        qrCode: null, restUntil: null, sentInBatch: 0, batchSize: SESSION_BATCH
-    };
-    session.sock = sock; session.name = sessionName || session.name; sessions.set(sessionId, session);
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
-        const s = sessions.get(sessionId);
-        if (!s) return;
-        if (qr) {
-            try { s.qrCode = await qrcode.toDataURL(qr); } catch (e) {}
-        }
-        if (connection === 'close') {
-            s.connected = false;
-            if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
-            const code = lastDisconnect?.error?.output?.statusCode;
-            console.log(`[${sessionId}] connection close code=${code}`);
-            if (code === DisconnectReason.loggedOut) {
-                try { await clearSessionAuth(sessionId); } catch (e) {}
-                s.qrCode = null;
             }
-            const delay = (code === 440 || code === DisconnectReason.connectionReplaced) ? 8000 : 4000;
-            if (!s._reconnectTimer && !deletedSessionIds.has(sessionId) && sessions.has(sessionId)) {
-                s._reconnectTimer = setTimeout(() => {
-                    s._reconnectTimer = null;
-                    if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
-                    startSession(sessionId, s.name).catch(() => {});
-                }, delay);
-            }
-        } else if (connection === 'open') {
-            if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
-            s.connected = true; s.qrCode = null;
-            const meta = { ...getMeta() };
-            if (!meta.firstConnectedAt) { meta.firstConnectedAt = new Date().toISOString(); persist('meta', meta); }
-            if (!meta.sessions) meta.sessions = [];
-            // Sirf tab add karo jab meta mein pehle se planned session ho / create API se aaya ho
-            if (!meta.sessions.find(x => x.id === sessionId)) {
-                meta.sessions.push({ id: sessionId, name: s.name });
-                persist('meta', meta);
-            }
+            
+            const populateCheckboxesWithSelectAll = (container, className) => {
+                if (!container) return;
+                const connected = list.filter(s => s.connected); 
+                const prevChecked = new Set(Array.from(container.querySelectorAll('.' + className + ':checked')).map(c => c.value));
+                if (!connected.length) { 
+                    container.innerHTML = '<span style="color:#ef4444;font-size:13px;">Pehle Device Settings se WhatsApp connect karo.</span>'; 
+                } else { 
+                    const allChecked = (prevChecked.size === connected.length || prevChecked.size === 0) ? 'checked' : '';
+                    let html = `<div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #e2e8f0;">
+                        <label style="display:inline-flex; align-items:center; gap:6px; font-size:14px; font-weight:700; color:#2563eb; cursor:pointer;">
+                            <input type="checkbox" id="selectAll_${className}" ${allChecked} onchange="
+                                const isChecked = this.checked; 
+                                document.querySelectorAll('.${className}').forEach(c => c.checked = isChecked);
+                            "> 
+                            ☑️ Select All (All On/Off)
+                        </label>
+                    </div>`;
+                    
+                    html += connected.map(s => { 
+                        const chk = prevChecked.size === 0 || prevChecked.has(s.id) ? 'checked' : ''; 
+                        return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0;font-size:13px;cursor:pointer;">
+                            <input type="checkbox" class="${className}" value="${s.id}" ${chk} onchange="
+                                const allBoxes = document.querySelectorAll('.${className}');
+                                const allCheckedBox = document.getElementById('selectAll_${className}');
+                                const anyUnchecked = Array.from(allBoxes).some(b => !b.checked);
+                                if(allCheckedBox) allCheckedBox.checked = !anyUnchecked;
+                            "> ${s.name}
+                        </label>`; 
+                    }).join(''); 
+                    container.innerHTML = html; 
+                }
+            };
+
+            populateCheckboxesWithSelectAll(pick, 'waSessionChk');
+            populateCheckboxesWithSelectAll(scanPick, 'scanSessionChk');
         }
-    });
-    sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify' || !isAutoReplyEnabled) return;
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        const jid = msg.key.remoteJid;
-        const phone = jid.split('@')[0];
-        const histList = getHistory();
-        if (!histList.find(c => c.number === phone)) return;
-        const messageType = Object.keys(msg.message)[0];
-        let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
-        try {
-            if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplyMessage });
-            else if (text === '1') await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
-            else if (text === '2') await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
-            else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
-        } catch (e) {}
-    });
-}
-
-async function bootstrapSessions() {
-    const meta = getMeta();
-    let list = (meta.sessions && meta.sessions.length) ? meta.sessions : [{ id: 'wa_1', name: 'WhatsApp 1' }];
-    if (!list.length) list = [{ id: 'wa_1', name: 'WhatsApp 1' }];
-    // Ek saath saari sessions mat kholo — conflict kam
-    for (const item of list) {
-        try {
-            await startSession(item.id, item.name);
-        } catch (e) {
-            console.error('bootstrap session fail', item.id, e.message);
-        }
-        await new Promise(r => setTimeout(r, 1500));
-    }
-}
-
-app.get('/status', (req, res) => {
-    const list = listSessionsPublic(); const primary = list.find(s => s.connected) || list[0] || null;
-    res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
-});
-
-app.get('/api/sessions', (req, res) => res.json({ sessions: listSessionsPublic() }));
-
-app.post('/api/sessions/create', async (req, res) => {
-    const name = (req.body && req.body.name) ? String(req.body.name).trim() : ''; const id = 'wa_' + Date.now();
-    const displayName = name || ('WhatsApp ' + (sessions.size + 1));
-    deletedSessionIds.delete(id);
-    const meta = { ...getMeta() }; if (!meta.sessions) meta.sessions = []; meta.sessions.push({ id, name: displayName });
-    await persist('meta', meta); await startSession(id, displayName);
-    res.json({ success: true, session: { id, name: displayName } });
-});
-
-app.post('/api/sessions/delete', async (req, res) => {
-    const id = req.body && req.body.id;
-    if (!id) return res.status(400).json({ success: false, error: 'Session id missing' });
-    deletedSessionIds.add(id);
-    const s = sessions.get(id);
-    if (s) {
-        try { if (s._reconnectTimer) clearTimeout(s._reconnectTimer); } catch (e) {}
-        s._reconnectTimer = null;
-        try { if (s.sock) s.sock.end(undefined); } catch (e) {}
-    }
-    sessions.delete(id);
-    try { await clearSessionAuth(id); } catch (e) {}
-    const meta = { ...getMeta() };
-    meta.sessions = (meta.sessions || []).filter(x => x.id !== id);
-    await persist('meta', meta);
-    res.json({ success: true });
-});
-
-app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enabled; res.json({ success: true }); });
-app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
-app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
-app.get('/api/history', (req, res) => res.json(getHistory()));
-app.get('/api/live-status', (req, res) => res.json({ ...liveCampaign, sleepDisabled: Date.now() < skipSleepUntil }));
-
-// 🌟 NEW: Campaign Pause/Resume Toggle API
-app.post('/api/toggle-pause', (req, res) => {
-    if (!liveCampaign.isActive) {
-        return res.json({ success: true, isPaused: false, message: 'No active campaign' });
-    }
-    liveCampaign.isPaused = !!req.body.pause;
-    if (liveCampaign.isPaused) {
-        liveCampaign.status = 'paused';
-        liveCampaign.restReason = '🛑 Campaign Paused by User';
-    } else {
-        liveCampaign.status = 'sending';
-        liveCampaign.restReason = '';
-    }
-    res.json({ success: true, isPaused: liveCampaign.isPaused });
-});
-
-// Campaign poori tarah band + clear — next campaign ke liye
-app.post('/api/campaign/delete', (req, res) => {
-    const wasActive = !!liveCampaign.isActive;
-    const sent = liveCampaign.sent || 0;
-    const failed = liveCampaign.failed || 0;
-    resetLiveCampaign();
-    // Sessions ki rest timers clear nahi — anti-ban rest rehne do; sirf queue band
-    res.json({
-        success: true,
-        message: wasActive ? 'Campaign deleted / stopped' : 'No active campaign',
-        lastSent: sent,
-        lastFailed: failed
-    });
-});
-
-app.post('/api/toggle-sleep', (req, res) => {
-    const { disable } = req.body;
-    if (disable) {
-        skipSleepUntil = Date.now() + (14 * 60 * 60 * 1000); 
-    } else {
-        skipSleepUntil = 0;
-    }
-    res.json({ success: true, sleepDisabled: disable });
-});
-
-app.get('/api/templates', (req, res) => res.json(getTemplates()));
-app.post('/api/templates', async (req, res) => {
-    const t = getTemplates(); t.push(req.body); await persist('templates', t); res.json({ success: true });
-});
-app.post('/api/templates/delete', async (req, res) => {
-    let t = getTemplates().filter(x => x.id !== req.body.id); await persist('templates', t); res.json({ success: true });
-});
-
-app.get('/api/contacts', (req, res) => res.json(getContacts()));
-app.post('/api/contacts', async (req, res) => {
-    const body = req.body || {};
-    Object.keys(body).forEach(g => {
-        if (!Array.isArray(body[g])) return;
-        body[g] = body[g].map(c => ({
-            name: c.name || 'Customer',
-            phone: String(c.phone || '').replace(/\D/g, '').slice(-10),
-            waStatus: c.waStatus === 'valid' || c.waStatus === 'invalid' || c.waStatus === 'pending' ? c.waStatus : (c.waStatus || null)
-        }));
-    });
-    await persist('contacts', body);
-    res.json({ success: true });
-});
-
-// Invalid numbers permanently remove (server-side — poll se wapas nahi aayenge)
-app.post('/api/contacts/remove-invalid', async (req, res) => {
-    const group = req.body && req.body.group;
-    const contacts = { ...getContacts() };
-    if (!group || !Array.isArray(contacts[group])) {
-        return res.status(400).json({ success: false, error: 'Group select karo' });
-    }
-    const before = contacts[group].length;
-    contacts[group] = contacts[group].filter(c => c.waStatus !== 'invalid');
-    const removed = before - contacts[group].length;
-    await persist('contacts', contacts);
-    res.json({
-        success: true,
-        removed,
-        remaining: contacts[group].length,
-        contacts
-    });
-});
-
-app.get('/api/scan-progress', (req, res) => {
-    const contacts = getContacts(); const groups = {};
-    Object.keys(contacts).forEach(g => { groups[g] = getGroupScanStats(contacts[g]); });
-    res.json({ groups, todayScanned: getTodayScanCount(), dailyScanLimit: getDailyScanLimit(), accountAgeDays: getAccountAgeDays(), autoScan: true, window: '8 AM – 10 PM IST' });
-});
-
-app.post('/api/scan-next', async (req, res) => {
-    if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
-    const { group, sessionIds, scanAll } = req.body || {};
-    const contacts = getContacts();
-    if (!group || !contacts[group]) return res.status(400).json({ success: false, error: 'Group select karo' });
-
-    const socks = getScanSocks(sessionIds);
-    if (!socks.length) return res.status(400).json({ success: false, error: 'Koi connected WhatsApp select nahi hai' });
-
-    const activeWaCount = socks.length;
-    // Scan All Pending: daily 80 limit NAHI — sab pending numbers bari-bari
-    // Manual "Scan next 10": daily limit apply
-    const dailyLimit = getDailyScanLimit() * activeWaCount;
-    const used = getTodayScanCount();
-    if (!scanAll && used >= dailyLimit) {
-        return res.status(400).json({
-            success: false,
-            error: `Aaj ki limit (${dailyLimit}) puri. "Scan All Pending" se bina limit scan kar sakte ho (gaps + multi-WA rules lagte rahenge).`,
-            todayScanned: used,
-            dailyScanLimit: dailyLimit
-        });
-    }
-
-    // Scan All: 5/batch (lamba request = mobile/Render network error)
-    // Manual Scan next: max 10
-    const chunk = scanAll ? 5 : Math.min(10, Math.max(1, dailyLimit - used));
-    let scanned = 0, valid = 0, invalid = 0;
-    let rr = 0; // round-robin: eak ke baad eak WhatsApp
-
-    for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
-        const c = contacts[group][i];
-        if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
-
-        const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
-        const sObj = socks[rr % socks.length];
-        rr++;
-        const ok = phone.length === 10
-            ? await checkOneNumberOnWA(phone, sessionIds, sObj.sock)
-            : false;
-
-        contacts[group][i].waStatus = ok ? 'valid' : 'invalid';
-        contacts[group][i].phone = phone;
-        if (ok) valid++; else invalid++;
-        scanned++;
-
-        // Random gap: multi 2–3s | single 2.5–5s (series feel na aaye)
-        const delay = scanDelayMs(activeWaCount);
-        await new Promise(r => setTimeout(r, delay));
-    }
-
-    if (scanned > 0) {
-        addTodayScanCount(scanned);
-        await persist('contacts', contacts);
-    }
-    res.json({
-        success: true,
-        scanned,
-        valid,
-        invalid,
-        todayScanned: getTodayScanCount(),
-        dailyScanLimit: scanAll ? null : dailyLimit,
-        unlimited: !!scanAll,
-        waUsed: activeWaCount,
-        delayMode: activeWaCount >= 2 ? '2-3s multi-WA' : '2.5-5s single-WA',
-        groupStats: getGroupScanStats(contacts[group])
-    });
-});
-
-app.post('/pair-code', async (req, res) => {
-    try {
-        let { phone, sessionId, fresh } = req.body || {};
-        phone = String(phone || '').replace(/\D/g, '');
-        if (phone.startsWith('0')) phone = phone.slice(1); if (phone.length === 10) phone = '91' + phone;
-        if (!phone || phone.length < 12) return res.status(400).json({ success: false, error: 'Sahi 10-digit Indian number daalo.' });
-        
-        let s = sessionId ? getSession(sessionId) : (Array.from(sessions.values()).find(x => x.sock && !x.connected) || Array.from(sessions.values()).find(x => x.sock));
-        if (!s) return res.status(400).json({ success: false, error: 'Session nahi mili. Pehle + Add WhatsApp karo.' });
-        if (s.connected) return res.status(400).json({ success: false, error: `Already connected.` });
-
-        if (fresh || req.body.forceFresh) {
-            try { if (s.sock) s.sock.end(undefined); } catch (e) {}
-            await clearSessionAuth(s.id);
-            await startSession(s.id, s.name);
-            for (let i = 0; i < 20; i++) { await new Promise(r => setTimeout(r, 500)); s = getSession(sessionId || s.id); if (s && s.sock && (s.qrCode || !s.connected)) break; }
-        }
-        s = getSession(s.id); if (!s || !s.sock) return res.status(400).json({ success: false, error: 'Socket ready nahi — 5 sec baad phir try.' });
-        await new Promise(r => setTimeout(r, 1500));
-        
-        const code = await s.sock.requestPairingCode(phone);
-        const raw = String(code || '').replace(/\s/g, '');
-        res.json({ success: true, code: raw.length === 8 ? raw.slice(0, 4) + '-' + raw.slice(4) : raw, raw: raw, phoneUsed: phone, sessionId: s.id, sessionName: s.name });
-    } catch (e) { res.status(500).json({ success: false, error: e.message || 'Pairing fail.' }); }
-});
-
-app.post('/api/validate-numbers', async (req, res) => {
-    if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है! Pehle device connect karo.' });
-    let raw = req.body.numbers || []; if (!Array.isArray(raw) || raw.length === 0) return res.json({ success: true, valid: [], invalid: 0, duplicatesRemoved: 0, total: 0 });
-    if (raw.length > 10) return res.status(400).json({ success: false, error: `Anti-Ban: ek baar mein max 10 numbers scan allowed.`, maxAllowed: 10, received: raw.length });
-
-    const seen = new Map(); let duplicatesRemoved = 0;
-    for (const item of raw) {
-        let phoneStr = typeof item === 'string' ? item : String(item.phone || ''); let name = typeof item === 'object' && item.name ? String(item.name).trim() : 'Customer';
-        let digits = phoneStr.replace(/\D/g, ''); if (digits.length < 10) continue;
-        let last10 = digits.slice(-10); if (!/^[6-9]\d{9}$/.test(last10)) continue;
-        if (seen.has(last10)) { duplicatesRemoved++; continue; }
-        seen.set(last10, { phone: last10, name: name || 'Customer' });
-    }
-    const uniqueList = Array.from(seen.values()); const valid = []; let invalidCount = 0;
-    for (let i = 0; i < uniqueList.length; i += 5) {
-        const batch = uniqueList.slice(i, i + 5);
-        try {
-            const jids = batch.map(c => '91' + c.phone + '@s.whatsapp.net'); 
-            const _sock = getSelectedOrRandomSock([]); 
-            if (!_sock) throw new Error('no sock');
-            const results = await _sock.onWhatsApp(...jids);
-            const existSet = new Set();
-            if (Array.isArray(results)) results.forEach(r => { if (r && (r.exists === true || r.exists === undefined) && r.jid) existSet.add(String(r.jid).split('@')[0].replace(/\D/g, '').slice(-10)); });
-            batch.forEach(c => { if (existSet.has(c.phone)) valid.push(c); else invalidCount++; });
-        } catch (e) {
-            for (const c of batch) {
-                try { const ok = await checkOneNumberOnWA(c.phone, []); if (ok) valid.push(c); else invalidCount++; } catch (e2) { invalidCount++; }
+        async function createWASession() { const name = (document.getElementById('newSessionName').value || '').trim(); await fetch('/api/sessions/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); document.getElementById('newSessionName').value = ''; const r = await fetch('/api/sessions?t=' + Date.now(), { cache: "no-store" }); const d = await r.json(); renderSessionsUI(d.sessions || []); }
+        async function deleteWASession(id) {
+            if (!confirm('Delete this WhatsApp session?')) return;
+            try {
+                const del = await fetch('/api/sessions/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const dj = await del.json().catch(() => ({}));
+                if (!del.ok || dj.success === false) {
+                    showToast(dj.error || 'Delete fail', true);
+                    return;
+                }
+                showToast('✅ WhatsApp session delete ho gaya');
+                await new Promise(r => setTimeout(r, 400));
+                const r = await fetch('/api/sessions?t=' + Date.now(), { cache: 'no-store' });
+                const d = await r.json();
+                renderSessionsUI(d.sessions || [], true);
+            } catch (e) {
+                showToast('Network error', true);
             }
         }
-        if (i + 5 < uniqueList.length) await new Promise(r => setTimeout(r, 2000));
-    }
-    res.json({ success: true, valid, invalid: invalidCount, duplicatesRemoved, total: raw.length, validCount: valid.length });
-});
 
-app.post('/send', async (req, res) => {
-    if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
-    if (liveCampaign.isActive && !campaignCancelFlag) {
-        return res.status(400).json({
-            success: false,
-            error: 'Pehle campaign chal raha hai. Live Tracking → Delete Campaign karke naya start karo.'
-        });
-    }
-    const { numbers, message, minDelay, maxDelay, imageBase64, templates, sessionIds, customBatch, customRestHours } = req.body;
-    if (!Array.isArray(numbers) || numbers.length === 0) return res.status(400).json({ success: false, error: 'Number list empty!' });
+        function showSection(id, btn) {
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
+            if (id === 'historySec') loadHistoryTable();
+        }
 
-    let selectedIds = Array.isArray(sessionIds) && sessionIds.length ? sessionIds : Array.from(sessions.values()).filter(s => s.connected).map(s => s.id);
-    selectedIds = selectedIds.filter(id => { const s = getSession(id); return s && s.connected && s.sock; });
-    if (!selectedIds.length) return res.status(400).json({ success: false, error: 'Koi connected WhatsApp select nahi hai' });
+        function toggleNightSleep() {
+            const isSleepOn = document.getElementById('nightSleepToggle').checked;
+            fetch('/api/toggle-sleep', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ disable: !isSleepOn }) });
+            showToast(isSleepOn ? "🌙 Night Sleep ON (Raat 10 baje pause hoga)" : "🚀 Night Sleep OFF (Aaj raat override ho gaya)");
+        }
 
-    const seenPhone = new Set(); let uniqueNumbers = [];
-    for (const n of numbers) {
-        const p = String(n.phone || '').replace(/\D/g, '').slice(-10);
-        if (p.length === 10 && !seenPhone.has(p)) { seenPhone.add(p); uniqueNumbers.push({ phone: p, name: n.name || 'Customer' }); }
-    }
+        function deleteCampaign(campaignId) {
+            const msg = campaignId
+                ? 'Is campaign ko delete / stop karein? History safe rahegi.'
+                : 'Saari active campaigns delete / stop? History safe rahegi.';
+            if (!confirm(msg)) return;
+            const btn = document.getElementById('deleteCampaignBtn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Deleting...'; }
+            fetch('/api/campaign/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campaignId ? { campaignId: campaignId } : {})
+            })
+                .then(r => r.json())
+                .then(d => {
+                    showToast(d.message || 'Campaign deleted');
+                    if (campaignId && selectedLiveCampaignId === campaignId) selectedLiveCampaignId = null;
+                    const pToggle = document.getElementById('pauseCampaignToggle');
+                    if (pToggle) pToggle.checked = false;
+                    const sendBtn = document.getElementById('sendBtn');
+                    if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
+                    fetchLiveStatus();
+                })
+                .catch(() => showToast('Network error', true))
+                .finally(() => {
+                    if (btn) { btn.disabled = false; btn.innerHTML = '🗑️ Delete Campaign(s)'; }
+                });
+        }
 
-    // Daily limit always applies (80 / WA etc.) — custom batch se bypass nahi
-    const dailyLimit = getDailyLimit() * selectedIds.length; const alreadySent = getTodaySentCount();
-    if (alreadySent >= dailyLimit) return res.status(400).json({ success: false, error: `Anti-Ban: aaj ka limit (${dailyLimit}) pure. Kal try karo.` });
-    const remainingQuota = dailyLimit - alreadySent; if (uniqueNumbers.length > remainingQuota) uniqueNumbers = uniqueNumbers.slice(0, remainingQuota);
-
-    // Custom batch / rest — empty = default 30 / 2hr
-    let batchSize = SESSION_BATCH;
-    let restMs = SESSION_REST_MS;
-    const cb = parseInt(customBatch, 10);
-    const cr = parseFloat(customRestHours);
-    if (!isNaN(cb) && cb >= 1) batchSize = Math.min(50, Math.max(1, cb));
-    if (!isNaN(cr) && cr > 0) restMs = Math.min(12, Math.max(0.25, cr)) * 60 * 60 * 1000;
-    const restHoursLabel = (restMs / (60 * 60 * 1000)).toFixed(restMs % 3600000 === 0 ? 0 : 2);
-
-    const useRotation = Array.isArray(templates) && templates.length > 0; let tplIndex = 0;
-
-    campaignCancelFlag = false;
-    liveCampaign = {
-        isActive: true, isPaused: false, total: uniqueNumbers.length, dailyLimit, alreadySentToday: alreadySent, sent: 0, failed: 0, pending: uniqueNumbers.length,
-        numbers: uniqueNumbers.map(n => ({
-            phone: n.phone,
-            name: n.name || 'Customer',
-            status: 'Pending ⏳',
-            state: 'pending',
-            session: null,
-            template: null
-        })),
-        status: 'sending', restReason: '', resumeAt: null, batchSize, restHours: restHoursLabel, accountAgeDays: getAccountAgeDays(),
-        sessions: selectedIds.map(id => { const s = getSession(id); return { id, name: s.name, resting: false }; })
-    };
-    res.json({ success: true, willSend: uniqueNumbers.length, sessions: selectedIds.length, batchPerSession: batchSize, restHours: restHoursLabel });
-
-    const minD = Math.max(45, parseInt(minDelay) || 45); const maxD = Math.max(minD + 15, parseInt(maxDelay) || 90);
-    const queue = uniqueNumbers.map((n, idx) => ({ ...n, idx }));
-
-    async function sessionWorker(sessionId) {
-        const s = getSession(sessionId); if (!s) return;
-        while (queue.length > 0) {
-            if (campaignCancelFlag || !liveCampaign.isActive) {
-                queue.length = 0;
-                break;
+        function togglePauseCampaign() {
+            const isPaused = document.getElementById('pauseCampaignToggle').checked;
+            fetch('/api/toggle-pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pause: isPaused }) });
+            if (isPaused) {
+                showToast('🛑 Campaign Stopped/Paused!', true);
+            } else {
+                showToast('🚀 Campaign Resumed!');
             }
+        }
 
-            while (liveCampaign.isPaused && !campaignCancelFlag && liveCampaign.isActive) {
-                liveCampaign.status = 'paused';
-                liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
+        function onDateModeChange() {
+            const mode = (document.getElementById('dateMode') || {}).value || 'all';
+            const dateEl = document.getElementById('dateFilter');
+            const hint = document.getElementById('dateFilterHint');
+            if (dateEl) dateEl.style.display = (mode === 'day') ? 'block' : 'none';
+            if (hint) hint.textContent = mode === 'all' ? 'Saare din ke total sent / failed' : 'Selected date ke stats';
+            if (mode === 'day' && dateEl && !dateEl.value) {
+                const t = new Date();
+                dateEl.value = t.toISOString().slice(0, 10);
+            }
+            fetchStats();
+        }
+
+        function fetchStats() {
+            const mode = (document.getElementById('dateMode') || {}).value || 'all';
+            const dateEl = document.getElementById('dateFilter');
+            const q = (mode === 'day' && dateEl && dateEl.value) ? ('date=' + dateEl.value + '&') : '';
+            fetch('/api/stats?' + q + 't=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(d => {
+                const sent = d.sent || 0;
+                const failed = d.failed || 0;
+                const total = sent + failed;
+                const elS = document.getElementById('sentCount');
+                const elF = document.getElementById('failedCount');
+                if (elS) elS.innerText = sent;
+                if (elF) elF.innerText = failed;
+                const barS = document.getElementById('sentBar');
+                const barF = document.getElementById('failedBar');
+                if (barS) barS.style.width = total ? Math.round((sent / total) * 100) + '%' : '0%';
+                if (barF) barF.style.width = total ? Math.round((failed / total) * 100) + '%' : '0%';
+                const rate = document.getElementById('successRate');
+                if (rate) rate.innerText = total ? (Math.round((sent / total) * 100) + '%') : '—';
+            }).catch(() => {});
+        }
+        function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
+        function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => showToast('✅ मैसेज अपडेट हो गया।')) }
+
+        function fetchContacts() {
+            if (contactsSaveLock) return;
+            fetch('/api/contacts?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.json())
+                .then(data => {
+                    if (contactsSaveLock) return;
+                    allContacts = data;
+                    updateGroupDropdowns();
+                    renderGroupContacts();
+                }).catch(e => console.error(e));
+        }
+        function updateGroupDropdowns() {
+            const g1 = document.getElementById('groupSelect'), g2 = document.getElementById('campaignGroupDropdown');
+            const prevG1 = g1.value; const prevG2 = g2.value; 
+            g1.innerHTML = '<option value="">-- ग्रुप सेलेक्ट करें --</option>'; g2.innerHTML = '<option value="">-- ग्रुप चुनें --</option>';
+            Object.keys(allContacts).forEach(g => { g1.innerHTML += `<option value="${g}">${g} (${allContacts[g].length})</option>`; g2.innerHTML += `<option value="${g}">${g} (${allContacts[g].length} Contacts)</option>`; });
+            if(allContacts[prevG1]) g1.value = prevG1; if(allContacts[prevG2]) g2.value = prevG2;
+        }
+        function createNewGroup() {
+            const name = document.getElementById('newGroupName').value.trim();
+            if(!name) return showToast("⚠️ कृपया ग्रुप का नाम लिखें!", true); if(allContacts[name]) return showToast("⚠️ यह ग्रुप पहले से मौजूद है!", true);
+            allContacts[name] = []; try { document.getElementById('newGroupName').value = ''; } catch(e){}
+            updateGroupDropdowns(); document.getElementById('groupSelect').value = name; renderGroupContacts(); showToast(`✅ '${name}' ग्रुप सफलतापूर्वक बन गया!`);
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
+        }
+        let contactListShowAll = false;
+        let contactListFilter = 'all'; // all | valid | invalid | pending
+
+        function renderGroupContacts() {
+            const g = document.getElementById('groupSelect').value;
+            const div = document.getElementById('contactManagerDiv');
+            const tbody = document.getElementById('contactTableBody');
+            if (!g) { div.style.display = 'none'; return; }
+            div.style.display = 'block';
+
+            let list = allContacts[g] || [];
+            if (contactListFilter === 'valid') list = list.filter(c => c.waStatus === 'valid');
+            else if (contactListFilter === 'invalid') list = list.filter(c => c.waStatus === 'invalid');
+            else if (contactListFilter === 'pending') list = list.filter(c => !c.waStatus || c.waStatus === 'pending');
+
+            const PAGE = 30;
+            const MAX_SHOW = contactListShowAll ? list.length : PAGE;
+            const show = list.slice(0, MAX_SHOW);
+            let html = '';
+            for (let i = 0; i < show.length; i++) {
+                const st = show[i].waStatus;
+                let badge = '<span style="color:#f59e0b">Pending</span>';
+                if (st === 'valid') badge = '<span style="color:#10b981">Valid ✅</span>';
+                if (st === 'invalid') badge = '<span style="color:#ef4444">Invalid ❌</span>';
+                html += `<tr><td>${show[i].name || 'Customer'}</td><td>${show[i].phone}</td><td>${badge}</td></tr>`;
+            }
+            if (list.length > MAX_SHOW) {
+                const left = list.length - MAX_SHOW;
+                html += `<tr style="cursor:pointer;background:#eff6ff;" onclick="contactListShowAll=true;renderGroupContacts()">
+                    <td colspan="3" style="text-align:center;color:#2563eb;font-size:14px;font-weight:700;padding:14px;">
+                        👇 ... और ${left} — क्लिक करके पूरी लिस्ट देखें (कुल ${list.length})
+                    </td>
+                </tr>`;
+            } else if (list.length > PAGE && contactListShowAll) {
+                html += `<tr style="cursor:pointer;background:#f8fafc;" onclick="contactListShowAll=false;renderGroupContacts()">
+                    <td colspan="3" style="text-align:center;color:#64748b;font-size:13px;padding:12px;">▲ कम दिखाएं (पहली ${PAGE})</td>
+                </tr>`;
+            }
+            tbody.innerHTML = html || `<tr><td colspan="3" style="text-align:center;color:#64748b;">इस फ़िल्टर में कोई नंबर नहीं</td></tr>`;
+        }
+        function addSingleContact() {
+            const g = document.getElementById('groupSelect').value; const n = document.getElementById('addName').value, p = document.getElementById('addPhone').value;
+            if(!g) return showToast("⚠️ पहले ग्रुप सेलेक्ट करें!", true); if(!n || !p) return showToast("⚠️ नाम और नंबर दोनों डालें!", true);
+            allContacts[g].push({name: n, phone: p, waStatus: null}); 
+            try { document.getElementById('addName').value = ''; document.getElementById('addPhone').value = ''; } catch(e){}
+            renderGroupContacts(); updateGroupDropdowns(); document.getElementById('groupSelect').value = g; showToast(`✅ ${n} का नंबर जुड़ गया!`);
+            fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }).catch(e => console.error(e));
+        }
+
+        function fetchTemplates() { fetch('/api/templates?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { allTemplates = data; renderTemplates(); }).catch(e => console.error(e)); }
+        function renderTemplates() {
+            const drop = document.getElementById('templateDropdown'); const prevSelected = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
+            drop.innerHTML = ''; document.getElementById('templateListArea').innerHTML = '';
+            allTemplates.forEach(t => {
+                const safeMessage = (t.message || '').substring(0, 40);
+                const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
+                if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
+                const btnInfo = (t.buttons && t.buttons.length) ? (' · 🔘 ' + t.buttons.map(b => b.text).join(', ')) : '';
+                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span><br><span style="font-size:11px;color:#059669;">${btnInfo}</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
+            }); applySelectedTemplates();
+        }
+        function collectTemplateButtons() {
+            const buttons = [];
+            for (let i = 1; i <= 3; i++) {
+                const text = (document.getElementById('tplBtn' + i + 'Text') || {}).value || '';
+                const type = (document.getElementById('tplBtn' + i + 'Type') || {}).value || 'reply';
+                const value = (document.getElementById('tplBtn' + i + 'Value') || {}).value || '';
+                if (String(text).trim() && String(value).trim()) {
+                    buttons.push({ text: String(text).trim(), type: type, value: String(value).trim() });
+                }
+            }
+            return buttons;
+        }
+        function fileKindFromMime(mime, fileName) {
+            const m = (mime || '').toLowerCase();
+            const n = (fileName || '').toLowerCase();
+            if (m.startsWith('image/')) return 'image';
+            if (m.startsWith('video/')) return 'video';
+            if (m.startsWith('audio/')) return 'audio';
+            if (n.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/)) return 'image';
+            if (n.match(/\.(mp4|mov|webm|mkv|3gp)$/)) return 'video';
+            return 'document';
+        }
+        function readFilesAsAttachments(fileList, maxFiles, maxEachMb) {
+            return new Promise((resolve, reject) => {
+                const files = Array.from(fileList || []).slice(0, maxFiles || 5);
+                if (!files.length) return resolve([]);
+                const out = [];
+                let i = 0;
+                const next = () => {
+                    if (i >= files.length) return resolve(out);
+                    const f = files[i++];
+                    if (f.size > (maxEachMb || 10) * 1024 * 1024) {
+                        return reject(new Error(f.name + ' bahut badi (max ' + (maxEachMb || 10) + 'MB)'));
+                    }
+                    const r = new FileReader();
+                    r.onload = e => {
+                        const mime = f.type || 'application/octet-stream';
+                        const name = f.name || ('file_' + i);
+                        out.push({
+                            fileBase64: e.target.result,
+                            fileMime: mime,
+                            fileName: name,
+                            fileKind: fileKindFromMime(mime, name)
+                        });
+                        next();
+                    };
+                    r.onerror = () => reject(new Error('File read fail: ' + f.name));
+                    r.readAsDataURL(f);
+                };
+                next();
+            });
+        }
+        async function saveNewTemplate() {
+            const name = document.getElementById('newTplName').value;
+            const msg = document.getElementById('newTplMsg').value;
+            const fileInput = document.getElementById('newTplImage');
+            if (!name || !msg) return showToast('⚠️ नाम और मैसेज डालना ज़रूरी है!', true);
+            const id = 'tpl_' + Date.now();
+            let attachments = [];
+            try {
+                attachments = await readFilesAsAttachments(fileInput.files, 5, 10);
+            } catch (e) {
+                return showToast('⚠️ ' + (e.message || 'File error'), true);
+            }
+            const first = attachments[0] || null;
+            const payload = {
+                id, name, message: msg,
+                attachments,
+                // backward compat (pehli file)
+                imageBase64: first ? first.fileBase64 : null,
+                fileBase64: first ? first.fileBase64 : null,
+                fileMime: first ? first.fileMime : null,
+                fileName: first ? first.fileName : null,
+                fileKind: first ? first.fileKind : null,
+                buttons: collectTemplateButtons()
+            };
+            doSaveTemplate(payload);
+        }
+        function doSaveTemplate(payload) {
+            allTemplates.push(payload);
+            try {
+                document.getElementById('newTplName').value = '';
+                document.getElementById('newTplMsg').value = '';
+                document.getElementById('newTplImage').value = '';
+                for (let i = 1; i <= 3; i++) {
+                    const t = document.getElementById('tplBtn' + i + 'Text'); if (t) t.value = '';
+                    const v = document.getElementById('tplBtn' + i + 'Value'); if (v) v.value = '';
+                }
+            } catch(e){}
+            renderTemplates(); document.getElementById('templateDropdown').value = payload.id; applySelectedTemplates(); showToast(`✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!`);
+            fetch('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }).catch(e => console.error("Template Save Error:", e));
+        }
+        function deleteTemplate(id) { 
+            if(!confirm("क्या आप सच में इसे डिलीट करना चाहते हैं?")) return;
+            allTemplates = allTemplates.filter(t => t.id !== id); renderTemplates(); showToast("🗑️ टेम्प्लेट डिलीट हो गया!", true);
+            fetch('/api/templates/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) }).catch(e => console.error(e)); 
+        }
+        function applySelectedTemplates() {
+            const drop = document.getElementById('templateDropdown'); const selectedIds = Array.from(drop.selectedOptions).map(o => o.value).filter(v => v);
+            selectedTemplatesList = selectedIds.map(id => allTemplates.find(t => t.id === id)).filter(Boolean); const preview = document.getElementById('selectedTemplatesPreview');
+            if (selectedTemplatesList.length === 0) { preview.innerHTML = '<p style="font-size:13px; color:#64748b; margin:0;">कोई टेम्प्लेट नहीं चुना — नीचे का कस्टम मैसेज/इमेज इस्तेमाल होगा.</p>'; return; }
+            let html = `<div style="display:flex; flex-direction:column; gap:12px;">`;
+            selectedTemplatesList.forEach((t, idx) => {
+                const atts = (t.attachments && t.attachments.length) ? t.attachments : (
+                    (t.fileBase64 || t.imageBase64) ? [{ fileBase64: t.fileBase64 || t.imageBase64, fileKind: t.fileKind || 'image', fileName: t.fileName }] : []
+                );
+                let mediaHtml = '';
+                if (!atts.length) {
+                    mediaHtml = `<div style="width:80px;height:80px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8;">No Media</div>`;
+                } else {
+                    mediaHtml = '<div style="display:flex;gap:4px;flex-wrap:wrap;max-width:140px;">';
+                    atts.slice(0, 4).forEach(a => {
+                        if (a.fileKind === 'image' && a.fileBase64) {
+                            mediaHtml += `<img src="${a.fileBase64}" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid #e2e8f0;">`;
+                        } else {
+                            mediaHtml += `<div style="width:56px;height:56px;background:#eff6ff;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#1e40af;text-align:center;padding:2px;">📄</div>`;
+                        }
+                    });
+                    if (atts.length > 4) mediaHtml += `<div style="font-size:10px;color:#64748b;">+${atts.length - 4}</div>`;
+                    mediaHtml += '</div>';
+                }
+                html += `<div style="background:#fff; border:1px solid #bfdbfe; border-radius:12px; padding:12px; display:flex; gap:12px; align-items:flex-start;"><div style="flex-shrink:0;">${mediaHtml}</div><div style="flex:1; min-width:0;"><div style="font-weight:700; color:#1e293b; font-size:14px; margin-bottom:4px;">${t.name}${atts.length ? ' · ' + atts.length + ' files' : ''}</div><div style="font-size:12px; color:#475569; max-height:80px; overflow-y:auto; background:#f8fafc; padding:8px; border-radius:6px;">${t.message || '(कोई मैसेज नहीं)'}</div></div></div>`;
+            }); preview.innerHTML = html + `</div>`;
+        }
+        function clearTemplateSelection() { Array.from(document.getElementById('templateDropdown').options).forEach(o => o.selected = false); selectedTemplatesList = []; document.getElementById('selectedTemplatesPreview').innerHTML = ''; }
+
+        function setUploadStatus(msg, color) {
+            let el = document.getElementById('uploadStatusMsg');
+            if (!el) { el = document.createElement('p'); el.id = 'uploadStatusMsg'; el.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;'; const box = document.getElementById('contactFileInput') || document.getElementById('campaignFileInput'); if (box && box.parentNode) box.parentNode.appendChild(el); }
+            el.style.display = msg ? 'block' : 'none'; el.style.color = color || '#f59e0b'; el.innerHTML = msg || '';
+        }
+        function extractDataFromFile(file, callback, onProgress) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext === 'pdf') {
+                const reader = new FileReader(); reader.onerror = () => { showToast('PDF read error', true); callback([]); };
+                reader.onload = async function(e) {
+                    try {
+                        const typedarray = new Uint8Array(e.target.result); const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise; const total = pdf.numPages; const phoneSet = new Set(); const regex = /(?:(?:\+|0{0,2})91[\s-]?)?[6789]\d{9}/g;
+                        for (let i = 1; i <= total; i++) {
+                            if (onProgress) onProgress(i, total); const page = await pdf.getPage(i); const textContent = await page.getTextContent(); const pageText = textContent.items.map(item => item.str).join(' '); let m; regex.lastIndex = 0;
+                            while ((m = regex.exec(pageText)) !== null) { const num = m[0].replace(/\D/g, '').slice(-10); if (num.length === 10) phoneSet.add(num); }
+                            if (i % 3 === 0) await new Promise(r => setTimeout(r, 0));
+                        }
+                        callback(Array.from(phoneSet).map(num => ['Customer', num]));
+                    } catch (err) { showToast('PDF process error', true); callback([]); }
+                }; reader.readAsArrayBuffer(file);
+            } else if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
+                const reader = new FileReader(); reader.onload = function(e) { try { const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, { type: 'array' }); const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 }); callback(json); } catch (err) { showToast('Excel/CSV read error', true); callback([]); } }; reader.readAsArrayBuffer(file);
+            } else { showToast("केवल PDF, Excel या CSV फाइल ही अपलोड करें।", true); callback([]); }
+        }
+        function processCampaignFile(event) {
+            const file = event.target.files[0]; if (!file) return; setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
+            extractDataFromFile(file, (data) => {
+                let numbersStr = data.map(row => { let phone = row.length >= 2 ? String(row[1]) : String(row[0]); return phone ? phone.replace(/\D/g, '').slice(-10) : ''; }).filter(n => n.length === 10).join('\n');
+                let existing = document.getElementById('numbers').value; document.getElementById('numbers').value = existing ? existing + '\n' + numbersStr : numbersStr;
+                const count = numbersStr ? numbersStr.split('\n').filter(Boolean).length : 0; setUploadStatus(`✅ ${count} numbers निकाले गए`, '#10b981'); showToast(`✅ ${count} नंबर निकाल लिए गए!`);
+                try { document.getElementById('campaignFileInput').value = ''; } catch(e){}
+            }, (page, total) => { setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b'); });
+        }
+        function processContactFile() {
+            const file = document.getElementById('contactFileInput').files[0]; const g = document.getElementById('groupSelect').value;
+            if (!file || !g) return showToast("⚠️ फाइल और ग्रुप दोनों सेलेक्ट करें!", true); setUploadStatus('⏳ Process हो रहा है...', '#f59e0b');
+            extractDataFromFile(file, (data) => {
+                if (!allContacts[g]) allContacts[g] = []; const existing = new Set(allContacts[g].map(c => c.phone)); let added = 0;
+                data.forEach(row => {
+                    if (!row || row.length === 0) return; let name = row.length >= 2 ? String(row[0]).trim() : 'Customer'; let phoneStr = row.length >= 2 ? String(row[1]) : String(row[0]); let phone = phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : '';
+                    if (phone.length === 10 && !existing.has(phone)) { allContacts[g].push({ name: name, phone: phone }); existing.add(phone); added++; }
+                });
+                if (added > 0) { renderGroupContacts(); updateGroupDropdowns(); document.getElementById('groupSelect').value = g; fetch('/api/contacts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(allContacts) }); setUploadStatus(`✅ ${added} numbers add हो गए`, '#10b981'); showToast(`✅ फाइल से ${added} नंबर सफलतापूर्वक जोड़ दिए गए!`); } else { setUploadStatus('⚠️ कोई नया valid number नहीं मिला', '#ef4444'); showToast("⚠️ कोई नया सही मोबाइल नंबर नहीं मिला।", true); }
+                try { document.getElementById('contactFileInput').value = ''; } catch(e){}
+            }, (page, total) => { setUploadStatus(`⏳ PDF page ${page}/${total}...`, '#f59e0b'); });
+        }
+
+        async function scanCampaignNumbers() {
+            const ta = document.getElementById('numbers'); const status = document.getElementById('scanCampaignStatus'); const btn = document.getElementById('scanCampaignBtn');
+            let lines = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+            if (lines.length === 0) return showToast('⚠️ पहले नंबर डालो!', true);
+            if (lines.length > 10) { if (!confirm(`Anti-Ban: max 10 scan.\nOK = pehle 10 scan karo`)) return; lines = lines.slice(0, 10); }
+            btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b'; status.innerHTML = `⏳ Scanning ${lines.length}...`;
+            try {
+                const r = await fetch('/api/validate-numbers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numbers: lines.map(n => ({ phone: n, name: 'Customer' })) }) });
+                const d = await r.json();
+                if (!d.success) { status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed'); return; }
+                const rest = ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(10);
+                ta.value = (d.valid || []).map(c => c.phone).concat(rest).join('\n');
+                status.style.color = '#10b981'; status.innerHTML = `✅ Scan: Valid <b>${d.validCount}</b> | Invalid: ${d.invalid} | Dup: ${d.duplicatesRemoved}`;
+            } catch (e) { status.style.color = '#ef4444'; status.innerHTML = '❌ Network error'; } finally { btn.disabled = false; btn.innerHTML = '🔍 Scan (max 10) + Clean Duplicates'; }
+        }
+
+        async function scanNextInGroup(isAuto = false, retryCount = 0) {
+            const g = document.getElementById('groupSelect').value; const status = document.getElementById('scanContactStatus'); const btn = document.getElementById('scanContactBtn');
+            if (!g) { showToast('⚠️ Group select karo!', true); return false; }
+            const sessionIds = Array.from(document.querySelectorAll('.scanSessionChk:checked')).map(c => c.value);
+            if (!sessionIds.length) { showToast('⚠️ Scan ke liye kam se kam 1 WhatsApp select karo!', true); return false; }
+
+            btn.disabled = true; btn.innerHTML = '⏳ Scanning...'; status.style.display = 'block'; status.style.color = '#f59e0b';
+            status.innerHTML = isAuto ? '⏳ Scan All… 5/batch + auto-retry' : '⏳ Scanning next 10...';
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(function () { controller.abort(); }, 120000);
+                const r = await fetch('/api/scan-next', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group: g, sessionIds, scanAll: !!isAuto }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                const d = await r.json();
+                if (!d.success) {
+                    status.style.color = '#ef4444'; status.innerHTML = '❌ ' + (d.error || 'Failed');
+                    btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
+                    return false;
+                }
+                status.style.color = '#10b981';
+                const pendingLeft = (d.groupStats && d.groupStats.pending != null) ? d.groupStats.pending : '?';
+                status.innerHTML = '✅ +' + d.scanned + ' (Valid ' + d.valid + ' / Invalid ' + d.invalid + ')' +
+                    (d.waUsed ? (' · ' + d.waUsed + ' WA · ' + (d.delayMode || '')) : '') +
+                    ' · Pending left: ' + pendingLeft +
+                    (d.unlimited ? ' · No daily limit' : '');
+                fetchContacts();
+                btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
+
+                if (isAuto === true) {
+                    return (d.scanned > 0 && d.groupStats && d.groupStats.pending > 0);
+                }
+            } catch (e) {
+                if (isAuto && retryCount < 3 && isAutoScanningAll) {
+                    status.style.color = '#f59e0b';
+                    status.innerHTML = '⚠️ Network blip — retry ' + (retryCount + 1) + '/3 (5 sec)...';
+                    await new Promise(function (r) { setTimeout(r, 5000); });
+                    if (!isAutoScanningAll) return false;
+                    return await scanNextInGroup(true, retryCount + 1);
+                }
+                status.style.color = '#ef4444';
+                status.innerHTML = '❌ Network error' + (isAuto ? ' — Stop ho gaya. Dubara Scan All; pehle scanned safe hain' : '');
+                btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
+                return false;
+            }
+        }
+
+        let isAutoScanningAll = false;
+        async function toggleScanAll() {
+            const btn = document.getElementById('scanAllBtn');
+            if (isAutoScanningAll) {
+                isAutoScanningAll = false;
+                btn.innerHTML = '🔍 Scan All Pending';
+                btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                return;
+            }
+            
+            const g = document.getElementById('groupSelect').value;
+            if (!g) return showToast('⚠️ Pehle group select karo!', true);
+            
+            isAutoScanningAll = true;
+            btn.innerHTML = '🛑 Stop Scanning';
+            btn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+            showToast("⏳ Auto-scanning chalu ho gayi hai...");
+            
+            while (isAutoScanningAll) {
+                const hasMore = await scanNextInGroup(true);
+                if (!hasMore) {
+                    isAutoScanningAll = false;
+                    break;
+                }
                 await new Promise(r => setTimeout(r, 2000));
             }
-            if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
-
-            while (s.restUntil && Date.now() < s.restUntil) {
-                if (campaignCancelFlag || !liveCampaign.isActive) break;
-                const left = s.restUntil - Date.now();
-                liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: ${restHoursLabel}hr rest after ${batchSize} msgs`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
-                await new Promise(r => setTimeout(r, Math.min(5000, left)));
-            }
-            if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
-            if (!s.connected || !s.sock) { await new Promise(r => setTimeout(r, 5000)); continue; }
-            await waitForSendWindow();
-            if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
-            liveCampaign.status = 'sending'; liveCampaign.restReason = ''; liveCampaign.resumeAt = null;
-
-            let batchCount = 0;
-            while (batchCount < batchSize && queue.length > 0) {
-                if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
-
-                while (liveCampaign.isPaused && !campaignCancelFlag && liveCampaign.isActive) {
-                    liveCampaign.status = 'paused';
-                    liveCampaign.restReason = '🛑 Campaign Stop/Paused (User)';
-                    await new Promise(r => setTimeout(r, 2000));
-                }
-                if (campaignCancelFlag || !liveCampaign.isActive) { queue.length = 0; break; }
-
-                if (!s.connected || !s.sock) break; if (s.restUntil && Date.now() < s.restUntil) break;
-                const item = queue.shift(); if (!item) break;
-                let num = item.phone; const customerName = item.name || 'Customer'; const idx = item.idx;
-
-                try {
-                    if (!num.startsWith('91')) num = '91' + num; const jid = num + '@s.whatsapp.net';
-                    let finalMessage = '';
-                    let finalFileBase64 = null;
-                    let fileMime = null;
-                    let fileName = null;
-                    let fileKind = null;
-                    let tplName = '';
-                    let buttons = [];
-                    if (useRotation) {
-                        const tpl = templates[tplIndex % templates.length]; tplIndex++; tplName = tpl.name || '';
-                        finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
-                        finalFileBase64 = tpl.fileBase64 || tpl.imageBase64 || null;
-                        fileMime = tpl.fileMime || null;
-                        fileName = tpl.fileName || null;
-                        fileKind = tpl.fileKind || null;
-                        buttons = Array.isArray(tpl.buttons) ? tpl.buttons : [];
-                    } else {
-                        finalMessage = message ? message.replace(/\[Name\]/gi, customerName) : '';
-                        finalFileBase64 = imageBase64 || null;
-                    }
-
-                    if (buttons.length) {
-                        const lines = ['', '────────────'];
-                        buttons.forEach(b => {
-                            const label = (b.text || '').trim();
-                            const val = (b.value || '').trim();
-                            if (!label || !val) return;
-                            if (b.type === 'call') lines.push('📞 *' + label + '*\n' + val);
-                            else if (b.type === 'url') lines.push('🔗 *' + label + '*\n' + val);
-                            else lines.push('💬 *' + label + '*\nReply: ' + val);
-                        });
-                        finalMessage = (finalMessage || '') + lines.join('\n');
-                    }
-
-                    if (finalFileBase64 && !fileKind) {
-                        const head = String(finalFileBase64).slice(0, 80).toLowerCase();
-                        if (head.includes('image/')) fileKind = 'image';
-                        else if (head.includes('video/')) fileKind = 'video';
-                        else if (head.includes('audio/')) fileKind = 'audio';
-                        else fileKind = 'document';
-                        if (!fileMime && head.startsWith('data:')) {
-                            const m = head.match(/^data:([^;]+)/);
-                            if (m) fileMime = m[1];
-                        }
-                    }
-
-                    let messageOptions;
-                    if (finalFileBase64) {
-                        const base64Data = finalFileBase64.includes(',') ? finalFileBase64.split(',')[1] : finalFileBase64;
-                        const buf = Buffer.from(base64Data, 'base64');
-                        if (fileKind === 'image') {
-                            messageOptions = { image: buf, caption: finalMessage || undefined };
-                        } else if (fileKind === 'video') {
-                            messageOptions = { video: buf, caption: finalMessage || undefined, mimetype: fileMime || 'video/mp4' };
-                        } else if (fileKind === 'audio') {
-                            if (finalMessage) await s.sock.sendMessage(jid, { text: finalMessage });
-                            messageOptions = { audio: buf, mimetype: fileMime || 'audio/mpeg', ptt: false };
-                        } else {
-                            let mime = fileMime || 'application/octet-stream';
-                            let fname = fileName || 'document';
-                            if (!fileName && mime.includes('pdf')) fname = 'document.pdf';
-                            if (!fileName && (mime.includes('sheet') || mime.includes('excel'))) fname = 'sheet.xlsx';
-                            if (!fileName && mime.includes('html')) fname = 'file.html';
-                            messageOptions = {
-                                document: buf,
-                                mimetype: mime,
-                                fileName: fname,
-                                caption: finalMessage || undefined
-                            };
-                        }
-                    } else {
-                        messageOptions = { text: finalMessage || ' ' };
-                    }
-
-                    await s.sock.sendMessage(jid, messageOptions);
-
-                    // Try native-style buttons (optional — kuch accounts pe dikhte hain)
-                    if (buttons.length) {
-                        try {
-                            const nativeBtns = buttons.slice(0, 3).map((b, i) => ({
-                                buttonId: 'btn_' + i + '_' + (b.type || 'reply'),
-                                buttonText: { displayText: String(b.text || '').slice(0, 20) },
-                                type: 1
-                            }));
-                            if (nativeBtns.length) {
-                                await s.sock.sendMessage(jid, {
-                                    text: 'Quick actions:',
-                                    footer: 'Tap a option or use links above',
-                                    buttons: nativeBtns,
-                                    headerType: 1
-                                });
-                            }
-                        } catch (btnErr) { /* ignore — text buttons already in caption */ }
-                    }
-                    liveCampaign.sent++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
-                    if (liveCampaign.numbers[idx]) {
-                        liveCampaign.numbers[idx].status = 'Sent ✅ (' + s.name + (tplName ? ' / ' + tplName : '') + ')';
-                        liveCampaign.numbers[idx].state = 'sent';
-                        liveCampaign.numbers[idx].session = s.name;
-                        liveCampaign.numbers[idx].template = tplName || (finalFileBase64 ? (fileKind || 'Media') : 'Message');
-                    }
-                    addHistory(num, finalMessage || 'Media Sent', s.name + (tplName ? ' | ' + tplName : ''));
-                    saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
-                    batchCount++; s.sentInBatch = batchCount;
-
-                    const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
-                    await new Promise(r => setTimeout(r, delayMs));
-                } catch (e) {
-                    liveCampaign.failed++; liveCampaign.pending = Math.max(0, liveCampaign.pending - 1);
-                    if (liveCampaign.numbers[idx]) {
-                        liveCampaign.numbers[idx].status = 'Failed ❌ (' + s.name + ')';
-                        liveCampaign.numbers[idx].state = 'failed';
-                        liveCampaign.numbers[idx].session = s.name;
-                        liveCampaign.numbers[idx].template = null;
-                    }
-                    saveStats(new Date().toLocaleDateString('en-CA'), 0, 1); batchCount++; s.sentInBatch = batchCount;
-                }
-            }
-            if (batchCount >= batchSize && queue.length > 0) {
-                s.restUntil = Date.now() + restMs; s.sentInBatch = 0;
-                liveCampaign.status = 'resting'; liveCampaign.restReason = `${s.name}: ${batchSize} msgs done → ${restHoursLabel}hr rest. Doosre WA se continue...`; liveCampaign.resumeAt = new Date(s.restUntil).toISOString();
-            } else if (queue.length === 0) break;
+            
+            btn.innerHTML = '🔍 Scan All Pending';
+            btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+            if (!isAutoScanningAll) showToast("✅ Scan All process pura ho gaya ya limit poori ho gayi!");
         }
-    }
 
-    await Promise.all(selectedIds.map(id => sessionWorker(id)));
-    if (!campaignCancelFlag) {
-        liveCampaign.isActive = false;
-        liveCampaign.status = 'idle';
-        liveCampaign.restReason = '';
-        liveCampaign.resumeAt = null;
-    }
-});
+        function downloadValidNumbersPDF() {
+            const g = document.getElementById('groupSelect').value;
+            if(!g || !allContacts[g]) return showToast("⚠️ Pehle group select karo!", true);
+            const validList = (allContacts[g] || []).filter(c => c.waStatus === 'valid');
+            if(validList.length === 0) return showToast("⚠️ Is group mein koi bhi Valid WhatsApp number nahi mila! Pehle scan karo.", true);
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.text(`Valid WhatsApp Numbers - Group: ${g}`, 14, 20);
+            const tableRows = validList.map((c, idx) => [idx + 1, c.name || 'Customer', c.phone]);
+            doc.autoTable({ head: [["#", "Name", "Mobile Number"]], body: tableRows, startY: 30 });
+            doc.save(`${g}_Valid_WhatsApp_Numbers.pdf`);
+            showToast(`✅ ${validList.length} valid numbers ki PDF download ho gayi!`);
+        }
 
-(async () => {
-    try {
-        await initMongo();
-    } catch (e) {
-        console.error('initMongo error', e.message);
-    }
-    // Pehle HTTP listen — Render health check pass
-    const port = process.env.PORT || 10000;
-    app.listen(port, '0.0.0.0', () => {
-        console.log(`Server started on ${port} | Storage: ${useMongo ? 'MongoDB ✅' : 'Local files ⚠️'}`);
-        setInterval(() => { runAutoScanTick().catch(() => {}); }, 3 * 60 * 1000);
-    });
-    // WhatsApp sessions background mein
-    bootstrapSessions().catch(e => console.error('bootstrap error', e.message));
-})();
+        let contactsSaveLock = false;
+        function removeInvalidNumbers() {
+            const g = document.getElementById('groupSelect').value;
+            if (!g || !allContacts[g]) return showToast('⚠️ Pehle group select karo!', true);
+            const invalidCount = allContacts[g].filter(c => c.waStatus === 'invalid').length;
+            if (invalidCount === 0) return showToast('Is group mein koi Invalid number nahi hai.', true);
+            if (!confirm('Group "' + g + '" se ' + invalidCount + ' Invalid numbers delete karein?\nValid + Pending list mein rahenge.')) return;
+            contactsSaveLock = true;
+            contactListFilter = 'all';
+            contactListShowAll = false;
+            fetch('/api/contacts/remove-invalid', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group: g })
+            }).then(r => r.json()).then(d => {
+                if (!d.success) {
+                    contactsSaveLock = false;
+                    return showToast(d.error || 'Delete fail', true);
+                }
+                if (d.contacts) allContacts = d.contacts;
+                else allContacts[g] = (allContacts[g] || []).filter(c => c.waStatus !== 'invalid');
+                renderGroupContacts();
+                updateGroupDropdowns();
+                document.getElementById('groupSelect').value = g;
+                showToast('✅ ' + (d.removed || invalidCount) + ' invalid delete. Ab ' + (d.remaining != null ? d.remaining : allContacts[g].length) + ' numbers');
+                setTimeout(function () { contactsSaveLock = false; }, 2000);
+            }).catch(() => {
+                contactsSaveLock = false;
+                showToast('Network error', true);
+            });
+        }
+
+        let selectedLiveCampaignId = null;
+
+        function renderOneCampaignBody(camp) {
+            let html = '';
+            const nums = camp.numbers || [];
+            let sessionsMap = {};
+            let pendingList = [];
+            nums.forEach(item => {
+                const st = String(item.status || '');
+                const state = item.state || (st.includes('Pending') ? 'pending' : (st.includes('Sent') ? 'sent' : 'failed'));
+                if (state === 'pending' || st.includes('Pending')) {
+                    pendingList.push(item);
+                    return;
+                }
+                let sName = item.session || 'Device';
+                if (!item.session) {
+                    const match = st.match(/\(([^)/]+)/);
+                    if (match) sName = match[1].trim();
+                }
+                if (!sessionsMap[sName]) sessionsMap[sName] = { sent: 0, failed: 0, list: [] };
+                if (state === 'sent' || st.includes('Sent')) sessionsMap[sName].sent++;
+                else sessionsMap[sName].failed++;
+                sessionsMap[sName].list.push(item);
+            });
+
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;">';
+            html += '<div style="font-size:13px;font-weight:700;color:#0f172a;">' + (camp.name || 'Campaign') + '</div>';
+            html += '<button type="button" class="action-btn btn-danger btn-sm" style="width:auto;padding:8px 12px;" onclick="deleteCampaign(\'' + camp.id + '\')">🗑️ Delete this</button>';
+            html += '</div>';
+            html += '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">Sent ' + (camp.sent || 0) + ' · Failed ' + (camp.failed || 0) + ' · Pending ' + (camp.pending || 0) + ' · Status: ' + (camp.status || '') + '</div>';
+
+            if (pendingList.length) {
+                html += '<div style="margin-bottom:14px;border:1px solid #fde68a;border-radius:12px;overflow:hidden;">';
+                html += '<div style="background:#fffbeb;padding:10px 14px;cursor:pointer;" onclick="var b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\'"><strong style="color:#b45309;">⏳ Pending ' + pendingList.length + '</strong> · tap</div>';
+                html += '<div style="display:none;max-height:180px;overflow-y:auto;padding:6px 10px;">';
+                pendingList.forEach(item => {
+                    html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:13px;"><span>' + item.phone + '</span><span style="color:#d97706;">Pending</span></div>';
+                });
+                html += '</div></div>';
+            }
+
+            Object.keys(sessionsMap).forEach(sName => {
+                const sData = sessionsMap[sName];
+                html += '<div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">';
+                html += '<div style="background:#f8fafc;padding:10px 14px;display:flex;justify-content:space-between;"><strong style="font-size:13px;">📱 ' + sName + '</strong><span style="font-size:12px;"><span style="color:#059669;font-weight:700;margin-right:8px;">' + sData.sent + ' sent</span><span style="color:#dc2626;font-weight:700;">' + sData.failed + ' failed</span></span></div>';
+                html += '<div style="max-height:240px;overflow-y:auto;padding:6px 10px;">';
+                sData.list.reverse().forEach(item => {
+                    const isSent = item.state === 'sent' || String(item.status).includes('Sent');
+                    const tpl = item.template || '';
+                    html += '<div style="padding:8px 4px;border-bottom:1px solid #f1f5f9;"><div style="display:flex;justify-content:space-between;font-size:13px;"><span style="font-weight:600;">' + item.phone + '</span><span style="color:' + (isSent ? '#059669' : '#dc2626') + ';font-weight:700;font-size:12px;">' + (isSent ? 'Sent' : 'Failed') + '</span></div>';
+                    html += '<div style="font-size:11px;color:#64748b;margin-top:2px;">WA: <b style="color:#2563eb;">' + sName + '</b>' + (tpl ? ' · Template: <b style="color:#7c3aed;">' + tpl + '</b>' : '') + '</div></div>';
+                });
+                html += '</div></div>';
+            });
+            return html || '<div style="padding:16px;text-align:center;color:#94a3b8;">No numbers yet</div>';
+        }
+
+        function fetchLiveStatus() {
+            fetch('/api/live-status?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(data => {
+                if (data.sleepDisabled !== undefined) {
+                    const toggle = document.getElementById('nightSleepToggle');
+                    if (toggle) toggle.checked = !data.sleepDisabled;
+                }
+                if (data.isPaused !== undefined) {
+                    const pToggle = document.getElementById('pauseCampaignToggle');
+                    if (pToggle) pToggle.checked = data.isPaused;
+                }
+
+                const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+                setTxt('liveStatTotal', data.total || 0);
+                setTxt('liveStatSent', data.sent || 0);
+                setTxt('liveStatFailed', data.failed || 0);
+                setTxt('liveStatPending', data.pending || 0);
+
+                const camps = (data.campaigns || []).filter(c => c.isActive);
+                const tabs = document.getElementById('liveCampaignTabs');
+                const banner = document.getElementById('liveStatusBanner');
+                const listEl = document.getElementById('liveList');
+
+                if (!camps.length) {
+                    if (tabs) tabs.innerHTML = '';
+                    if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
+                    if (listEl) listEl.innerHTML = '<div style="padding:28px 16px;text-align:center;color:#94a3b8;font-size:14px;">No active campaign · alag WA se 2 campaigns saath chal sakti hain</div>';
+                    selectedLiveCampaignId = null;
+                    const btn = document.getElementById('sendBtn');
+                    if (btn) { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
+                    return;
+                }
+
+                if (!selectedLiveCampaignId || !camps.find(c => c.id === selectedLiveCampaignId)) {
+                    selectedLiveCampaignId = camps[0].id;
+                }
+
+                if (tabs) {
+                    tabs.innerHTML = camps.map(c => {
+                        const on = c.id === selectedLiveCampaignId;
+                        return '<button type="button" onclick="selectedLiveCampaignId=\'' + c.id + '\';fetchLiveStatus()" style="flex-shrink:0;border:none;padding:10px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;background:' + (on ? '#2563eb' : '#e2e8f0') + ';color:' + (on ? '#fff' : '#334155') + ';">' + (c.name || c.id).substring(0, 28) + (c.name && c.name.length > 28 ? '…' : '') + '</button>';
+                    }).join('');
+                }
+
+                const camp = camps.find(c => c.id === selectedLiveCampaignId) || camps[0];
+                if (banner) {
+                    banner.style.display = 'block';
+                    if (camp.isPaused) {
+                        banner.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:12px;text-align:center;font-weight:700;">🛑 This campaign paused</div>';
+                    } else if (camp.status === 'resting' || camp.status === 'night_rest') {
+                        banner.innerHTML = '<div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:12px;text-align:center;font-weight:600;">⏸️ ' + (camp.restReason || 'Rest') + '</div>';
+                    } else {
+                        banner.innerHTML = '<div style="background:#ecfdf5;color:#065f46;padding:12px;border-radius:12px;text-align:center;font-size:13px;font-weight:600;">🚀 ' + camps.length + ' parallel campaign(s) · viewing: ' + (camp.name || '') + '</div>';
+                    }
+                }
+                if (listEl) listEl.innerHTML = renderOneCampaignBody(camp);
+
+                const btn = document.getElementById('sendBtn');
+                if (btn) { btn.disabled = false; btn.innerHTML = '🚀 Start Campaign (Multi-WA)'; }
+            }).catch(() => {});
+        }
+
+        function toggleTargetInput() { const t = document.getElementById('targetType').value; document.getElementById('groupTargetDiv').style.display = (t === 'group') ? 'block' : 'none'; document.getElementById('manualTargetDiv').style.display = (t === 'manual') ? 'block' : 'none'; }
+        
+        async function startSending() {
+            let finalNumbers = []; const targetType = document.getElementById('targetType').value;
+            if (targetType === 'group') {
+                const g = document.getElementById('campaignGroupDropdown').value;
+                if (!g || !allContacts[g]) return showToast('⚠️ कृपया एक ग्रुप चुनें!', true);
+                finalNumbers = (allContacts[g] || []).filter(c => c.waStatus === 'valid');
+                if (finalNumbers.length === 0) return showToast('⚠️ Is group mein koi Valid number nahi. Pehle scan karo.', true);
+                const skipped = allContacts[g].length - finalNumbers.length;
+                if (skipped > 0) showToast('ℹ️ ' + finalNumbers.length + ' Valid pe bhejenge · ' + skipped + ' Pending/Invalid skip');
+            } else {
+                const nums = document.getElementById('numbers').value.split('\n').filter(n => n.trim() !== '');
+                finalNumbers = nums.map(n => ({ phone: n, name: 'Customer' }));
+            }
+            applySelectedTemplates();
+            const msg = document.getElementById('message').value;
+            const fileInput = document.getElementById('imageFile');
+            if (selectedTemplatesList.length > 0) {
+                doSend(finalNumbers, msg, null, [], selectedTemplatesList);
+                return;
+            }
+            readFilesAsAttachments(fileInput.files, 5, 10).then(atts => {
+                doSend(finalNumbers, msg, atts[0] ? atts[0].fileBase64 : null, atts, []);
+            }).catch(e => showToast('⚠️ ' + (e.message || 'File error'), true));
+        }
+        
+        function doSend(numsObjArray, msg, imgBase64, campaignAttachments, templatesArr) {
+            const minD = document.getElementById('minDelay').value, maxD = document.getElementById('maxDelay').value;
+            if (parseInt(minD) >= parseInt(maxD)) return showToast('⚠️ अधिकतम समय ज़्यादा होना चाहिए!', true);
+            if (numsObjArray.length === 0) return showToast('⚠️ नंबर लिस्ट खाली है!', true);
+            const atts = campaignAttachments || [];
+            if ((!templatesArr || templatesArr.length === 0) && !msg && !imgBase64 && !atts.length) return showToast('⚠️ टेम्प्लेट चुनें या मैसेज/फाइल डालें!', true);
+            const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
+            if (!sessionIds.length) return showToast('⚠️ कम से कम 1 WhatsApp सेलेक्ट करें।', true);
+            document.getElementById('sendBtn').disabled = true; document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
+            const batchEl = document.getElementById('customBatch');
+            const restEl = document.getElementById('customRestHours');
+            const customBatch = batchEl && batchEl.value ? parseInt(batchEl.value, 10) : null;
+            const customRestHours = restEl && restEl.value ? parseFloat(restEl.value) : null;
+            const payload = {
+                numbers: numsObjArray, message: msg, minDelay: minD, maxDelay: maxD,
+                imageBase64: imgBase64,
+                attachments: atts,
+                sessionIds,
+                customBatch: (customBatch && customBatch > 0) ? customBatch : null,
+                customRestHours: (customRestHours && customRestHours > 0) ? customRestHours : null,
+                templates: (templatesArr || []).map(t => {
+                    let attachments = Array.isArray(t.attachments) ? t.attachments : [];
+                    if (!attachments.length && (t.fileBase64 || t.imageBase64)) {
+                        attachments = [{
+                            fileBase64: t.fileBase64 || t.imageBase64,
+                            fileMime: t.fileMime || null,
+                            fileName: t.fileName || null,
+                            fileKind: t.fileKind || null
+                        }];
+                    }
+                    return {
+                        name: t.name,
+                        message: t.message,
+                        attachments,
+                        imageBase64: t.imageBase64 || t.fileBase64 || null,
+                        fileBase64: t.fileBase64 || t.imageBase64 || null,
+                        fileMime: t.fileMime || null,
+                        fileName: t.fileName || null,
+                        fileKind: t.fileKind || null,
+                        buttons: t.buttons || []
+                    };
+                })
+            };
+            fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(async (r) => {
+                const d = await r.json().catch(() => ({})); if (!r.ok || d.success === false) { showToast(d.error || 'Start failed', true); document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; return; }
+                const liveBtn = document.querySelector('.sidebar-btn[onclick*="liveTrackingSec"]'); showSection('liveTrackingSec', liveBtn || document.querySelectorAll('.sidebar-btn')[2]); fetchLiveStatus();
+            }).catch(() => { document.getElementById('sendBtn').disabled = false; document.getElementById('sendBtn').innerHTML = '🚀 Start Campaign'; });
+        }
+        
+        function getPairingCode(sessionId, fresh) {
+            const phoneEl = document.getElementById('pairPhone'); const phone = (phoneEl && phoneEl.value || '').trim(); const display = document.getElementById('pairingCodeDisplay'); if (!display) return;
+            if (!phone && !fresh) { display.style.display = 'block'; display.style.color = '#ef4444'; display.innerText = 'Pehle is session ka WhatsApp number likho'; return; }
+            savedPairPhone = phone; const sid = sessionId || selectedPairSessionId; display.style.display = 'block'; display.style.color = '#64748b'; display.innerText = fresh ? '⏳ Fresh session (10-15 sec)...' : '⏳ Generating code...';
+            fetch('/pair-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, sessionId: sid || undefined, forceFresh: !!fresh }) }).then(r => r.json()).then(d => {
+                display.style.display = 'block'; if (d.success && d.code) { display.style.color = '#2563eb'; const rawCode = String(d.raw || d.code).replace(/-/g, ''); display.innerHTML = `<div style="font-size:28px;letter-spacing:2px;user-select:all;">${d.code}</div><button type="button" class="action-btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="navigator.clipboard.writeText('${rawCode}')">Copy Code</button>`; savedPairingCodeHTML = display.innerHTML; } else { display.style.color = '#ef4444'; display.innerText = d.error || 'Pairing fail'; savedPairingCodeHTML = display.innerHTML; }
+            }).catch(() => { display.style.color = '#ef4444'; display.innerText = 'Network error'; });
+        }
+
+        function loadHistoryTable() {
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">⏳ Data load हो रहा है...</td></tr>';
+            fetch('/api/history?t=' + Date.now(), { cache: "no-store" })
+            .then(r => r.json())
+            .then(data => {
+                if(!data || data.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b;">अभी तक कोई हिस्ट्री नहीं है।</td></tr>'; return; }
+                let html = '';
+                const recent = data.slice(-100).reverse();
+                recent.forEach(row => {
+                    const safeMsg = (row.message || 'Media').substring(0, 30) + '...';
+                    html += `<tr><td style="font-size:12px; color:#475569;">${row.date}</td><td style="font-weight:600; color:#2563eb;">${row.session || '-'}</td><td style="font-weight:600;">${row.number}</td><td style="font-size:12px; color:#10b981;">✅ Sent<br><span style="color:#64748b; font-size:11px;">${safeMsg}</span></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            }).catch(() => { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">Network Error!</td></tr>'; });
+        }
+
+        function downloadHistory() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { let csv = 'Date & Time,WhatsApp Device,Mobile Number,Message\n'; data.forEach(row => { csv += `"${row.date}","${row.session || '-'}","${row.number}","${(row.message||'').replace(/"/g, '""')}"\n`; }); const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('href', url); a.setAttribute('download', 'Campaign_History.csv'); a.click(); }); }
+        function downloadPDF() { fetch('/api/history?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(data => { const { jsPDF } = window.jspdf; const doc = new jsPDF(); doc.text("Campaign History", 14, 20); const tableRows = []; data.forEach(row => { tableRows.push([row.date, row.session || '-', row.number, (row.message||'Media').substring(0,20)]); }); doc.autoTable({ head: [["Date & Time", "WhatsApp", "Mobile Number", "Message Preview"]], body: tableRows, startY: 30 }); doc.save('History.pdf'); }); }
+    </script>
+</body>
+</html>
+
