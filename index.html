@@ -453,6 +453,18 @@
         <!-- 8. Connect Device -->
         <div id="connectWp" class="content-section">
             <h2 class="section-title">Multi WhatsApp Login</h2>
+
+            <div style="background:linear-gradient(135deg,#eff6ff,#f8fafc);border:1px solid #93c5fd;border-radius:14px;padding:16px;margin-bottom:18px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <div style="min-width:0;flex:1;">
+                        <div style="font-weight:700;color:#1e40af;font-size:15px;">🔔 Phone Notifications</div>
+                        <p style="margin:4px 0 0;font-size:12px;color:#64748b;line-height:1.4;">Connect / disconnect · Campaign end · Scan complete / rukna · Errors — website band hone par bhi (tab background OK)</p>
+                    </div>
+                    <button type="button" class="action-btn btn-primary btn-sm" id="notifEnableBtn" style="width:auto;flex-shrink:0;" onclick="enableNotifications()">Enable</button>
+                </div>
+                <p id="notifStatusText" style="margin:10px 0 0;font-size:12px;color:#64748b;">Status: checking…</p>
+            </div>
+
             <div style="display:flex; gap:10px; margin-bottom:15px;">
                 <input type="text" id="newSessionName" placeholder="Name (e.g. Business 2)" style="flex:1;">
                 <button class="action-btn btn-primary btn-sm" style="width:auto;" onclick="createWASession()">+ Add WhatsApp</button>
@@ -463,11 +475,151 @@
 
     <script>
         let allTemplates = []; let selectedTemplatesList = []; let allContacts = {}; 
+
+        // ——— Browser Notifications ———
+        const notifState = {
+            ready: false,
+            sessionMap: {},      // id -> connected bool
+            campaignMap: {},     // id -> { active, pending, status }
+            lastScanNotify: 0,
+            wasScanningAll: false,
+            networkErrorNotified: false
+        };
+
+        function updateNotifUI() {
+            const el = document.getElementById('notifStatusText');
+            const btn = document.getElementById('notifEnableBtn');
+            if (!('Notification' in window)) {
+                if (el) el.textContent = 'Status: Is browser mein notifications support nahi';
+                if (btn) btn.style.display = 'none';
+                return;
+            }
+            const p = Notification.permission;
+            if (el) {
+                if (p === 'granted') el.innerHTML = 'Status: <b style="color:#059669;">ON ✅</b> — alerts background mein aayenge';
+                else if (p === 'denied') el.innerHTML = 'Status: <b style="color:#dc2626;">Blocked</b> — browser settings se allow karo';
+                else el.textContent = 'Status: OFF — Enable dabao permission ke liye';
+            }
+            if (btn) {
+                btn.style.display = p === 'granted' ? 'none' : 'inline-block';
+                btn.innerHTML = p === 'denied' ? 'Blocked' : 'Enable';
+            }
+            notifState.ready = p === 'granted';
+        }
+
+        async function enableNotifications() {
+            if (!('Notification' in window)) return showToast('Notifications support nahi', true);
+            try {
+                const p = await Notification.requestPermission();
+                updateNotifUI();
+                if (p === 'granted') {
+                    if ('serviceWorker' in navigator) {
+                        try { await navigator.serviceWorker.register('/sw.js'); } catch (e) {}
+                    }
+                    notifyUser('Notifications ON', 'Ab connect, campaign, scan aur errors ki alert aayegi', { tag: 'notif-on' });
+                    showToast('🔔 Notifications enable ho gayi');
+                } else {
+                    showToast('Permission deny — browser settings check karo', true);
+                }
+            } catch (e) {
+                showToast('Notification error', true);
+            }
+        }
+
+        function notifyUser(title, body, opts) {
+            if (!('Notification' in window) || Notification.permission !== 'granted') return;
+            const options = Object.assign({
+                body: body || '',
+                icon: '/favicon.ico',
+                badge: '/favicon.ico',
+                tag: (opts && opts.tag) || ('wbw-' + Date.now()),
+                renotify: !!(opts && opts.renotify),
+                requireInteraction: !!(opts && opts.sticky)
+            }, opts || {});
+            try {
+                if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.ready.then(reg => reg.showNotification(title, options)).catch(() => {
+                        new Notification(title, options);
+                    });
+                } else {
+                    new Notification(title, options);
+                }
+            } catch (e) {
+                try { new Notification(title, options); } catch (e2) {}
+            }
+        }
+
+        function trackSessionsForNotif(list) {
+            const map = {};
+            (list || []).forEach(s => { map[s.id] = !!s.connected; });
+            if (Object.keys(notifState.sessionMap).length) {
+                Object.keys(map).forEach(id => {
+                    const now = map[id];
+                    const prev = notifState.sessionMap[id];
+                    if (prev === undefined) return;
+                    const name = ((list || []).find(x => x.id === id) || {}).name || id;
+                    if (!prev && now) notifyUser('WhatsApp Connected', name + ' connect ho gaya ✅', { tag: 'wa-on-' + id, renotify: true });
+                    if (prev && !now) notifyUser('WhatsApp Disconnected', name + ' disconnect / offline ❌', { tag: 'wa-off-' + id, renotify: true, sticky: true });
+                });
+                Object.keys(notifState.sessionMap).forEach(id => {
+                    if (map[id] === undefined) {
+                        notifyUser('WhatsApp Removed', 'Session delete / gayab: ' + id, { tag: 'wa-rm-' + id });
+                    }
+                });
+            }
+            notifState.sessionMap = map;
+        }
+
+        function trackCampaignsForNotif(camps) {
+            const active = (camps || []).filter(c => c.isActive);
+            const map = {};
+            active.forEach(c => {
+                map[c.id] = { active: true, pending: c.pending, status: c.status, sent: c.sent, name: c.name };
+            });
+            if (Object.keys(notifState.campaignMap).length) {
+                Object.keys(notifState.campaignMap).forEach(id => {
+                    const prev = notifState.campaignMap[id];
+                    if (prev && prev.active && !map[id]) {
+                        notifyUser('Campaign Complete', (prev.name || 'Campaign') + ' end · Sent ' + (prev.sent || 0), { tag: 'camp-end-' + id, renotify: true, sticky: true });
+                    }
+                });
+                Object.keys(map).forEach(id => {
+                    const cur = map[id];
+                    const prev = notifState.campaignMap[id];
+                    if (prev && prev.status !== 'resting' && cur.status === 'resting') {
+                        notifyUser('Campaign Rest', (cur.name || 'Campaign') + ' rest mode mein', { tag: 'camp-rest-' + id });
+                    }
+                });
+            }
+            notifState.campaignMap = map;
+            // merge non-active cleared
+            Object.keys(notifState.campaignMap).forEach(id => {
+                if (!map[id]) delete notifState.campaignMap[id];
+            });
+            Object.assign(notifState.campaignMap, map);
+        }
+
+        function notifyScanEvent(type, detail) {
+            const now = Date.now();
+            if (now - notifState.lastScanNotify < 4000 && type !== 'complete') return;
+            notifState.lastScanNotify = now;
+            if (type === 'complete') {
+                notifyUser('Scan Complete', detail || 'Saare pending numbers scan ho gaye ✅', { tag: 'scan-done', renotify: true, sticky: true });
+            } else if (type === 'stopped') {
+                notifyUser('Scan Ruk Gaya', detail || 'Scan All beech mein band / error', { tag: 'scan-stop', renotify: true, sticky: true });
+            } else if (type === 'error') {
+                notifyUser('Scan Error', detail || 'Network / scan error', { tag: 'scan-err', renotify: true });
+            }
+        }
+
         function showToast(msg, isError = false) {
             let toast = document.getElementById('appToast');
             toast.style.backgroundColor = isError ? '#ef4444' : '#10b981';
             toast.innerHTML = msg; toast.style.opacity = '1'; toast.style.bottom = '40px';
             setTimeout(() => { toast.style.opacity = '0'; toast.style.bottom = '20px'; }, 3000);
+            if (isError && msg && /network|error|fail|rakh|ruk/i.test(String(msg))) {
+                notifyUser('Error', String(msg).replace(/[❌⚠️]/g, '').trim(), { tag: 'err-' + String(msg).slice(0, 24) });
+            }
         }
 
         window.onload = () => {
@@ -476,15 +628,27 @@
                 const t = new Date();
                 df.value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
             }
-            // Default: All (total) — date input hidden
             onDateModeChange();
+            updateNotifUI();
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js').catch(() => {});
+            }
+            if (Notification.permission === 'granted') notifState.ready = true;
+
             fetchLiveStatus(); fetchTemplates(); fetchContacts();
             setInterval(() => {
                 fetch('/status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => {
+                    trackSessionsForNotif(d.sessions || []);
                     renderSessionsUI(d.sessions || []);
                     document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
-                }).catch(() => {});
+                    notifState.networkErrorNotified = false;
+                }).catch(() => {
+                    if (!notifState.networkErrorNotified) {
+                        notifState.networkErrorNotified = true;
+                        notifyUser('Website Offline', 'Server / network error — site open karke check karo', { tag: 'net-err', sticky: true });
+                    }
+                });
                 fetchLiveStatus(); fetchStats();
             }, 3000);
         }
@@ -992,6 +1156,7 @@
                 }
                 status.style.color = '#ef4444';
                 status.innerHTML = '❌ Network error' + (isAuto ? ' — Stop ho gaya. Dubara Scan All; pehle scanned safe hain' : '');
+                if (isAuto) notifyScanEvent('error', 'Scan network error — beech mein ruk gaya');
                 btn.disabled = false; btn.innerHTML = '🔍 Scan next 10';
                 return false;
             }
@@ -1004,6 +1169,7 @@
                 isAutoScanningAll = false;
                 btn.innerHTML = '🔍 Scan All Pending';
                 btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                notifyScanEvent('stopped', 'Scan All manually stop kiya');
                 return;
             }
             
@@ -1011,13 +1177,18 @@
             if (!g) return showToast('⚠️ Pehle group select karo!', true);
             
             isAutoScanningAll = true;
+            notifState.wasScanningAll = true;
             btn.innerHTML = '🛑 Stop Scanning';
             btn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
             showToast("⏳ Auto-scanning chalu ho gayi hai...");
             
+            let stoppedByError = false;
             while (isAutoScanningAll) {
                 const hasMore = await scanNextInGroup(true);
                 if (!hasMore) {
+                    // hasMore false = complete OR error; check status text
+                    const st = (document.getElementById('scanContactStatus') || {}).innerHTML || '';
+                    if (/Network error|Failed|error/i.test(st)) stoppedByError = true;
                     isAutoScanningAll = false;
                     break;
                 }
@@ -1026,7 +1197,16 @@
             
             btn.innerHTML = '🔍 Scan All Pending';
             btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-            if (!isAutoScanningAll) showToast("✅ Scan All process pura ho gaya ya limit poori ho gayi!");
+            if (notifState.wasScanningAll) {
+                if (stoppedByError) {
+                    notifyScanEvent('error', 'Scan All beech mein error — website check karo');
+                    showToast('Scan error / ruk gaya', true);
+                } else {
+                    notifyScanEvent('complete', 'Group "' + g + '" scan process complete');
+                    showToast('✅ Scan All process pura ho gaya ya limit poori ho gayi!');
+                }
+                notifState.wasScanningAll = false;
+            }
         }
 
         function downloadValidNumbersPDF() {
@@ -1151,6 +1331,7 @@
                 setTxt('liveStatPending', data.pending || 0);
 
                 const camps = (data.campaigns || []).filter(c => c.isActive);
+                trackCampaignsForNotif(data.campaigns || camps);
                 const tabs = document.getElementById('liveCampaignTabs');
                 const banner = document.getElementById('liveStatusBanner');
                 const listEl = document.getElementById('liveList');
