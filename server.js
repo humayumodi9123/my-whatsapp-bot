@@ -239,9 +239,100 @@ function scanDelayMs(waCount) {
     return 2500 + Math.floor(Math.random() * 2501);
 }
 
+// Background Scan All — browser band hone pe bhi chalta rahe
+let bgScanJob = {
+    running: false,
+    stop: false,
+    group: null,
+    sessionIds: [],
+    scanned: 0,
+    valid: 0,
+    invalid: 0,
+    pendingLeft: 0,
+    lastMessage: '',
+    startedAt: null,
+    finishedAt: null
+};
+
+async function processScanChunk(group, sessionIds, scanAll) {
+    const contacts = getContacts();
+    if (!group || !contacts[group]) return { scanned: 0, valid: 0, invalid: 0, pending: 0 };
+    const socks = getScanSocks(sessionIds);
+    if (!socks.length) return { scanned: 0, valid: 0, invalid: 0, pending: -1, error: 'No WA' };
+
+    const activeWaCount = socks.length;
+    const dailyLimit = getDailyScanLimit() * activeWaCount;
+    const used = getTodayScanCount();
+    if (!scanAll && used >= dailyLimit) {
+        return { scanned: 0, valid: 0, invalid: 0, pending: 0, error: 'daily_limit' };
+    }
+    const chunk = scanAll ? 5 : Math.min(10, Math.max(1, dailyLimit - used));
+    let scanned = 0, valid = 0, invalid = 0, rr = 0;
+
+    for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
+        if (bgScanJob.stop && scanAll) break;
+        const c = contacts[group][i];
+        if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
+        const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
+        const sObj = socks[rr % socks.length];
+        rr++;
+        const ok = phone.length === 10
+            ? await checkOneNumberOnWA(phone, sessionIds, sObj.sock)
+            : false;
+        contacts[group][i].waStatus = ok ? 'valid' : 'invalid';
+        contacts[group][i].phone = phone;
+        if (ok) valid++; else invalid++;
+        scanned++;
+        await new Promise(r => setTimeout(r, scanDelayMs(activeWaCount)));
+    }
+    if (scanned > 0) {
+        addTodayScanCount(scanned);
+        await persist('contacts', contacts);
+    }
+    const stats = getGroupScanStats(contacts[group]);
+    return { scanned, valid, invalid, pending: stats.pending, waUsed: activeWaCount };
+}
+
+async function runBackgroundScanLoop() {
+    bgScanJob.running = true;
+    bgScanJob.stop = false;
+    bgScanJob.finishedAt = null;
+    bgScanJob.lastMessage = 'Scanning…';
+    try {
+        while (!bgScanJob.stop) {
+            if (!anyConnected()) {
+                bgScanJob.lastMessage = 'WhatsApp offline — waiting…';
+                await new Promise(r => setTimeout(r, 10000));
+                continue;
+            }
+            const result = await processScanChunk(bgScanJob.group, bgScanJob.sessionIds, true);
+            if (result.error === 'No WA') {
+                bgScanJob.lastMessage = 'No connected WhatsApp';
+                break;
+            }
+            bgScanJob.scanned += result.scanned || 0;
+            bgScanJob.valid += result.valid || 0;
+            bgScanJob.invalid += result.invalid || 0;
+            bgScanJob.pendingLeft = result.pending != null ? result.pending : 0;
+            bgScanJob.lastMessage = '+' + (result.scanned || 0) + ' this batch · pending ' + bgScanJob.pendingLeft;
+
+            if (!result.scanned || result.pending === 0) {
+                bgScanJob.lastMessage = 'Complete · total scanned ' + bgScanJob.scanned;
+                break;
+            }
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    } catch (e) {
+        bgScanJob.lastMessage = 'Error: ' + (e.message || 'scan failed');
+    }
+    bgScanJob.running = false;
+    bgScanJob.finishedAt = new Date().toISOString();
+    if (bgScanJob.stop) bgScanJob.lastMessage = 'Stopped by user · scanned ' + bgScanJob.scanned;
+}
+
 let autoScanRunning = false;
 async function runAutoScanTick() {
-    if (autoScanRunning || !anyConnected() || anyCampaignActive()) return;
+    if (bgScanJob.running || autoScanRunning || !anyConnected() || anyCampaignActive()) return;
     const ist = getISTNow();
     if (ist.getHours() < 8 || ist.getHours() >= 22) {
         if (Date.now() > skipSleepUntil) return;
@@ -620,69 +711,75 @@ app.get('/api/scan-progress', (req, res) => {
 app.post('/api/scan-next', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
     const { group, sessionIds, scanAll } = req.body || {};
-    const contacts = getContacts();
-    if (!group || !contacts[group]) return res.status(400).json({ success: false, error: 'Group select karo' });
-
+    if (!group) return res.status(400).json({ success: false, error: 'Group select karo' });
+    if (bgScanJob.running) {
+        return res.status(400).json({ success: false, error: 'Background Scan All pehle se chal raha hai. Stop karke try karo.' });
+    }
     const socks = getScanSocks(sessionIds);
     if (!socks.length) return res.status(400).json({ success: false, error: 'Koi connected WhatsApp select nahi hai' });
 
-    const activeWaCount = socks.length;
-    // Scan All Pending: daily 80 limit NAHI — sab pending numbers bari-bari
-    // Manual "Scan next 10": daily limit apply
-    const dailyLimit = getDailyScanLimit() * activeWaCount;
-    const used = getTodayScanCount();
-    if (!scanAll && used >= dailyLimit) {
+    const result = await processScanChunk(group, sessionIds, !!scanAll);
+    if (result.error === 'daily_limit') {
         return res.status(400).json({
             success: false,
-            error: `Aaj ki limit (${dailyLimit}) puri. "Scan All Pending" se bina limit scan kar sakte ho (gaps + multi-WA rules lagte rahenge).`,
-            todayScanned: used,
-            dailyScanLimit: dailyLimit
+            error: 'Aaj ki scan limit puri. Scan All Pending use karo (background, no daily limit).',
+            todayScanned: getTodayScanCount()
         });
     }
-
-    // Scan All: 5/batch (lamba request = mobile/Render network error)
-    // Manual Scan next: max 10
-    const chunk = scanAll ? 5 : Math.min(10, Math.max(1, dailyLimit - used));
-    let scanned = 0, valid = 0, invalid = 0;
-    let rr = 0; // round-robin: eak ke baad eak WhatsApp
-
-    for (let i = 0; i < contacts[group].length && scanned < chunk; i++) {
-        const c = contacts[group][i];
-        if (c.waStatus === 'valid' || c.waStatus === 'invalid') continue;
-
-        const phone = String(c.phone || '').replace(/\D/g, '').slice(-10);
-        const sObj = socks[rr % socks.length];
-        rr++;
-        const ok = phone.length === 10
-            ? await checkOneNumberOnWA(phone, sessionIds, sObj.sock)
-            : false;
-
-        contacts[group][i].waStatus = ok ? 'valid' : 'invalid';
-        contacts[group][i].phone = phone;
-        if (ok) valid++; else invalid++;
-        scanned++;
-
-        // Random gap: multi 2–3s | single 2.5–5s (series feel na aaye)
-        const delay = scanDelayMs(activeWaCount);
-        await new Promise(r => setTimeout(r, delay));
-    }
-
-    if (scanned > 0) {
-        addTodayScanCount(scanned);
-        await persist('contacts', contacts);
-    }
+    const contacts = getContacts();
     res.json({
         success: true,
-        scanned,
-        valid,
-        invalid,
+        scanned: result.scanned,
+        valid: result.valid,
+        invalid: result.invalid,
         todayScanned: getTodayScanCount(),
-        dailyScanLimit: scanAll ? null : dailyLimit,
+        dailyScanLimit: scanAll ? null : getDailyScanLimit() * socks.length,
         unlimited: !!scanAll,
-        waUsed: activeWaCount,
-        delayMode: activeWaCount >= 2 ? '2-3s multi-WA' : '2.5-5s single-WA',
-        groupStats: getGroupScanStats(contacts[group])
+        waUsed: result.waUsed || socks.length,
+        delayMode: (result.waUsed || socks.length) >= 2 ? '2-3s multi-WA' : '2.5-5s single-WA',
+        groupStats: getGroupScanStats(contacts[group] || [])
     });
+});
+
+// Background Scan All — site band / tab band hone pe bhi server pe chalta hai
+app.post('/api/scan-all/start', async (req, res) => {
+    if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
+    const { group, sessionIds } = req.body || {};
+    if (!group) return res.status(400).json({ success: false, error: 'Group select karo' });
+    const contacts = getContacts();
+    if (!contacts[group]) return res.status(400).json({ success: false, error: 'Group nahi mila' });
+    const socks = getScanSocks(sessionIds);
+    if (!socks.length) return res.status(400).json({ success: false, error: 'Koi connected WhatsApp select nahi hai' });
+    if (bgScanJob.running) {
+        return res.json({ success: true, alreadyRunning: true, job: { ...bgScanJob } });
+    }
+    bgScanJob = {
+        running: true,
+        stop: false,
+        group,
+        sessionIds: Array.isArray(sessionIds) ? sessionIds : [],
+        scanned: 0,
+        valid: 0,
+        invalid: 0,
+        pendingLeft: getGroupScanStats(contacts[group]).pending,
+        lastMessage: 'Starting…',
+        startedAt: new Date().toISOString(),
+        finishedAt: null
+    };
+    setImmediate(() => { runBackgroundScanLoop().catch(() => {}); });
+    res.json({ success: true, message: 'Background Scan All started — site band karke bhi chalega', job: { ...bgScanJob } });
+});
+
+app.post('/api/scan-all/stop', (req, res) => {
+    if (!bgScanJob.running) {
+        return res.json({ success: true, message: 'Koi background scan nahi chal raha' });
+    }
+    bgScanJob.stop = true;
+    res.json({ success: true, message: 'Stop signal bhej diya — current number ke baad rukega' });
+});
+
+app.get('/api/scan-all/status', (req, res) => {
+    res.json({ success: true, job: { ...bgScanJob } });
 });
 
 app.post('/pair-code', async (req, res) => {
