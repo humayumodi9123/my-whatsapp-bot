@@ -712,6 +712,16 @@
             if (Notification.permission === 'granted') notifState.ready = true;
 
             fetchLiveStatus(); fetchTemplates(); fetchContacts();
+            // Agar background scan pehle se chal raha ho (page refresh)
+            fetch('/api/scan-all/status').then(r => r.json()).then(d => {
+                if (d.job && d.job.running) {
+                    isAutoScanningAll = true;
+                    notifState.wasScanningAll = true;
+                    setScanAllBtnUI(true);
+                    if (!bgScanPollTimer) bgScanPollTimer = setInterval(pollBgScanStatus, 4000);
+                    pollBgScanStatus();
+                }
+            }).catch(() => {});
             setInterval(() => {
                 fetch('/status?t=' + Date.now(), { cache: "no-store" }).then(r => r.json()).then(d => {
                     trackSessionsForNotif(d.sessions || []);
@@ -1239,49 +1249,112 @@
         }
 
         let isAutoScanningAll = false;
-        async function toggleScanAll() {
+        let bgScanPollTimer = null;
+
+        function setScanAllBtnUI(running) {
             const btn = document.getElementById('scanAllBtn');
-            if (isAutoScanningAll) {
-                isAutoScanningAll = false;
+            if (!btn) return;
+            if (running) {
+                btn.innerHTML = '🛑 Stop Scanning';
+                btn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+            } else {
                 btn.innerHTML = '🔍 Scan All Pending';
                 btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                notifyScanEvent('stopped', 'Scan All manually stop kiya');
+            }
+        }
+
+        function pollBgScanStatus() {
+            fetch('/api/scan-all/status?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.json())
+                .then(d => {
+                    const job = d.job || {};
+                    const status = document.getElementById('scanContactStatus');
+                    if (status) {
+                        status.style.display = 'block';
+                        if (job.running) {
+                            status.style.color = '#f59e0b';
+                            status.innerHTML = '⏳ Background Scan · ' + (job.lastMessage || '') +
+                                ' · Total +' + (job.scanned || 0) + ' (V' + (job.valid || 0) + '/I' + (job.invalid || 0) + ')' +
+                                ' · Pending ~' + (job.pendingLeft != null ? job.pendingLeft : '?') +
+                                '<br><span style="font-size:11px;color:#64748b;">Site band karke bhi chalega — server pe scan ho raha hai</span>';
+                            isAutoScanningAll = true;
+                            setScanAllBtnUI(true);
+                            fetchContacts();
+                        } else {
+                            if (isAutoScanningAll || notifState.wasScanningAll) {
+                                status.style.color = '#10b981';
+                                status.innerHTML = '✅ ' + (job.lastMessage || 'Scan finished') +
+                                    ' · Total scanned ' + (job.scanned || 0);
+                                if (job.stop || /Stop/i.test(job.lastMessage || '')) {
+                                    notifyScanEvent('stopped', job.lastMessage || 'Scan stopped');
+                                } else if (/Error/i.test(job.lastMessage || '')) {
+                                    notifyScanEvent('error', job.lastMessage);
+                                } else {
+                                    notifyScanEvent('complete', 'Group "' + (job.group || '') + '" · ' + (job.scanned || 0) + ' scanned');
+                                }
+                                notifState.wasScanningAll = false;
+                                isAutoScanningAll = false;
+                                setScanAllBtnUI(false);
+                                fetchContacts();
+                            }
+                            if (bgScanPollTimer) {
+                                clearInterval(bgScanPollTimer);
+                                bgScanPollTimer = null;
+                            }
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
+
+        async function toggleScanAll() {
+            const btn = document.getElementById('scanAllBtn');
+            const status = document.getElementById('scanContactStatus');
+
+            // Stop
+            if (isAutoScanningAll) {
+                try {
+                    await fetch('/api/scan-all/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                } catch (e) {}
+                isAutoScanningAll = false;
+                setScanAllBtnUI(false);
+                if (status) {
+                    status.style.display = 'block';
+                    status.style.color = '#f59e0b';
+                    status.innerHTML = '⏹️ Stop signal… current number ke baad rukega';
+                }
+                notifyScanEvent('stopped', 'Scan All stop request');
                 return;
             }
-            
+
             const g = document.getElementById('groupSelect').value;
             if (!g) return showToast('⚠️ Pehle group select karo!', true);
-            
-            isAutoScanningAll = true;
-            notifState.wasScanningAll = true;
-            btn.innerHTML = '🛑 Stop Scanning';
-            btn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
-            showToast("⏳ Auto-scanning chalu ho gayi hai...");
-            
-            let stoppedByError = false;
-            while (isAutoScanningAll) {
-                const hasMore = await scanNextInGroup(true);
-                if (!hasMore) {
-                    // hasMore false = complete OR error; check status text
-                    const st = (document.getElementById('scanContactStatus') || {}).innerHTML || '';
-                    if (/Network error|Failed|error/i.test(st)) stoppedByError = true;
-                    isAutoScanningAll = false;
-                    break;
+            const sessionIds = Array.from(document.querySelectorAll('.scanSessionChk:checked')).map(c => c.value);
+            if (!sessionIds.length) return showToast('⚠️ Kam se kam 1 WhatsApp select karo!', true);
+
+            try {
+                const r = await fetch('/api/scan-all/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group: g, sessionIds })
+                });
+                const d = await r.json();
+                if (!d.success) return showToast(d.error || 'Start fail', true);
+
+                isAutoScanningAll = true;
+                notifState.wasScanningAll = true;
+                setScanAllBtnUI(true);
+                showToast('⏳ Background Scan All ON — site band karke bhi chalega');
+                if (status) {
+                    status.style.display = 'block';
+                    status.style.color = '#f59e0b';
+                    status.innerHTML = '⏳ Server pe scan start… site leave kar sakte ho';
                 }
-                await new Promise(r => setTimeout(r, 2000));
-            }
-            
-            btn.innerHTML = '🔍 Scan All Pending';
-            btn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-            if (notifState.wasScanningAll) {
-                if (stoppedByError) {
-                    notifyScanEvent('error', 'Scan All beech mein error — website check karo');
-                    showToast('Scan error / ruk gaya', true);
-                } else {
-                    notifyScanEvent('complete', 'Group "' + g + '" scan process complete');
-                    showToast('✅ Scan All process pura ho gaya ya limit poori ho gayi!');
-                }
-                notifState.wasScanningAll = false;
+                if (bgScanPollTimer) clearInterval(bgScanPollTimer);
+                bgScanPollTimer = setInterval(pollBgScanStatus, 4000);
+                pollBgScanStatus();
+            } catch (e) {
+                showToast('Network error — start nahi hua', true);
             }
         }
 
