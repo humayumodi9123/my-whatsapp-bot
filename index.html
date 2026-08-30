@@ -443,7 +443,7 @@
         <!-- 7. Smart Auto Reply -->
         <div id="aiStudioSec" class="content-section">
             <h2 class="section-title">✨ AI Studio (Gemini)</h2>
-            <p style="font-size:13px;color:#64748b;margin:0 0 16px;line-height:1.5;">Topic do → Gemini alag-alag WhatsApp messages likhega → templates save → Campaign mein multi-template mix. <b>Photo auto-generate</b> baad mein (Imagen/API); abhi text variants strong hain.</p>
+            <p style="font-size:13px;color:#64748b;margin:0 0 16px;line-height:1.5;">Topic → <b>Text messages</b> aur/ya <b>HTML flyer file</b>. Templates mein save karke campaign pe bhejo. Real camera-photo AI (Imagen) alag paid API pe hota hai — yahan HTML poster + text free Gemini se.</p>
 
             <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin-bottom:18px;">
                 <label style="font-weight:700;color:#1e293b;">🔑 Gemini API Key</label>
@@ -478,9 +478,21 @@
                     </select>
                 </div>
             </div>
-            <div class="form-group">
-                <label>Kitne unique messages?</label>
-                <input type="number" id="aiCount" value="5" min="1" max="15" style="max-width:120px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group">
+                    <label>Kitne unique messages?</label>
+                    <input type="number" id="aiCount" value="5" min="1" max="15" style="max-width:120px;">
+                </div>
+                <div class="form-group">
+                    <label>Kya banaye?</label>
+                    <select id="aiMode">
+                        <option value="text" selected>Sirf text messages</option>
+                        <option value="image">AI Photo (poster)</option>
+                        <option value="html">HTML flyer file</option>
+                        <option value="both">Text + HTML flyer</option>
+                        <option value="all">Text + Photo + HTML</option>
+                    </select>
+                </div>
             </div>
             <button type="button" class="action-btn btn-success" id="aiGenerateBtn" onclick="generateAiMessages()">✨ Generate with Gemini</button>
             <div id="aiResults" style="margin-top:18px;"></div>
@@ -970,6 +982,7 @@
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
 
         let lastAiMessages = [];
+        let lastAiFiles = [];
         let lastAiTopic = '';
 
         function loadGeminiKeyStatus() {
@@ -1000,6 +1013,7 @@
             const topic = (document.getElementById('aiTopic') || {}).value || '';
             const tone = (document.getElementById('aiTone') || {}).value || 'friendly';
             const language = (document.getElementById('aiLanguage') || {}).value || 'hinglish';
+            const mode = (document.getElementById('aiMode') || {}).value || 'text';
             const count = parseInt((document.getElementById('aiCount') || {}).value, 10) || 5;
             if (!topic.trim()) return showToast('Topic likho', true);
             const btn = document.getElementById('aiGenerateBtn');
@@ -1007,25 +1021,45 @@
             fetch('/api/ai/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic: topic.trim(), tone, language, count })
+                body: JSON.stringify({ topic: topic.trim(), tone, language, count, mode })
             }).then(r => r.json()).then(d => {
                 if (!d.success) {
                     showToast(d.error || 'Generate fail', true);
                     return;
                 }
                 lastAiMessages = d.messages || [];
+                lastAiFiles = d.files || [];
                 lastAiTopic = d.topic || topic;
                 const box = document.getElementById('aiResults');
                 if (box) {
-                    box.innerHTML = lastAiMessages.map((m, i) =>
+                    let html = lastAiMessages.map((m, i) =>
                         '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-bottom:10px;">' +
-                        '<div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:6px;">Variant ' + (i + 1) + '</div>' +
-                        '<div style="font-size:14px;color:#0f172a;white-space:pre-wrap;line-height:1.45;">' + m.replace(/</g, '&lt;') + '</div></div>'
+                        '<div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:6px;">Text ' + (i + 1) + '</div>' +
+                        '<div style="font-size:14px;color:#0f172a;white-space:pre-wrap;line-height:1.45;">' + String(m).replace(/</g, '&lt;') + '</div></div>'
                     ).join('');
+                    if (lastAiFiles.length) {
+                        html += lastAiFiles.map((f, i) => {
+                            const isImg = (f.fileKind === 'image') || (f.fileMime || '').startsWith('image/');
+                            if (isImg && f.fileBase64) {
+                                return '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:12px;margin-bottom:10px;">' +
+                                    '<div style="font-size:11px;color:#15803d;font-weight:700;margin-bottom:8px;">🖼️ AI Photo: ' + (f.fileName || 'image') + '</div>' +
+                                    '<img src="' + f.fileBase64 + '" style="max-width:100%;border-radius:10px;display:block;" alt="AI">' +
+                                    '</div>';
+                            }
+                            return '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:12px;margin-bottom:10px;">' +
+                                '<div style="font-size:11px;color:#1d4ed8;font-weight:700;">📎 File: ' + (f.fileName || 'file') + '</div>' +
+                                '<div style="font-size:12px;color:#64748b;margin-top:4px;">Template save pe WhatsApp pe attach hoga</div></div>';
+                        }).join('');
+                    }
+                    if (d.imageError) {
+                        html += '<p style="color:#dc2626;font-size:12px;">Image: ' + String(d.imageError).replace(/</g,'') + '</p>';
+                    }
+                    if (d.note) html += '<p style="font-size:11px;color:#94a3b8;">' + d.note + '</p>';
+                    box.innerHTML = html || '<p>Empty</p>';
                 }
                 const saveBtn = document.getElementById('aiSaveTemplatesBtn');
-                if (saveBtn) saveBtn.style.display = lastAiMessages.length ? 'block' : 'none';
-                showToast('✨ ' + lastAiMessages.length + ' messages ready');
+                if (saveBtn) saveBtn.style.display = (lastAiMessages.length || lastAiFiles.length) ? 'block' : 'none';
+                showToast('✨ Ready: ' + lastAiMessages.length + ' text, ' + lastAiFiles.length + ' file');
             }).catch(() => showToast('Network / Gemini error', true))
             .finally(() => {
                 if (btn) { btn.disabled = false; btn.innerHTML = '✨ Generate with Gemini'; }
@@ -1033,23 +1067,35 @@
         }
 
         function saveAiAsTemplates() {
-            if (!lastAiMessages.length) return showToast('Pehle generate karo', true);
+            if (!lastAiMessages.length && !lastAiFiles.length) return showToast('Pehle generate karo', true);
             const base = (lastAiTopic || 'AI').slice(0, 24);
+            const items = lastAiMessages.length ? lastAiMessages : [ 'Offer flyer attached — ' + base ];
             let i = 0;
             function next() {
-                if (i >= lastAiMessages.length) {
+                if (i >= items.length) {
+                    // agar sirf files hain aur 1 msg already saved with file
                     renderTemplates();
-                    showToast('✅ ' + lastAiMessages.length + ' AI templates save');
+                    showToast('✅ AI templates save');
                     return;
                 }
-                const msg = lastAiMessages[i];
+                const msg = items[i];
+                const attachments = (i === 0 && lastAiFiles.length) ? lastAiFiles.map(f => ({
+                    fileBase64: f.fileBase64,
+                    fileMime: f.fileMime || 'application/octet-stream',
+                    fileName: f.fileName || 'file',
+                    fileKind: f.fileKind || ((f.fileMime || '').startsWith('image/') ? 'image' : 'document')
+                })) : [];
+                const firstImg = attachments.find(a => a.fileKind === 'image' || (a.fileMime || '').startsWith('image/'));
                 const payload = {
                     id: 'tpl_ai_' + Date.now() + '_' + i,
                     name: base + ' #' + (i + 1),
                     message: msg,
-                    imageBase64: null,
-                    fileBase64: null,
-                    attachments: [],
+                    imageBase64: firstImg ? firstImg.fileBase64 : null,
+                    fileBase64: (!firstImg && attachments[0]) ? attachments[0].fileBase64 : null,
+                    fileMime: (!firstImg && attachments[0]) ? attachments[0].fileMime : null,
+                    fileName: (!firstImg && attachments[0]) ? attachments[0].fileName : null,
+                    fileKind: (!firstImg && attachments[0]) ? attachments[0].fileKind : null,
+                    attachments: attachments,
                     buttons: []
                 };
                 allTemplates.push(payload);
