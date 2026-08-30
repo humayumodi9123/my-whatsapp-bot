@@ -105,7 +105,6 @@
             <button class="sidebar-btn" onclick="showSection('historySec', this)">📜 Campaign History</button>
             <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contact Book</button>
             <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Template Manager</button>
-            <button class="sidebar-btn" onclick="showSection('aiStudioSec', this)">✨ AI Studio (Gemini)</button>
             <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
             <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
         </div>
@@ -441,53 +440,6 @@
         </div>
 
         <!-- 7. Smart Auto Reply -->
-        <div id="aiStudioSec" class="content-section">
-            <h2 class="section-title">✨ AI Studio (Gemini)</h2>
-            <p style="font-size:13px;color:#64748b;margin:0 0 16px;line-height:1.5;">Topic do → Gemini alag-alag WhatsApp messages likhega → templates save → Campaign mein multi-template mix. <b>Photo auto-generate</b> baad mein (Imagen/API); abhi text variants strong hain.</p>
-
-            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin-bottom:18px;">
-                <label style="font-weight:700;color:#1e293b;">🔑 Gemini API Key</label>
-                <p style="font-size:11px;color:#94a3b8;margin:4px 0 8px;">Free key: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> · key server pe save (public mat share karo)</p>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <input type="password" id="geminiApiKeyInput" placeholder="AIza…" style="flex:1;min-width:180px;margin:0;">
-                    <button type="button" class="action-btn btn-primary btn-sm" style="width:auto;" onclick="saveGeminiKey()">Save Key</button>
-                </div>
-                <p id="geminiKeyStatus" style="font-size:12px;color:#64748b;margin:8px 0 0;">Status: checking…</p>
-            </div>
-
-            <div class="form-group">
-                <label>Topic / product / offer</label>
-                <textarea id="aiTopic" style="height:70px;" placeholder="e.g. Wedding card design Jaipur, 20% off this week, home delivery"></textarea>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                <div class="form-group">
-                    <label>Tone</label>
-                    <select id="aiTone">
-                        <option value="friendly">Friendly</option>
-                        <option value="professional">Professional</option>
-                        <option value="sales">Sales / offer</option>
-                        <option value="soft">Soft / polite</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Language</label>
-                    <select id="aiLanguage">
-                        <option value="hinglish" selected>Hinglish</option>
-                        <option value="hindi">Hindi</option>
-                        <option value="english">English</option>
-                    </select>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Kitne unique messages?</label>
-                <input type="number" id="aiCount" value="5" min="1" max="15" style="max-width:120px;">
-            </div>
-            <button type="button" class="action-btn btn-success" id="aiGenerateBtn" onclick="generateAiMessages()">✨ Generate with Gemini</button>
-            <div id="aiResults" style="margin-top:18px;"></div>
-            <button type="button" class="action-btn btn-primary" id="aiSaveTemplatesBtn" style="display:none;margin-top:12px;" onclick="saveAiAsTemplates()">💾 Saare templates mein save karo</button>
-            <p style="font-size:11px;color:#94a3b8;margin-top:14px;line-height:1.4;">Campaign Sender → multi template select → AI messages rotate hokar jayenge (anti-ban rules same). Fully blind auto-spam recommend nahi — pehle preview, phir send.</p>
-        </div>
-
         <div id="autoReply" class="content-section">
             <h2 class="section-title">Smart Auto-Reply</h2>
             <div class="switch-wrapper">
@@ -754,7 +706,6 @@
             }
             onDateModeChange();
             updateNotifUI();
-            loadGeminiKeyStatus();
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js').catch(() => {});
             }
@@ -968,97 +919,6 @@
             }).catch(() => {});
         }
         function toggleAutoReply() { fetch('/toggle-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: document.getElementById('autoReplyToggle').checked }) }) }
-
-        let lastAiMessages = [];
-        let lastAiTopic = '';
-
-        function loadGeminiKeyStatus() {
-            fetch('/api/ai/settings').then(r => r.json()).then(d => {
-                const el = document.getElementById('geminiKeyStatus');
-                if (!el) return;
-                if (d.hasKey) el.innerHTML = 'Status: <b style="color:#059669;">Key saved</b> (' + (d.keyPreview || '') + ')';
-                else el.innerHTML = 'Status: <b style="color:#dc2626;">Key nahi hai</b> — upar paste karke Save';
-            }).catch(() => {});
-        }
-
-        function saveGeminiKey() {
-            const key = (document.getElementById('geminiApiKeyInput') || {}).value || '';
-            fetch('/api/ai/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ geminiApiKey: key.trim() })
-            }).then(r => r.json()).then(d => {
-                if (d.success) {
-                    showToast(key.trim() ? '✅ Gemini key saved' : 'Key clear');
-                    document.getElementById('geminiApiKeyInput').value = '';
-                    loadGeminiKeyStatus();
-                } else showToast('Save fail', true);
-            }).catch(() => showToast('Network error', true));
-        }
-
-        function generateAiMessages() {
-            const topic = (document.getElementById('aiTopic') || {}).value || '';
-            const tone = (document.getElementById('aiTone') || {}).value || 'friendly';
-            const language = (document.getElementById('aiLanguage') || {}).value || 'hinglish';
-            const count = parseInt((document.getElementById('aiCount') || {}).value, 10) || 5;
-            if (!topic.trim()) return showToast('Topic likho', true);
-            const btn = document.getElementById('aiGenerateBtn');
-            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Gemini soch raha hai…'; }
-            fetch('/api/ai/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic: topic.trim(), tone, language, count })
-            }).then(r => r.json()).then(d => {
-                if (!d.success) {
-                    showToast(d.error || 'Generate fail', true);
-                    return;
-                }
-                lastAiMessages = d.messages || [];
-                lastAiTopic = d.topic || topic;
-                const box = document.getElementById('aiResults');
-                if (box) {
-                    box.innerHTML = lastAiMessages.map((m, i) =>
-                        '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-bottom:10px;">' +
-                        '<div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:6px;">Variant ' + (i + 1) + '</div>' +
-                        '<div style="font-size:14px;color:#0f172a;white-space:pre-wrap;line-height:1.45;">' + m.replace(/</g, '&lt;') + '</div></div>'
-                    ).join('');
-                }
-                const saveBtn = document.getElementById('aiSaveTemplatesBtn');
-                if (saveBtn) saveBtn.style.display = lastAiMessages.length ? 'block' : 'none';
-                showToast('✨ ' + lastAiMessages.length + ' messages ready');
-            }).catch(() => showToast('Network / Gemini error', true))
-            .finally(() => {
-                if (btn) { btn.disabled = false; btn.innerHTML = '✨ Generate with Gemini'; }
-            });
-        }
-
-        function saveAiAsTemplates() {
-            if (!lastAiMessages.length) return showToast('Pehle generate karo', true);
-            const base = (lastAiTopic || 'AI').slice(0, 24);
-            let i = 0;
-            function next() {
-                if (i >= lastAiMessages.length) {
-                    renderTemplates();
-                    showToast('✅ ' + lastAiMessages.length + ' AI templates save');
-                    return;
-                }
-                const msg = lastAiMessages[i];
-                const payload = {
-                    id: 'tpl_ai_' + Date.now() + '_' + i,
-                    name: base + ' #' + (i + 1),
-                    message: msg,
-                    imageBase64: null,
-                    fileBase64: null,
-                    attachments: [],
-                    buttons: []
-                };
-                allTemplates.push(payload);
-                fetch('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
-                i++;
-                next();
-            }
-            next();
-        }
         function updateAutoReplyMsg() { fetch('/update-autoreply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: document.getElementById('editAutoReplyMsg').value }) }).then(() => showToast('✅ मैसेज अपडेट हो गया।')) }
 
         function fetchContacts() {
