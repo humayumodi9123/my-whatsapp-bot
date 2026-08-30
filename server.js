@@ -469,14 +469,43 @@ async function startSession(sessionId, sessionName) {
         console.log(`[${sessionId}] skip start — user deleted`);
         return;
     }
+    const existing = sessions.get(sessionId);
+    if (existing && existing._starting) {
+        console.log(`[${sessionId}] start already in progress — skip`);
+        return;
+    }
+    if (existing) existing._starting = true;
+
+    // Purana socket quietly band (reconnect race kam)
+    try {
+        if (existing && existing.sock) {
+            try { existing.sock.ev.removeAllListeners(); } catch (e) {}
+            try { existing.sock.end(undefined); } catch (e) {}
+            existing.sock = null;
+            existing.connected = false;
+        }
+    } catch (e) {}
+
     const { state, saveCreds } = await getAuthState(sessionId);
-    const sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: ["Ubuntu", "Chrome", "20.0.04"] });
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        markOnlineOnConnect: false,
+        syncFullHistory: false,
+        generateHighQualityLinkPreview: false,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 25000,
+        retryRequestDelayMs: 500,
+        getMessage: async () => undefined
+    });
 
     const session = sessions.get(sessionId) || {
         id: sessionId, name: sessionName || sessionId, sock: null, connected: false,
         qrCode: null, restUntil: null, sentInBatch: 0, batchSize: SESSION_BATCH
     };
-    session.sock = sock; session.name = sessionName || session.name; sessions.set(sessionId, session);
+    session.sock = sock; session.name = sessionName || session.name; session._starting = false;
+    sessions.set(sessionId, session);
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -495,7 +524,10 @@ async function startSession(sessionId, sessionName) {
                 try { await clearSessionAuth(sessionId); } catch (e) {}
                 s.qrCode = null;
             }
-            const delay = (code === 440 || code === DisconnectReason.connectionReplaced) ? 8000 : 4000;
+            // Multi-session: staggered reconnect (cascade drop kam)
+            const base = (code === 440 || code === DisconnectReason.connectionReplaced) ? 12000 : 6000;
+            const jitter = Math.floor(Math.random() * 8000);
+            const delay = base + jitter;
             if (!s._reconnectTimer && !deletedSessionIds.has(sessionId) && sessions.has(sessionId)) {
                 s._reconnectTimer = setTimeout(() => {
                     s._reconnectTimer = null;
@@ -505,7 +537,7 @@ async function startSession(sessionId, sessionName) {
             }
         } else if (connection === 'open') {
             if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
-            s.connected = true; s.qrCode = null;
+            s.connected = true; s.qrCode = null; s._starting = false;
             const meta = { ...getMeta() };
             if (!meta.firstConnectedAt) { meta.firstConnectedAt = new Date().toISOString(); persist('meta', meta); }
             if (!meta.sessions) meta.sessions = [];
@@ -745,64 +777,157 @@ app.post('/api/ai/generate', async (req, res) => {
     const topic = String((req.body && req.body.topic) || '').trim();
     const tone = String((req.body && req.body.tone) || 'friendly').trim();
     const language = String((req.body && req.body.language) || 'hinglish').trim();
+    const mode = String((req.body && req.body.mode) || 'text').trim(); // text | html | image | both | all
     let count = parseInt(req.body && req.body.count, 10);
     if (isNaN(count) || count < 1) count = 5;
     count = Math.min(15, count);
     if (!topic) return res.status(400).json({ success: false, error: 'Topic / product likho' });
 
     const langHint = language === 'hindi' ? 'Pure Hindi (Devanagari)' : (language === 'english' ? 'English only' : 'Hindi-English mix (Hinglish), natural Indian style');
-    const prompt = `You are a WhatsApp marketing copywriter for Indian small businesses.
-Topic/product: ${topic}
-Tone: ${tone}
-Language: ${langHint}
 
-Generate exactly ${count} DIFFERENT WhatsApp message variants for bulk marketing.
-Rules:
-- Each message 2–5 short lines, mobile-friendly
-- Use [Name] placeholder once where greeting fits
-- No spammy ALL CAPS walls, no fake urgency scams
-- Each variant unique wording (anti-ban / less duplicate feel)
-- Optional 1 emoji max per message
-- No hashtags spam
-
-Return ONLY valid JSON array of strings, no markdown:
-["message1","message2",...]`;
-
-    try {
+    async function geminiText(prompt, maxTokens) {
         const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + encodeURIComponent(apiKey);
         const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.9, maxOutputTokens: 2048 }
+                generationConfig: { temperature: 0.85, maxOutputTokens: maxTokens || 2048 }
             })
         });
         const data = await r.json();
-        if (!r.ok) {
-            const errMsg = (data.error && data.error.message) || ('Gemini HTTP ' + r.status);
-            return res.status(400).json({ success: false, error: errMsg });
-        }
+        if (!r.ok) throw new Error((data.error && data.error.message) || ('Gemini HTTP ' + r.status));
         let text = '';
-        try {
-            text = data.candidates[0].content.parts.map(p => p.text || '').join('');
-        } catch (e) {
-            return res.status(500).json({ success: false, error: 'Gemini empty response' });
+        try { text = data.candidates[0].content.parts.map(p => p.text || '').join(''); } catch (e) { throw new Error('Gemini empty response'); }
+        return text.replace(/```json/gi, '').replace(/```html/gi, '').replace(/```/g, '').trim();
+    }
+
+    async function geminiImage(promptText) {
+        // Nano Banana 2 / Flash Image
+        const models = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'];
+        let lastErr = 'Image model failed';
+        for (const model of models) {
+            try {
+                const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+                        generationConfig: {
+                            responseModalities: ['TEXT', 'IMAGE'],
+                            // some APIs use responseFormat
+                            responseFormat: { image: { aspectRatio: '1:1', imageSize: '1K' } }
+                        }
+                    })
+                });
+                const data = await r.json();
+                if (!r.ok) {
+                    lastErr = (data.error && data.error.message) || (model + ' HTTP ' + r.status);
+                    continue;
+                }
+                const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+                for (const part of parts) {
+                    const inline = part.inlineData || part.inline_data;
+                    if (inline && inline.data) {
+                        const mime = inline.mimeType || inline.mime_type || 'image/png';
+                        return {
+                            fileName: 'ai-image-' + Date.now() + (mime.includes('jpeg') || mime.includes('jpg') ? '.jpg' : '.png'),
+                            fileMime: mime,
+                            fileKind: 'image',
+                            fileBase64: 'data:' + mime + ';base64,' + inline.data
+                        };
+                    }
+                }
+                lastErr = model + ': no image in response (quota / region / billing?)';
+            } catch (e) {
+                lastErr = e.message || String(e);
+            }
         }
-        text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        throw new Error(lastErr);
+    }
+
+    try {
         let messages = [];
-        try {
-            messages = JSON.parse(text);
-        } catch (e) {
-            // fallback: split lines
-            messages = text.split(/\n+/).map(s => s.replace(/^\d+[\).\s-]+/, '').replace(/^["']|["']$/g, '').trim()).filter(s => s.length > 10);
+        let files = [];
+        let imageError = null;
+
+        const wantText = mode === 'text' || mode === 'both' || mode === 'all';
+        const wantHtml = mode === 'html' || mode === 'both' || mode === 'all';
+        const wantImage = mode === 'image' || mode === 'all';
+
+        if (wantText) {
+            const prompt = `You are a WhatsApp marketing copywriter for Indian small businesses.
+Topic/product: ${topic}
+Tone: ${tone}
+Language: ${langHint}
+
+Generate exactly ${count} DIFFERENT WhatsApp message variants.
+Rules: 2–5 short lines, [Name] once, no spam walls, unique wording, max 1 emoji.
+Return ONLY JSON array: ["message1","message2",...]`;
+            const text = await geminiText(prompt, 2048);
+            try { messages = JSON.parse(text); } catch (e) {
+                messages = text.split(/\n+/).map(s => s.replace(/^\d+[\).\s-]+/, '').replace(/^["']|["']$/g, '').trim()).filter(s => s.length > 10);
+            }
+            if (!Array.isArray(messages)) messages = [];
+            messages = messages.map(m => String(m).trim()).filter(Boolean).slice(0, count);
         }
-        if (!Array.isArray(messages)) messages = [];
-        messages = messages.map(m => String(m).trim()).filter(Boolean).slice(0, count);
-        if (!messages.length) {
-            return res.status(500).json({ success: false, error: 'AI se messages parse nahi hue — dubara try' });
+
+        if (wantHtml) {
+            const htmlPrompt = `Create ONE complete standalone HTML page (mobile flyer) for:
+${topic}
+Tone: ${tone}. Visible text language: ${langHint}.
+Full HTML5, inline CSS only, gradient header, title, 3 benefits, CTA, no JS, no external images.
+Return ONLY raw HTML.`;
+            const html = await geminiText(htmlPrompt, 4096);
+            let clean = html.trim();
+            if (!/^<!DOCTYPE/i.test(clean) && !/^<html/i.test(clean)) {
+                clean = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offer</title></head><body>' + clean + '</body></html>';
+            }
+            files.push({
+                fileName: 'ai-flyer-' + Date.now() + '.html',
+                fileMime: 'text/html',
+                fileKind: 'document',
+                fileBase64: 'data:text/html;base64,' + Buffer.from(clean, 'utf8').toString('base64')
+            });
+            if (!messages.length) messages = ['[Name], offer flyer attach hai — dekho. ' + topic.slice(0, 60)];
         }
-        res.json({ success: true, messages, topic, count: messages.length });
+
+        if (wantImage) {
+            try {
+                const imgPrompt = `Create a clean professional WhatsApp marketing poster image for Indian small business.
+Topic: ${topic}
+Style: bright, modern, minimal text on image (short headline only), high contrast, square 1:1, no watermark, no gibberish text.`;
+                const imgFile = await geminiImage(imgPrompt);
+                files.push(imgFile);
+                if (!messages.length) {
+                    messages = ['[Name], dekho ye offer 👇 ' + topic.slice(0, 80)];
+                }
+            } catch (e) {
+                imageError = e.message || 'Image generate fail';
+            }
+        }
+
+        if (!messages.length && !files.length) {
+            return res.status(500).json({
+                success: false,
+                error: imageError || 'AI se output nahi bana'
+            });
+        }
+        res.json({
+            success: true,
+            messages,
+            files,
+            topic,
+            mode,
+            count: messages.length,
+            imageError: imageError || null,
+            note: imageError
+                ? ('Image fail: ' + imageError + ' — text/HTML phir bhi save ho sakte hain. Image model billing/region check karo.')
+                : (files.some(f => f.fileKind === 'image')
+                    ? 'AI image ready — template save pe photo attach hogi campaign mein.'
+                    : (files.length ? 'HTML flyer ready.' : null))
+        });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message || 'Gemini request failed' });
     }
@@ -1053,7 +1178,12 @@ app.post('/send', async (req, res) => {
                 await new Promise(r => setTimeout(r, Math.min(5000, left)));
             }
             if (camp.cancelFlag || !camp.isActive) { queue.length = 0; break; }
-            if (!s.connected || !s.sock) { await new Promise(r => setTimeout(r, 5000)); continue; }
+            if (!s.connected || !s.sock) {
+                camp.status = 'waiting';
+                camp.restReason = (s.name || sessionId) + ' reconnect ho raha hai… campaign queue safe hai';
+                await new Promise(r => setTimeout(r, 8000));
+                continue;
+            }
             await waitForSendWindow();
             if (camp.cancelFlag || !camp.isActive) { queue.length = 0; break; }
             camp.status = 'sending'; camp.restReason = ''; camp.resumeAt = null;
@@ -1198,6 +1328,16 @@ app.post('/send', async (req, res) => {
                     const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
                     await new Promise(r => setTimeout(r, delayMs));
                 } catch (e) {
+                    const errMsg = String(e && e.message || e || '');
+                    const connFail = /connection|closed|timed out|ECONN|not connected|Connection Closed|reset/i.test(errMsg);
+                    // Disconnect mid-send: number wapas queue, fail mat maaro
+                    if (connFail || !s.connected) {
+                        queue.unshift(item);
+                        camp.status = 'waiting';
+                        camp.restReason = (s.name || sessionId) + ' disconnect — reconnect ke baad continue';
+                        await new Promise(r => setTimeout(r, 10000));
+                        break;
+                    }
                     camp.failed++; camp.pending = Math.max(0, camp.pending - 1);
                     if (camp.numbers[idx]) {
                         camp.numbers[idx].status = 'Failed ❌ (' + s.name + ')';
@@ -1215,12 +1355,31 @@ app.post('/send', async (req, res) => {
         }
     }
 
-    await Promise.all(selectedIds.map(id => sessionWorker(id)));
+    // Workers stagger start — saath mein blast se multi-WA drop kam
+    await Promise.all(selectedIds.map((id, wi) => (async () => {
+        await new Promise(r => setTimeout(r, wi * 3000));
+        return sessionWorker(id);
+    })()));
+    // Queue bachi + cancel nahi = abhi complete mat maaro (safety)
+    if (!camp.cancelFlag && queue.length > 0) {
+        camp.status = 'waiting';
+        camp.restReason = 'Workers paused — reconnect / rest ke baad pending queue';
+        // ek recovery pass: 2 min wait then single worker drain
+        await new Promise(r => setTimeout(r, 120000));
+        if (!camp.cancelFlag && queue.length > 0) {
+            const sid = selectedIds.find(id => {
+                const s = getSession(id);
+                return s && s.connected && s.sock;
+            }) || selectedIds[0];
+            if (sid) await sessionWorker(sid);
+        }
+    }
     if (!camp.cancelFlag) {
         camp.isActive = false;
-        camp.status = 'idle';
-        camp.restReason = '';
+        camp.status = queue.length ? 'idle' : 'idle';
+        camp.restReason = queue.length ? ('Pending left ' + queue.length) : '';
         camp.resumeAt = null;
+        camp.pending = queue.length;
     }
     // Complete campaigns thodi der baad list se hatao (UI ke liye)
     setTimeout(() => {
@@ -1245,3 +1404,4 @@ app.post('/send', async (req, res) => {
     // WhatsApp sessions background mein
     bootstrapSessions().catch(e => console.error('bootstrap error', e.message));
 })();
+
