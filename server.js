@@ -708,6 +708,106 @@ app.get('/api/scan-progress', (req, res) => {
     res.json({ groups, todayScanned: getTodayScanCount(), dailyScanLimit: getDailyScanLimit(), accountAgeDays: getAccountAgeDays(), autoScan: true, window: '8 AM – 10 PM IST' });
 });
 
+// ——— Gemini AI Assistant ———
+function getGeminiKey() {
+    return process.env.GEMINI_API_KEY || (getMeta().geminiApiKey || '');
+}
+
+app.get('/api/ai/settings', (req, res) => {
+    const key = getGeminiKey();
+    res.json({
+        success: true,
+        hasKey: !!key,
+        keyPreview: key ? (key.slice(0, 8) + '…' + key.slice(-4)) : null
+    });
+});
+
+app.post('/api/ai/settings', async (req, res) => {
+    const key = String((req.body && req.body.geminiApiKey) || '').trim();
+    const meta = { ...getMeta() };
+    if (key === '') {
+        delete meta.geminiApiKey;
+    } else {
+        meta.geminiApiKey = key;
+    }
+    await persist('meta', meta);
+    res.json({ success: true, hasKey: !!meta.geminiApiKey });
+});
+
+app.post('/api/ai/generate', async (req, res) => {
+    const apiKey = getGeminiKey();
+    if (!apiKey) {
+        return res.status(400).json({
+            success: false,
+            error: 'Gemini API key nahi mili. AI Studio section mein key save karo (aistudio.google.com).'
+        });
+    }
+    const topic = String((req.body && req.body.topic) || '').trim();
+    const tone = String((req.body && req.body.tone) || 'friendly').trim();
+    const language = String((req.body && req.body.language) || 'hinglish').trim();
+    let count = parseInt(req.body && req.body.count, 10);
+    if (isNaN(count) || count < 1) count = 5;
+    count = Math.min(15, count);
+    if (!topic) return res.status(400).json({ success: false, error: 'Topic / product likho' });
+
+    const langHint = language === 'hindi' ? 'Pure Hindi (Devanagari)' : (language === 'english' ? 'English only' : 'Hindi-English mix (Hinglish), natural Indian style');
+    const prompt = `You are a WhatsApp marketing copywriter for Indian small businesses.
+Topic/product: ${topic}
+Tone: ${tone}
+Language: ${langHint}
+
+Generate exactly ${count} DIFFERENT WhatsApp message variants for bulk marketing.
+Rules:
+- Each message 2–5 short lines, mobile-friendly
+- Use [Name] placeholder once where greeting fits
+- No spammy ALL CAPS walls, no fake urgency scams
+- Each variant unique wording (anti-ban / less duplicate feel)
+- Optional 1 emoji max per message
+- No hashtags spam
+
+Return ONLY valid JSON array of strings, no markdown:
+["message1","message2",...]`;
+
+    try {
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + encodeURIComponent(apiKey);
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.9, maxOutputTokens: 2048 }
+            })
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            const errMsg = (data.error && data.error.message) || ('Gemini HTTP ' + r.status);
+            return res.status(400).json({ success: false, error: errMsg });
+        }
+        let text = '';
+        try {
+            text = data.candidates[0].content.parts.map(p => p.text || '').join('');
+        } catch (e) {
+            return res.status(500).json({ success: false, error: 'Gemini empty response' });
+        }
+        text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        let messages = [];
+        try {
+            messages = JSON.parse(text);
+        } catch (e) {
+            // fallback: split lines
+            messages = text.split(/\n+/).map(s => s.replace(/^\d+[\).\s-]+/, '').replace(/^["']|["']$/g, '').trim()).filter(s => s.length > 10);
+        }
+        if (!Array.isArray(messages)) messages = [];
+        messages = messages.map(m => String(m).trim()).filter(Boolean).slice(0, count);
+        if (!messages.length) {
+            return res.status(500).json({ success: false, error: 'AI se messages parse nahi hue — dubara try' });
+        }
+        res.json({ success: true, messages, topic, count: messages.length });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message || 'Gemini request failed' });
+    }
+});
+
 app.post('/api/scan-next', async (req, res) => {
     if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
     const { group, sessionIds, scanAll } = req.body || {};
