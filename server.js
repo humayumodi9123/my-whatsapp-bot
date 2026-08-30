@@ -769,7 +769,7 @@ Return ONLY valid JSON array of strings, no markdown:
 ["message1","message2",...]`;
 
     try {
-        const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(apiKey);
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + encodeURIComponent(apiKey);
         const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
