@@ -815,9 +815,7 @@ app.post('/api/ai/generate', async (req, res) => {
                     body: JSON.stringify({
                         contents: [{ role: 'user', parts: [{ text: promptText }] }],
                         generationConfig: {
-                            responseModalities: ['TEXT', 'IMAGE'],
-                            // some APIs use responseFormat
-                            responseFormat: { image: { aspectRatio: '1:1', imageSize: '1K' } }
+                            responseModalities: ['TEXT', 'IMAGE']
                         }
                     })
                 });
@@ -1404,4 +1402,3 @@ app.post('/send', async (req, res) => {
     // WhatsApp sessions background mein
     bootstrapSessions().catch(e => console.error('bootstrap error', e.message));
 })();
-
