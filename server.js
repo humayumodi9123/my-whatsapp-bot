@@ -744,49 +744,102 @@ app.get('/api/scan-progress', (req, res) => {
 function getGeminiKey() {
     return process.env.GEMINI_API_KEY || (getMeta().geminiApiKey || '');
 }
+function getAiMeta() {
+    const m = getMeta() || {};
+    return {
+        geminiApiKey: process.env.GEMINI_API_KEY || m.geminiApiKey || '',
+        imageProvider: m.imageProvider || 'pollinations',
+        cfAccountId: m.cfAccountId || process.env.CF_ACCOUNT_ID || '',
+        cfApiToken: m.cfApiToken || process.env.CF_API_TOKEN || '',
+        hfToken: m.hfToken || process.env.HF_TOKEN || ''
+    };
+}
 
 app.get('/api/ai/settings', (req, res) => {
-    const key = getGeminiKey();
+    const a = getAiMeta();
     res.json({
         success: true,
-        hasKey: !!key,
-        keyPreview: key ? (key.slice(0, 8) + '…' + key.slice(-4)) : null
+        hasKey: !!a.geminiApiKey,
+        keyPreview: a.geminiApiKey ? (a.geminiApiKey.slice(0, 8) + '…' + a.geminiApiKey.slice(-4)) : null,
+        imageProvider: a.imageProvider || 'pollinations',
+        hasCf: !!(a.cfAccountId && a.cfApiToken),
+        hasHf: !!a.hfToken,
+        cfPreview: a.cfAccountId ? (a.cfAccountId.slice(0, 6) + '…') : null,
+        hfPreview: a.hfToken ? (a.hfToken.slice(0, 6) + '…') : null,
+        providers: [
+            { id: 'pollinations', name: 'Pollinations (Flux) — FREE, no key', needsKey: false },
+            { id: 'cloudflare', name: 'Cloudflare Workers AI (FLUX)', needsKey: true },
+            { id: 'huggingface', name: 'Hugging Face', needsKey: true },
+            { id: 'gemini', name: 'Gemini image (quota often 0 on free)', needsKey: true }
+        ]
     });
 });
 
 app.post('/api/ai/settings', async (req, res) => {
-    const key = String((req.body && req.body.geminiApiKey) || '').trim();
+    const body = req.body || {};
     const meta = { ...getMeta() };
-    if (key === '') {
-        delete meta.geminiApiKey;
-    } else {
-        meta.geminiApiKey = key;
+    if (body.geminiApiKey !== undefined) {
+        const key = String(body.geminiApiKey || '').trim();
+        if (!key) delete meta.geminiApiKey; else meta.geminiApiKey = key;
+    }
+    if (body.imageProvider) {
+        const p = String(body.imageProvider).trim();
+        if (['pollinations', 'cloudflare', 'huggingface', 'gemini'].includes(p)) meta.imageProvider = p;
+    }
+    if (body.cfAccountId !== undefined) {
+        const v = String(body.cfAccountId || '').trim();
+        if (!v) delete meta.cfAccountId; else meta.cfAccountId = v;
+    }
+    if (body.cfApiToken !== undefined) {
+        const v = String(body.cfApiToken || '').trim();
+        if (!v) delete meta.cfApiToken; else meta.cfApiToken = v;
+    }
+    if (body.hfToken !== undefined) {
+        const v = String(body.hfToken || '').trim();
+        if (!v) delete meta.hfToken; else meta.hfToken = v;
     }
     await persist('meta', meta);
-    res.json({ success: true, hasKey: !!meta.geminiApiKey });
+    const a = getAiMeta();
+    res.json({ success: true, hasKey: !!a.geminiApiKey, imageProvider: a.imageProvider, hasCf: !!(a.cfAccountId && a.cfApiToken), hasHf: !!a.hfToken });
 });
 
 app.post('/api/ai/generate', async (req, res) => {
-    const apiKey = getGeminiKey();
-    if (!apiKey) {
-        return res.status(400).json({
-            success: false,
-            error: 'Gemini API key nahi mili. AI Studio section mein key save karo (aistudio.google.com).'
-        });
-    }
+    const ai = getAiMeta();
+    const apiKey = ai.geminiApiKey;
     const topic = String((req.body && req.body.topic) || '').trim();
     const tone = String((req.body && req.body.tone) || 'friendly').trim();
     const language = String((req.body && req.body.language) || 'hinglish').trim();
-    const mode = String((req.body && req.body.mode) || 'text').trim(); // text | html | image | both | all
+    const mode = String((req.body && req.body.mode) || 'text').trim();
+    const imageProvider = String((req.body && req.body.imageProvider) || ai.imageProvider || 'pollinations').trim();
+    const allowedModels = {
+        'gemini-3.7-flash': true,
+        'gemini-3.5-flash-lite': true,
+        'gemini-3.1-pro-preview': true,
+        'gemini-3.1-pro': true,
+        'gemini-3.6-flash': true
+    };
+    let selectedModel = String((req.body && req.body.model) || 'gemini-3.7-flash').trim();
+    if (!allowedModels[selectedModel]) selectedModel = 'gemini-3.7-flash';
     let count = parseInt(req.body && req.body.count, 10);
     if (isNaN(count) || count < 1) count = 5;
     count = Math.min(15, count);
     if (!topic) return res.status(400).json({ success: false, error: 'Topic / product likho' });
 
+    const wantText = mode === 'text' || mode === 'both' || mode === 'all';
+    const wantHtml = mode === 'html' || mode === 'both' || mode === 'all';
+    const wantImage = mode === 'image' || mode === 'all';
+
+    if ((wantText || wantHtml) && !apiKey) {
+        return res.status(400).json({
+            success: false,
+            error: 'Text/HTML ke liye Gemini API key save karo (aistudio.google.com/apikey).'
+        });
+    }
+
     const langHint = language === 'hindi' ? 'Pure Hindi (Devanagari)' : (language === 'english' ? 'English only' : 'Hindi-English mix (Hinglish), natural Indian style');
 
     async function geminiText(prompt, maxTokens) {
-        const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + encodeURIComponent(apiKey);
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(selectedModel) + ':generateContent?key=' + encodeURIComponent(apiKey);
         const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -802,10 +855,109 @@ app.post('/api/ai/generate', async (req, res) => {
         return text.replace(/```json/gi, '').replace(/```html/gi, '').replace(/```/g, '').trim();
     }
 
+    async function freePollinationsImage(promptText) {
+        const q = encodeURIComponent(String(promptText).slice(0, 400));
+        const url = 'https://image.pollinations.ai/prompt/' + q + '?width=768&height=768&nologo=true&enhance=true&model=flux';
+        const r = await fetch(url, {
+            method: 'GET',
+            headers: { 'User-Agent': 'Mozilla/5.0 WebsiteBananeWala/1.0' },
+            redirect: 'follow'
+        });
+        if (!r.ok) throw new Error('Pollinations HTTP ' + r.status);
+        const ctype = (r.headers.get('content-type') || '').toLowerCase();
+        if (!ctype.includes('image')) throw new Error('Pollinations ne image nahi diya (limit/block)');
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length < 1000) throw new Error('Pollinations empty image');
+        const mime = ctype.includes('jpeg') || ctype.includes('jpg') ? 'image/jpeg' : 'image/png';
+        return {
+            fileName: 'ai-photo-' + Date.now() + (mime === 'image/jpeg' ? '.jpg' : '.png'),
+            fileMime: mime,
+            fileKind: 'image',
+            fileBase64: 'data:' + mime + ';base64,' + buf.toString('base64'),
+            provider: 'pollinations'
+        };
+    }
+
+    async function cloudflareImage(promptText) {
+        const accountId = ai.cfAccountId;
+        const token = ai.cfApiToken;
+        if (!accountId || !token) throw new Error('Cloudflare Account ID + API Token save karo (AI Studio settings)');
+        const url = 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(accountId) + '/ai/run/@cf/black-forest-labs/flux-1-schnell';
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ prompt: String(promptText).slice(0, 500) })
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((data.errors && data.errors[0] && data.errors[0].message) || ('Cloudflare HTTP ' + r.status));
+        // response: { result: { image: "base64..." } } or binary in some versions
+        let b64 = null;
+        if (data.result && data.result.image) b64 = data.result.image;
+        else if (data.image) b64 = data.image;
+        else if (typeof data.result === 'string') b64 = data.result;
+        if (!b64) throw new Error('Cloudflare ne image nahi diya — Workers AI enable check karo');
+        return {
+            fileName: 'cf-flux-' + Date.now() + '.png',
+            fileMime: 'image/png',
+            fileKind: 'image',
+            fileBase64: 'data:image/png;base64,' + b64,
+            provider: 'cloudflare'
+        };
+    }
+
+    async function huggingFaceImage(promptText) {
+        const token = ai.hfToken;
+        if (!token) throw new Error('Hugging Face token save karo (huggingface.co/settings/tokens)');
+        const models = [
+            'black-forest-labs/FLUX.1-schnell',
+            'stabilityai/stable-diffusion-xl-base-1.0'
+        ];
+        let lastErr = 'HF fail';
+        for (const model of models) {
+            try {
+                const url = 'https://api-inference.huggingface.co/models/' + model;
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json',
+                        'Accept': 'image/png'
+                    },
+                    body: JSON.stringify({ inputs: String(promptText).slice(0, 400) })
+                });
+                const ctype = (r.headers.get('content-type') || '').toLowerCase();
+                if (!r.ok) {
+                    const errTxt = await r.text().catch(() => '');
+                    lastErr = 'HF ' + model + ': ' + (errTxt.slice(0, 120) || r.status);
+                    continue;
+                }
+                if (!ctype.includes('image') && !ctype.includes('octet')) {
+                    lastErr = 'HF loading/queue — 20 sec baad try';
+                    continue;
+                }
+                const buf = Buffer.from(await r.arrayBuffer());
+                if (buf.length < 1000) { lastErr = 'HF empty'; continue; }
+                return {
+                    fileName: 'hf-photo-' + Date.now() + '.png',
+                    fileMime: 'image/png',
+                    fileKind: 'image',
+                    fileBase64: 'data:image/png;base64,' + buf.toString('base64'),
+                    provider: 'huggingface'
+                };
+            } catch (e) {
+                lastErr = e.message || String(e);
+            }
+        }
+        throw new Error(lastErr);
+    }
+
     async function geminiImage(promptText) {
-        // Nano Banana 2 / Flash Image
-        const models = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'];
-        let lastErr = 'Image model failed';
+        if (!apiKey) throw new Error('Gemini key nahi');
+        const models = [selectedModel, 'gemini-3.7-flash', 'gemini-3.1-flash-image'];
+        let lastErr = 'Gemini image fail';
         for (const model of models) {
             try {
                 const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
@@ -814,9 +966,7 @@ app.post('/api/ai/generate', async (req, res) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{ role: 'user', parts: [{ text: promptText }] }],
-                        generationConfig: {
-                            responseModalities: ['TEXT', 'IMAGE']
-                        }
+                        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
                     })
                 });
                 const data = await r.json();
@@ -830,14 +980,15 @@ app.post('/api/ai/generate', async (req, res) => {
                     if (inline && inline.data) {
                         const mime = inline.mimeType || inline.mime_type || 'image/png';
                         return {
-                            fileName: 'ai-image-' + Date.now() + (mime.includes('jpeg') || mime.includes('jpg') ? '.jpg' : '.png'),
+                            fileName: 'gemini-img-' + Date.now() + '.png',
                             fileMime: mime,
                             fileKind: 'image',
-                            fileBase64: 'data:' + mime + ';base64,' + inline.data
+                            fileBase64: 'data:' + mime + ';base64,' + inline.data,
+                            provider: model
                         };
                     }
                 }
-                lastErr = model + ': no image in response (quota / region / billing?)';
+                lastErr = model + ': no image (quota?)';
             } catch (e) {
                 lastErr = e.message || String(e);
             }
@@ -845,14 +996,34 @@ app.post('/api/ai/generate', async (req, res) => {
         throw new Error(lastErr);
     }
 
+    async function generateImage(promptText) {
+        const order = [];
+        if (imageProvider === 'pollinations') order.push('pollinations', 'cloudflare', 'huggingface');
+        else if (imageProvider === 'cloudflare') order.push('cloudflare', 'pollinations', 'huggingface');
+        else if (imageProvider === 'huggingface') order.push('huggingface', 'pollinations', 'cloudflare');
+        else if (imageProvider === 'gemini') order.push('gemini', 'pollinations');
+        else order.push('pollinations', 'cloudflare', 'huggingface');
+
+        const tried = [];
+        let lastErr = 'Image fail';
+        for (const p of order) {
+            try {
+                if (p === 'pollinations') return await freePollinationsImage(promptText);
+                if (p === 'cloudflare') return await cloudflareImage(promptText);
+                if (p === 'huggingface') return await huggingFaceImage(promptText);
+                if (p === 'gemini') return await geminiImage(promptText);
+            } catch (e) {
+                lastErr = e.message || String(e);
+                tried.push(p + ': ' + lastErr);
+            }
+        }
+        throw new Error(tried.join(' | ') || lastErr);
+    }
+
     try {
         let messages = [];
         let files = [];
         let imageError = null;
-
-        const wantText = mode === 'text' || mode === 'both' || mode === 'all';
-        const wantHtml = mode === 'html' || mode === 'both' || mode === 'all';
-        const wantImage = mode === 'image' || mode === 'all';
 
         if (wantText) {
             const prompt = `You are a WhatsApp marketing copywriter for Indian small businesses.
@@ -893,24 +1064,17 @@ Return ONLY raw HTML.`;
 
         if (wantImage) {
             try {
-                const imgPrompt = `Create a clean professional WhatsApp marketing poster image for Indian small business.
-Topic: ${topic}
-Style: bright, modern, minimal text on image (short headline only), high contrast, square 1:1, no watermark, no gibberish text.`;
-                const imgFile = await geminiImage(imgPrompt);
+                const imgPrompt = `Professional WhatsApp marketing poster for Indian small business. Topic: ${topic}. Bright, modern, square 1:1, short headline text only, high contrast, no watermark.`;
+                const imgFile = await generateImage(imgPrompt);
                 files.push(imgFile);
-                if (!messages.length) {
-                    messages = ['[Name], dekho ye offer 👇 ' + topic.slice(0, 80)];
-                }
+                if (!messages.length) messages = ['[Name], dekho ye offer 👇 ' + topic.slice(0, 80)];
             } catch (e) {
                 imageError = e.message || 'Image generate fail';
             }
         }
 
         if (!messages.length && !files.length) {
-            return res.status(500).json({
-                success: false,
-                error: imageError || 'AI se output nahi bana'
-            });
+            return res.status(500).json({ success: false, error: imageError || 'AI se output nahi bana' });
         }
         res.json({
             success: true,
@@ -918,16 +1082,16 @@ Style: bright, modern, minimal text on image (short headline only), high contras
             files,
             topic,
             mode,
+            model: selectedModel,
+            imageProvider,
             count: messages.length,
             imageError: imageError || null,
             note: imageError
-                ? ('Image fail: ' + imageError + ' — text/HTML phir bhi save ho sakte hain. Image model billing/region check karo.')
-                : (files.some(f => f.fileKind === 'image')
-                    ? 'AI image ready — template save pe photo attach hogi campaign mein.'
-                    : (files.length ? 'HTML flyer ready.' : null))
+                ? ('Photo fail: ' + imageError)
+                : (files.some(f => f.fileKind === 'image') ? ('Photo ready via ' + (files.find(f => f.fileKind === 'image').provider || imageProvider)) : null)
         });
     } catch (e) {
-        res.status(500).json({ success: false, error: e.message || 'Gemini request failed' });
+        res.status(500).json({ success: false, error: e.message || 'AI request failed' });
     }
 });
 
