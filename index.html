@@ -452,17 +452,35 @@
 
         <!-- 7. Smart Auto Reply -->
         <div id="aiStudioSec" class="content-section">
-            <h2 class="section-title">✨ AI Studio (Gemini)</h2>
-            <p style="font-size:13px;color:#64748b;margin:0 0 16px;line-height:1.5;"><b>Text</b> = Gemini (aapka key). <b>AI Photo</b> = pehle free <b>Pollinations / Flux</b> (bina Google image quota), fail ho to Gemini try. HTML flyer bhi Gemini se.</p>
+            <h2 class="section-title">✨ AI Studio</h2>
+            <p style="font-size:13px;color:#64748b;margin:0 0 16px;line-height:1.5;"><b>Text / HTML</b> = Gemini key. <b>AI Photo</b> = neeche se free provider choose (Pollinations default — no key).</p>
 
-            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin-bottom:18px;">
-                <label style="font-weight:700;color:#1e293b;">🔑 Gemini API Key</label>
-                <p style="font-size:11px;color:#94a3b8;margin:4px 0 8px;">Free key: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> · key server pe save (public mat share karo)</p>
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin-bottom:14px;">
+                <label style="font-weight:700;color:#1e293b;">🔑 Gemini (text / HTML)</label>
+                <p style="font-size:11px;color:#94a3b8;margin:4px 0 8px;"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <input type="password" id="geminiApiKeyInput" placeholder="AIza…" style="flex:1;min-width:180px;margin:0;">
-                    <button type="button" class="action-btn btn-primary btn-sm" style="width:auto;" onclick="saveGeminiKey()">Save Key</button>
+                    <button type="button" class="action-btn btn-primary btn-sm" style="width:auto;" onclick="saveGeminiKey()">Save</button>
                 </div>
-                <p id="geminiKeyStatus" style="font-size:12px;color:#64748b;margin:8px 0 0;">Status: checking…</p>
+                <p id="geminiKeyStatus" style="font-size:12px;color:#64748b;margin:8px 0 0;">Status: …</p>
+            </div>
+
+            <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px;padding:16px;margin-bottom:18px;">
+                <label style="font-weight:700;color:#065f46;">🖼️ Photo AI provider (free list)</label>
+                <select id="aiImageProvider" style="margin-top:8px;width:100%;">
+                    <option value="pollinations" selected>Pollinations Flux — FREE, no key</option>
+                    <option value="cloudflare">Cloudflare Workers AI (FLUX) — free daily</option>
+                    <option value="huggingface">Hugging Face — free token</option>
+                    <option value="gemini">Gemini image — often quota 0</option>
+                </select>
+                <p style="font-size:11px;color:#047857;margin:8px 0 0;">Pollinations: key nahi. Cloudflare / HF: neeche token save karo.</p>
+                <div style="margin-top:12px;display:grid;gap:8px;">
+                    <input type="text" id="cfAccountIdInput" placeholder="Cloudflare Account ID" style="margin:0;">
+                    <input type="password" id="cfApiTokenInput" placeholder="Cloudflare API Token" style="margin:0;">
+                    <input type="password" id="hfTokenInput" placeholder="Hugging Face Token (hf_…)" style="margin:0;">
+                    <button type="button" class="action-btn btn-success btn-sm" style="width:auto;" onclick="saveImageProviderKeys()">💾 Photo provider keys save</button>
+                </div>
+                <p id="imageProviderStatus" style="font-size:12px;color:#64748b;margin:8px 0 0;"></p>
             </div>
 
             <div class="form-group">
@@ -513,7 +531,7 @@
                     </select>
                 </div>
             </div>
-            <button type="button" class="action-btn btn-success" id="aiGenerateBtn" onclick="generateAiMessages()">✨ Generate with Gemini</button>
+            <button type="button" class="action-btn btn-success" id="aiGenerateBtn" onclick="generateAiMessages()">✨ Generate AI</button>
             <div id="aiResults" style="margin-top:18px;"></div>
             <button type="button" class="action-btn btn-primary" id="aiSaveTemplatesBtn" style="display:none;margin-top:12px;" onclick="saveAiAsTemplates()">💾 Saare templates mein save karo</button>
             <p style="font-size:11px;color:#94a3b8;margin-top:14px;line-height:1.4;">Campaign Sender → multi template select → AI messages rotate hokar jayenge (anti-ban rules same). Fully blind auto-spam recommend nahi — pehle preview, phir send.</p>
@@ -1007,9 +1025,18 @@
         function loadGeminiKeyStatus() {
             fetch('/api/ai/settings').then(r => r.json()).then(d => {
                 const el = document.getElementById('geminiKeyStatus');
-                if (!el) return;
-                if (d.hasKey) el.innerHTML = 'Status: <b style="color:#059669;">Key saved</b> (' + (d.keyPreview || '') + ')';
-                else el.innerHTML = 'Status: <b style="color:#dc2626;">Key nahi hai</b> — upar paste karke Save';
+                if (el) {
+                    if (d.hasKey) el.innerHTML = 'Status: <b style="color:#059669;">Key saved</b> (' + (d.keyPreview || '') + ')';
+                    else el.innerHTML = 'Status: <b style="color:#dc2626;">Key nahi</b> — text ke liye zaroori';
+                }
+                const ip = document.getElementById('aiImageProvider');
+                if (ip && d.imageProvider) ip.value = d.imageProvider;
+                const st = document.getElementById('imageProviderStatus');
+                if (st) {
+                    st.innerHTML = 'Photo: <b>' + (d.imageProvider || 'pollinations') + '</b>' +
+                        (d.hasCf ? ' · CF ✅' : ' · CF ❌') +
+                        (d.hasHf ? ' · HF ✅' : ' · HF ❌');
+                }
             }).catch(() => {});
         }
 
@@ -1028,20 +1055,42 @@
             }).catch(() => showToast('Network error', true));
         }
 
+        function saveImageProviderKeys() {
+            const imageProvider = (document.getElementById('aiImageProvider') || {}).value || 'pollinations';
+            const body = {
+                imageProvider,
+                cfAccountId: ((document.getElementById('cfAccountIdInput') || {}).value || '').trim(),
+                cfApiToken: ((document.getElementById('cfApiTokenInput') || {}).value || '').trim(),
+                hfToken: ((document.getElementById('hfTokenInput') || {}).value || '').trim()
+            };
+            fetch('/api/ai/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(r => r.json()).then(d => {
+                if (d.success) {
+                    showToast('✅ Photo provider saved: ' + imageProvider);
+                    ['cfApiTokenInput','hfTokenInput'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+                    loadGeminiKeyStatus();
+                } else showToast('Save fail', true);
+            }).catch(() => showToast('Network error', true));
+        }
+
         function generateAiMessages() {
             const topic = (document.getElementById('aiTopic') || {}).value || '';
             const tone = (document.getElementById('aiTone') || {}).value || 'friendly';
             const language = (document.getElementById('aiLanguage') || {}).value || 'hinglish';
             const mode = (document.getElementById('aiMode') || {}).value || 'text';
             const model = (document.getElementById('aiModel') || {}).value || 'gemini-3.7-flash';
+            const imageProvider = (document.getElementById('aiImageProvider') || {}).value || 'pollinations';
             const count = parseInt((document.getElementById('aiCount') || {}).value, 10) || 5;
             if (!topic.trim()) return showToast('Topic likho', true);
             const btn = document.getElementById('aiGenerateBtn');
-            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Gemini soch raha hai…'; }
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ AI generate…'; }
             fetch('/api/ai/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic: topic.trim(), tone, language, count, mode, model })
+                body: JSON.stringify({ topic: topic.trim(), tone, language, count, mode, model, imageProvider })
             }).then(r => r.json()).then(d => {
                 if (!d.success) {
                     showToast(d.error || 'Generate fail', true);
@@ -1082,7 +1131,7 @@
                 showToast('✨ Ready: ' + lastAiMessages.length + ' text, ' + lastAiFiles.length + ' file');
             }).catch(() => showToast('Network / Gemini error', true))
             .finally(() => {
-                if (btn) { btn.disabled = false; btn.innerHTML = '✨ Generate with Gemini'; }
+                if (btn) { btn.disabled = false; btn.innerHTML = '✨ Generate AI'; }
             });
         }
 
