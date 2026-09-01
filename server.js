@@ -26,9 +26,6 @@ const SESSION_BATCH = 30;
 const SESSION_REST_MS = 2 * 60 * 60 * 1000;
 let skipSleepUntil = 0;
 
-let isAutoReplyEnabled = true;
-let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n*1️⃣* - सर्विस और प्रोडक्ट\n*2️⃣* - प्राइस लिस्ट\n*3️⃣* - हमसे बात करने के लिए`;
-
 function listSessionsPublic() {
     return Array.from(sessions.values()).map(s => ({
         id: s.id, name: s.name, connected: !!s.connected, qrCode: s.qrCode || null,
@@ -184,30 +181,101 @@ function pushInboxMessage({ phone, name, text, fromMe, sessionId, sessionName })
     persist('inbox', inbox);
 }
 
-let isGeminiBotEnabled = false;
-let geminiBotPrompt = `You are a helpful WhatsApp business assistant for an Indian small business.
-Reply in short Hinglish or Hindi. Be polite. Max 3-4 lines. If customer asks price/service, answer helpfully from context. If unsure, say team will contact soon.`;
+let isAutoReplyEnabled = true; // global menu fallback (when session bot off)
+let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n*1️⃣* - सर्विस और प्रोडक्ट\n*2️⃣* - प्राइस लिस्ट\n*3️⃣* - हमसे बात करने के लिए`;
+// Per-WhatsApp Gemini bots: sessionId -> { enabled, prompt, knowledge, lastError }
+let sessionBots = {};
 let lastGeminiBotError = null;
 
+function defaultSessionBot() {
+    return {
+        enabled: false,
+        prompt: 'You represent this WhatsApp business number. Answer from the business knowledge. Be professional Hinglish. If info missing, ask 1 short clarifying question.',
+        knowledge: '',
+        lastError: null
+    };
+}
+function getSessionBot(sessionId) {
+    if (!sessionId) return defaultSessionBot();
+    if (!sessionBots[sessionId]) sessionBots[sessionId] = defaultSessionBot();
+    return sessionBots[sessionId];
+}
 function loadBotSettingsFromMeta() {
     try {
         const m = getMeta() || {};
-        if (typeof m.isGeminiBotEnabled === 'boolean') isGeminiBotEnabled = m.isGeminiBotEnabled;
         if (typeof m.isAutoReplyEnabled === 'boolean') isAutoReplyEnabled = m.isAutoReplyEnabled;
-        if (m.geminiBotPrompt) geminiBotPrompt = m.geminiBotPrompt;
+        if (m.autoReplyMessage) autoReplyMessage = m.autoReplyMessage;
+        if (m.sessionBots && typeof m.sessionBots === 'object') sessionBots = m.sessionBots;
+        // migrate old global gemini settings onto first session if needed
+        if (m.isGeminiBotEnabled && m.geminiBotPrompt && (!m.sessionBots || !Object.keys(m.sessionBots).length)) {
+            const meta = getMeta();
+            const sid = (meta.sessions && meta.sessions[0] && meta.sessions[0].id) || 'wa_1';
+            sessionBots[sid] = {
+                enabled: true,
+                prompt: m.geminiBotPrompt,
+                knowledge: m.geminiBotKnowledge || '',
+                lastError: null
+            };
+        }
     } catch (e) {}
 }
 async function saveBotSettingsToMeta() {
     try {
         const meta = { ...getMeta() };
-        meta.isGeminiBotEnabled = !!isGeminiBotEnabled;
         meta.isAutoReplyEnabled = !!isAutoReplyEnabled;
-        meta.geminiBotPrompt = geminiBotPrompt;
+        meta.autoReplyMessage = autoReplyMessage;
+        meta.sessionBots = sessionBots;
         await persist('meta', meta);
     } catch (e) {}
 }
 
+async function fetchUrlKnowledge(urlStr) {
+    try {
+        let u = String(urlStr || '').trim();
+        if (!u) return '';
+        if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+        const r = await fetch(u, {
+            method: 'GET',
+            redirect: 'follow',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8'
+            },
+            signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 18000); return c.signal; })()
+        });
+        if (!r.ok) return '';
+        let html = await r.text();
+        html = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ');
+        const title = ((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').replace(/\s+/g, ' ').trim();
+        const metaDesc = ((html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)/i) ||
+            html.match(/content=["']([^"']+)["'][^>]+name=["']description["']/i) || [])[1] || '');
+        const og = ((html.match(/property=["']og:description["'][^>]+content=["']([^"']+)/i) || [])[1] || '');
+        const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 9000);
+        return ('URL: ' + u + '\nTitle: ' + title + '\nDescription: ' + metaDesc + '\nOG: ' + og + '\nContent: ' + text).slice(0, 10000);
+    } catch (e) {
+        return '';
+    }
+}
 
+async function refreshBotKnowledgeFromPrompt(promptText) {
+    const text = String(promptText || '');
+    const urls = text.match(/https?:\/\/[^\s\]\)\"\']+/gi) || [];
+    const bare = text.match(/(?:www\.)?(?:facebook\.com|fb\.com|instagram\.com)[^\s\]\)\"\']*/gi) || [];
+    const all = [];
+    urls.forEach(u => all.push(u));
+    bare.forEach(u => {
+        if (!/^https?:/i.test(u)) all.push('https://' + u);
+        else all.push(u);
+    });
+    const unique = [...new Set(all)].slice(0, 4);
+    let knowledge = '';
+    for (const u of unique) {
+        const k = await fetchUrlKnowledge(u);
+        if (k) knowledge += k + '\n\n';
+    }
+    return knowledge.trim().slice(0, 12000);
+}
 
 // Multi parallel campaigns (alag WA + alag template saath-saath)
 const liveCampaigns = new Map();
@@ -664,7 +732,7 @@ async function startSession(sessionId, sessionName) {
             if (!text) return;
             // media-only: still allow short ack via gemini
             if (text === '[Photo]' || text === '[Video]' || text === '[Audio]' || text === '[Document]') {
-                if (!isGeminiBotEnabled) return;
+                if (!(getSessionBot(sessionId) && getSessionBot(sessionId).enabled)) return;
             }
 
             let pushName = (msg.pushName || '').trim();
@@ -678,11 +746,13 @@ async function startSession(sessionId, sessionName) {
             });
 
             if (fromMe) return;
-            if (!isAutoReplyEnabled && !isGeminiBotEnabled) return;
+            const botCfgEarly = getSessionBot(sessionId);
+            const geminiOn = !!(botCfgEarly && botCfgEarly.enabled);
+            if (!isAutoReplyEnabled && !geminiOn) return;
 
             const lower = text.toLowerCase();
-            // Menu-style auto reply
-            if (isAutoReplyEnabled && !isGeminiBotEnabled) {
+            // Menu-style auto reply only when THIS WA has Gemini OFF
+            if (isAutoReplyEnabled && !geminiOn) {
                 try {
                     if (lower === 'hi' || lower === 'hello' || lower === 'menu' || lower === 'hii' || lower === 'hey') {
                         await sock.sendMessage(jid, { text: autoReplyMessage });
@@ -704,19 +774,54 @@ async function startSession(sessionId, sessionName) {
                 return;
             }
 
-            // Gemini chatbot
-            if (isGeminiBotEnabled) {
+            // Per-WhatsApp Gemini chatbot
+            const botCfg = getSessionBot(sessionId);
+            if (botCfg && botCfg.enabled) {
                 const apiKey = (typeof getGeminiKey === 'function' ? getGeminiKey() : '') || '';
                 if (!apiKey) {
                     lastGeminiBotError = 'Gemini API key missing — AI Studio mein key save karo';
+                    botCfg.lastError = lastGeminiBotError;
                     console.error(lastGeminiBotError);
                     return;
                 }
                 try {
                     const chat = (getInbox().chats[phone] && getInbox().chats[phone].messages) || [];
-                    const recent = chat.slice(-8).map(x => (x.fromMe ? 'Business' : 'Customer') + ': ' + x.text).join('\n');
-                    const sys = (geminiBotPrompt || '') + '\n\nBusiness welcome/menu context:\n' + (autoReplyMessage || '');
-                    const prompt = sys + '\n\nRecent chat:\n' + recent + '\n\nCustomer just said: ' + text + '\n\nWrite ONLY the reply message to send on WhatsApp (no quotes, no labels).';
+                    const recent = chat.slice(-12).map(x => (x.fromMe ? 'Business' : 'Customer') + ': ' + x.text).join('\n');
+                    let knowledge = botCfg.knowledge || '';
+                    if (!knowledge && /https?:\/\//i.test(botCfg.prompt || '')) {
+                        try {
+                            knowledge = await refreshBotKnowledgeFromPrompt(botCfg.prompt);
+                            botCfg.knowledge = knowledge;
+                            await saveBotSettingsToMeta();
+                        } catch (e) {}
+                    }
+                    const waName = (sessions.get(sessionId) && sessions.get(sessionId).name) || sessionId;
+                    const prompt = `You are an intelligent WhatsApp business assistant (like Gemini app — thoughtful, helpful, context-aware).
+
+This chat is on WhatsApp account: "${waName}".
+You ONLY represent THIS account's business (different WhatsApp numbers may be different businesses).
+
+Owner instructions for THIS WhatsApp:
+${botCfg.prompt || 'Be professional and helpful.'}
+
+${knowledge ? ('Detailed business knowledge (website / Facebook / page text — READ carefully and use facts from here):\n' + knowledge + '\n') : 'No page knowledge loaded — rely on owner instructions and ask smart questions if needed.\n'}
+
+Intelligence rules (very important):
+1. Read the full knowledge and instructions before answering.
+2. Answer the customer's exact question with useful detail (not one-word).
+3. If price / product / location / timing is NOT in knowledge, ask ONE short clarifying question to get what you need, then help.
+4. NEVER send the old numbered menu (1 service, 2 price, 3 contact) unless customer asks for menu/options.
+5. Do not invent fake prices, addresses, or claims not in knowledge.
+6. Natural Hinglish or Hindi, 2–6 short lines, warm and professional.
+7. If customer greets only (hi/hello), give a smart welcome about THIS business + invite their need — not a rigid 1/2/3 menu.
+8. Use recent chat memory so replies feel continuous.
+
+Recent chat:
+${recent}
+
+Customer just said: ${text}
+
+Write ONLY the WhatsApp reply (no quotes, no labels).`;
                     async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
                     // Prefer models that support generateContent (no legacy gemini-pro)
                     let models = [
@@ -778,10 +883,12 @@ async function startSession(sessionId, sessionName) {
                     reply = (reply || '').replace(/^["']|["']$/g, '').slice(0, 1500);
                     if (!reply) {
                         lastGeminiBotError = lastErr || 'Gemini empty reply';
+                        botCfg.lastError = lastGeminiBotError;
                         console.error('gemini bot no reply', lastGeminiBotError);
                         return;
                     }
                     lastGeminiBotError = null;
+                    botCfg.lastError = null;
                     await sock.sendMessage(jid, { text: reply });
                     pushInboxMessage({ phone, name: pushName || phone, text: reply, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
                 } catch (e) {
@@ -813,7 +920,8 @@ async function bootstrapSessions() {
 
 app.get('/status', (req, res) => {
     const list = listSessionsPublic(); const primary = list.find(s => s.connected) || list[0] || null;
-    res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled, geminiBotError: lastGeminiBotError, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
+    const anyBot = Object.values(sessionBots || {}).some(b => b && b.enabled);
+    res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, geminiBot: anyBot, geminiBotError: lastGeminiBotError, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
 });
 
 app.get('/api/sessions', (req, res) => res.json({ sessions: listSessionsPublic() }));
@@ -880,21 +988,75 @@ app.post('/api/inbox/send', async (req, res) => {
         res.status(500).json({ success: false, error: e.message || 'send fail' });
     }
 });
+app.get('/api/session-bot', (req, res) => {
+    const sid = String(req.query.sessionId || '');
+    if (!sid) {
+        return res.json({
+            success: true,
+            sessions: listSessionsPublic().map(s => {
+                const b = getSessionBot(s.id);
+                return { id: s.id, name: s.name, connected: s.connected, botEnabled: !!b.enabled, hasKnowledge: !!(b.knowledge && b.knowledge.length > 20), lastError: b.lastError || null };
+            }),
+            autoReply: isAutoReplyEnabled,
+            hasGeminiKey: !!(typeof getGeminiKey === 'function' && getGeminiKey())
+        });
+    }
+    const b = getSessionBot(sid);
+    res.json({
+        success: true,
+        sessionId: sid,
+        enabled: !!b.enabled,
+        prompt: b.prompt || '',
+        knowledgeChars: (b.knowledge || '').length,
+        lastError: b.lastError || lastGeminiBotError,
+        autoReply: isAutoReplyEnabled,
+        currentMsg: autoReplyMessage,
+        hasGeminiKey: !!(typeof getGeminiKey === 'function' && getGeminiKey())
+    });
+});
 app.post('/toggle-geminibot', async (req, res) => {
-    isGeminiBotEnabled = !!(req.body && req.body.enabled);
-    if (isGeminiBotEnabled) isAutoReplyEnabled = false;
+    const sid = String((req.body && req.body.sessionId) || '');
+    if (!sid) return res.status(400).json({ success: false, error: 'sessionId select karo' });
+    const b = getSessionBot(sid);
+    b.enabled = !!(req.body && req.body.enabled);
+    b.lastError = null;
     lastGeminiBotError = null;
     await saveBotSettingsToMeta();
-    res.json({ success: true, geminiBot: isGeminiBotEnabled, autoReply: isAutoReplyEnabled, hasGeminiKey: !!(typeof getGeminiKey === 'function' && getGeminiKey()) });
+    res.json({ success: true, sessionId: sid, geminiBot: b.enabled, autoReply: isAutoReplyEnabled, hasGeminiKey: !!(typeof getGeminiKey === 'function' && getGeminiKey()) });
 });
 app.post('/update-geminibot-prompt', async (req, res) => {
-    if (req.body && typeof req.body.prompt === 'string') geminiBotPrompt = req.body.prompt;
+    const sid = String((req.body && req.body.sessionId) || '');
+    if (!sid) return res.status(400).json({ success: false, error: 'sessionId select karo' });
+    const b = getSessionBot(sid);
+    if (req.body && typeof req.body.prompt === 'string') b.prompt = req.body.prompt;
+    let fetched = false;
+    try {
+        const k = await refreshBotKnowledgeFromPrompt(b.prompt);
+        b.knowledge = k || '';
+        fetched = !!b.knowledge;
+    } catch (e) {}
+    await saveBotSettingsToMeta();
+    res.json({
+        success: true,
+        sessionId: sid,
+        knowledgeLoaded: fetched,
+        knowledgeChars: (b.knowledge || '').length,
+        note: fetched
+            ? 'Is WhatsApp ke liye page content read ho gaya'
+            : 'Link se content nahi padha (Facebook aksar block). Products/price instructions mein likho.'
+    });
+});
+
+app.post('/toggle-autoreply', async (req, res) => {
+    isAutoReplyEnabled = !!(req.body && req.body.enabled);
+    await saveBotSettingsToMeta();
+    res.json({ success: true, autoReply: isAutoReplyEnabled });
+});
+app.post('/update-autoreply', async (req, res) => {
+    if (req.body && req.body.message != null) autoReplyMessage = req.body.message;
     await saveBotSettingsToMeta();
     res.json({ success: true });
 });
-
-app.post('/toggle-autoreply', async (req, res) => { isAutoReplyEnabled = !!(req.body && req.body.enabled); if (isAutoReplyEnabled) isGeminiBotEnabled = false; await saveBotSettingsToMeta(); res.json({ success: true, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled }); });
-app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
 app.get('/api/history', (req, res) => res.json(getHistory()));
 app.get('/api/live-status', (req, res) => {
