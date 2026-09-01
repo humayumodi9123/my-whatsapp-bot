@@ -525,15 +525,22 @@
 
         <div id="inboxSec" class="content-section">
             <h2 class="section-title">💬 Messages (Inbox)</h2>
-            <p style="font-size:13px;color:#64748b;margin:0 0 12px;">WhatsApp jaisi list — customer ke aaye messages yahan. Chat khol ke reply bhi kar sakte ho.</p>
-            <div style="display:flex;gap:12px;height:min(70vh,620px);border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;background:#fff;">
-                <div id="inboxChatList" style="width:38%;min-width:140px;border-right:1px solid #e2e8f0;overflow-y:auto;background:#f8fafc;"></div>
-                <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
-                    <div id="inboxChatHeader" style="padding:12px 14px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;background:#fff;">Chat select karo</div>
+            <p style="font-size:13px;color:#64748b;margin:0 0 12px;">Pehle WhatsApp select karo → uske numbers/chats → click par conversation (phone WhatsApp jaisa).</p>
+            <div id="inboxShell" style="height:min(72vh,640px);border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;background:#fff;display:flex;flex-direction:column;">
+                <div id="inboxTopBar" style="display:none;align-items:center;gap:10px;padding:10px 12px;background:#075e54;color:#fff;">
+                    <button type="button" id="inboxBackBtn" onclick="inboxGoBack()" style="background:transparent;border:none;color:#fff;font-size:18px;cursor:pointer;padding:4px 8px;">←</button>
+                    <div style="flex:1;min-width:0;">
+                        <div id="inboxTopTitle" style="font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Inbox</div>
+                        <div id="inboxTopSub" style="font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+                    </div>
+                </div>
+                <div id="inboxWaList" style="flex:1;overflow-y:auto;background:#f0f2f5;"></div>
+                <div id="inboxChatList" style="display:none;flex:1;overflow-y:auto;background:#fff;"></div>
+                <div id="inboxThread" style="display:none;flex:1;flex-direction:column;min-height:0;">
                     <div id="inboxMessages" style="flex:1;overflow-y:auto;padding:12px;background:#ece5dd;"></div>
-                    <div style="display:flex;gap:8px;padding:10px;border-top:1px solid #e2e8f0;background:#f8fafc;">
-                        <input type="text" id="inboxReplyInput" placeholder="Message likho..." style="flex:1;margin:0;border-radius:20px;padding:10px 14px;">
-                        <button type="button" class="action-btn btn-success btn-sm" style="width:auto;border-radius:20px;" onclick="sendInboxReply()">Send</button>
+                    <div style="display:flex;gap:8px;padding:10px;border-top:1px solid #e2e8f0;background:#f0f2f5;">
+                        <input type="text" id="inboxReplyInput" placeholder="Message..." style="flex:1;margin:0;border-radius:20px;padding:10px 14px;border:1px solid #e2e8f0;">
+                        <button type="button" onclick="sendInboxReply()" style="background:#25d366;color:#fff;border:none;border-radius:50%;width:44px;height:44px;font-weight:700;cursor:pointer;">➤</button>
                     </div>
                 </div>
             </div>
@@ -557,7 +564,8 @@
                     <textarea id="geminiBotPrompt" style="height:100px;" placeholder="Short Hinglish replies, polite, business context..."></textarea>
                 </div>
                 <button type="button" class="action-btn btn-primary btn-sm" style="width:auto;" onclick="saveGeminiBotPrompt()">💾 Save Bot Instructions</button>
-                <p style="font-size:11px;color:#64748b;margin:10px 0 0;">Gemini ON hone par menu auto-reply band ho jata hai (ek mode). Inbox mein saari chats dikhengi.</p>
+                <p style="font-size:11px;color:#64748b;margin:10px 0 0;">Gemini ON hone par menu auto-reply band. AI Studio mein key save zaroori. Inbox mein chats dikhengi.</p>
+                <p id="geminiBotStatus" style="font-size:12px;margin:8px 0 0;color:#64748b;"></p>
             </div>
         </div>
 
@@ -840,6 +848,12 @@
                     renderSessionsUI(d.sessions || []);
                     document.getElementById('autoReplyToggle').checked = d.autoReply;
                     if (document.getElementById('geminiBotToggle')) document.getElementById('geminiBotToggle').checked = !!d.geminiBot;
+                    const gbs = document.getElementById('geminiBotStatus');
+                    if (gbs) {
+                        if (d.geminiBot && d.geminiBotError) gbs.innerHTML = '<b style="color:#dc2626;">Bot error:</b> ' + d.geminiBotError;
+                        else if (d.geminiBot) gbs.innerHTML = '<b style="color:#059669;">Gemini chatbot ON</b> — customer msg ka auto reply chalega';
+                        else gbs.innerHTML = 'Gemini chatbot OFF';
+                    }
                     if (!document.getElementById('editAutoReplyMsg').value) document.getElementById('editAutoReplyMsg').value = d.currentMsg;
                     notifState.networkErrorNotified = false;
                 }).catch(() => {
@@ -1043,7 +1057,8 @@
             fetch('/toggle-geminibot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: on }) })
                 .then(r => r.json()).then(d => {
                     if (d && d.autoReply === false && document.getElementById('autoReplyToggle')) document.getElementById('autoReplyToggle').checked = false;
-                    showToast(on ? 'Gemini chatbot ON' : 'Gemini chatbot OFF');
+                    if (on && d && d.hasGeminiKey === false) showToast('Gemini key nahi mili — AI Studio mein save karo', true);
+                    else showToast(on ? 'Gemini chatbot ON' : 'Gemini chatbot OFF');
                 }).catch(() => showToast('Network error', true));
         }
         function saveGeminiBotPrompt() {
@@ -1053,47 +1068,150 @@
         }
 
         let inboxSelectedPhone = null;
+        let inboxSelectedSessionId = null;
+        let inboxSelectedSessionName = '';
+        let inboxView = 'wa'; // wa | chats | thread
+        let inboxAllChats = [];
         let inboxPollTimer = null;
-        function loadInboxList() {
-            fetch('/api/inbox').then(r => r.json()).then(d => {
-                const box = document.getElementById('inboxChatList');
-                if (!box) return;
-                const chats = d.chats || [];
-                if (!chats.length) {
-                    box.innerHTML = '<div style="padding:20px;color:#94a3b8;font-size:13px;text-align:center;">Abhi koi message nahi.<br>Customer WhatsApp pe msg kare to yahan list mein aayega.</div>';
+
+        function inboxGoBack() {
+            if (inboxView === 'thread') {
+                inboxSelectedPhone = null;
+                inboxView = 'chats';
+                renderInboxView();
+            } else if (inboxView === 'chats') {
+                inboxSelectedSessionId = null;
+                inboxSelectedSessionName = '';
+                inboxView = 'wa';
+                renderInboxView();
+            }
+        }
+
+        function renderInboxView() {
+            const waEl = document.getElementById('inboxWaList');
+            const listEl = document.getElementById('inboxChatList');
+            const threadEl = document.getElementById('inboxThread');
+            const top = document.getElementById('inboxTopBar');
+            const title = document.getElementById('inboxTopTitle');
+            const sub = document.getElementById('inboxTopSub');
+            if (!waEl || !listEl || !threadEl) return;
+
+            if (inboxView === 'wa') {
+                top.style.display = 'none';
+                waEl.style.display = 'block';
+                listEl.style.display = 'none';
+                threadEl.style.display = 'none';
+                loadInboxWaList();
+            } else if (inboxView === 'chats') {
+                top.style.display = 'flex';
+                title.textContent = inboxSelectedSessionName || 'WhatsApp';
+                sub.textContent = 'Chats / numbers';
+                waEl.style.display = 'none';
+                listEl.style.display = 'block';
+                threadEl.style.display = 'none';
+                renderInboxChatList();
+            } else {
+                top.style.display = 'flex';
+                waEl.style.display = 'none';
+                listEl.style.display = 'none';
+                threadEl.style.display = 'flex';
+            }
+        }
+
+        function loadInboxWaList() {
+            const box = document.getElementById('inboxWaList');
+            if (!box) return;
+            fetch('/api/sessions').then(r => r.json()).then(d => {
+                const sessions = (d.sessions || []).filter(s => s.connected);
+                if (!sessions.length) {
+                    box.innerHTML = '<div style="padding:28px 16px;text-align:center;color:#64748b;font-size:14px;">Koi WhatsApp connected nahi.<br>Pehle Device Settings se connect karo.</div>';
                     return;
                 }
-                box.innerHTML = chats.map(c => {
-                    const active = inboxSelectedPhone === c.phone ? 'background:#dbeafe;' : 'background:transparent;';
-                    const unread = c.unread ? '<span style="background:#25d366;color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;margin-left:6px;">' + c.unread + '</span>' : '';
-                    return '<div onclick="openInboxChat(\'' + c.phone + '\')" style="padding:12px 14px;border-bottom:1px solid #e2e8f0;cursor:pointer;' + active + '">' +
-                        '<div style="display:flex;justify-content:space-between;gap:8px;"><b style="font-size:14px;color:#0f172a;">' + (c.name || c.phone) + '</b><span style="font-size:11px;color:#94a3b8;white-space:nowrap;">' + (c.lastAtText || '') + '</span></div>' +
-                        '<div style="font-size:12px;color:#64748b;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (c.lastMessage || '') + unread + '</div>' +
-                        (c.sessionName ? '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">via ' + c.sessionName + '</div>' : '') +
-                        '</div>';
+                // also merge session names from chats for offline names
+                box.innerHTML = sessions.map(s => {
+                    const count = inboxAllChats.filter(c => c.sessionId === s.id).length;
+                    const unread = inboxAllChats.filter(c => c.sessionId === s.id).reduce((a, c) => a + (c.unread || 0), 0);
+                    const badge = unread ? '<span style="background:#25d366;color:#fff;font-size:11px;font-weight:700;border-radius:12px;padding:2px 8px;">' + unread + '</span>' : '';
+                    return '<div onclick="selectInboxWa(\'' + s.id + '\', \'' + String(s.name || s.id).replace(/'/g, '') + '\')" style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #e9edef;cursor:pointer;background:#fff;">' +
+                        '<div style="width:48px;height:48px;border-radius:50%;background:#25d366;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;">' + (s.name || 'W').charAt(0).toUpperCase() + '</div>' +
+                        '<div style="flex:1;min-width:0;"><div style="font-weight:700;color:#111b21;font-size:16px;">' + (s.name || s.id) + '</div>' +
+                        '<div style="font-size:13px;color:#667781;margin-top:2px;">' + count + ' chats · Connected</div></div>' + badge + '</div>';
                 }).join('');
+            }).catch(() => {
+                box.innerHTML = '<div style="padding:20px;color:#94a3b8;text-align:center;">Sessions load fail</div>';
+            });
+        }
+
+        function selectInboxWa(sessionId, name) {
+            inboxSelectedSessionId = sessionId;
+            inboxSelectedSessionName = name || sessionId;
+            inboxSelectedPhone = null;
+            inboxView = 'chats';
+            renderInboxView();
+        }
+
+        function loadInboxList() {
+            fetch('/api/inbox').then(r => r.json()).then(d => {
+                inboxAllChats = d.chats || [];
+                if (inboxView === 'wa') loadInboxWaList();
+                else if (inboxView === 'chats') renderInboxChatList();
             }).catch(() => {});
         }
+
+        function renderInboxChatList() {
+            const box = document.getElementById('inboxChatList');
+            if (!box) return;
+            let chats = inboxAllChats.filter(c => c.sessionId === inboxSelectedSessionId);
+            // fallback: if no sessionId match, show chats with matching sessionName
+            if (!chats.length) {
+                chats = inboxAllChats.filter(c => (c.sessionName || '') === inboxSelectedSessionName);
+            }
+            if (!chats.length) {
+                box.innerHTML = '<div style="padding:28px 16px;text-align:center;color:#667781;font-size:14px;">Is WhatsApp pe abhi koi chat nahi.<br>Customer msg kare to yahan name/number dikhega.</div>';
+                return;
+            }
+            box.innerHTML = chats.map(c => {
+                const title = (c.name && c.name !== c.phone) ? c.name : ('+' + c.phone);
+                const sub = (c.name && c.name !== c.phone) ? c.phone : (c.lastMessage || '');
+                const unread = c.unread ? '<span style="background:#25d366;color:#fff;font-size:11px;font-weight:700;border-radius:12px;padding:2px 8px;margin-left:6px;">' + c.unread + '</span>' : '';
+                return '<div onclick="openInboxChat(\'' + c.phone + '\')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #e9edef;cursor:pointer;">' +
+                    '<div style="width:48px;height:48px;border-radius:50%;background:#dfe5e7;color:#54656f;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + (title.charAt(0) || '#').toUpperCase() + '</div>' +
+                    '<div style="flex:1;min-width:0;"><div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:600;color:#111b21;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(title) + '</span>' +
+                    '<span style="font-size:12px;color:#667781;flex-shrink:0;">' + (c.lastAtText || '') + '</span></div>' +
+                    '<div style="font-size:13px;color:#667781;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(c.lastMessage || sub) + unread + '</div></div></div>';
+            }).join('');
+        }
+
         function openInboxChat(phone) {
             inboxSelectedPhone = phone;
-            loadInboxList();
+            inboxView = 'thread';
+            renderInboxView();
+            const chatMeta = inboxAllChats.find(c => c.phone === phone) || {};
+            const title = document.getElementById('inboxTopTitle');
+            const sub = document.getElementById('inboxTopSub');
+            if (title) title.textContent = (chatMeta.name && chatMeta.name !== phone) ? chatMeta.name : ('+' + phone);
+            if (sub) sub.textContent = (chatMeta.name && chatMeta.name !== phone) ? ('+' + phone + ' · ' + (inboxSelectedSessionName || '')) : (inboxSelectedSessionName || '');
+
             fetch('/api/inbox/' + encodeURIComponent(phone)).then(r => r.json()).then(d => {
-                const head = document.getElementById('inboxChatHeader');
-                if (head) head.textContent = (d.name || phone) + ' · ' + phone;
                 const box = document.getElementById('inboxMessages');
                 if (!box) return;
                 const msgs = d.messages || [];
                 box.innerHTML = msgs.map(m => {
-                    const align = m.fromMe ? 'flex-end' : 'flex-start';
-                    const bg = m.fromMe ? '#dcf8c6' : '#fff';
-                    return '<div style="display:flex;justify-content:' + align + ';margin-bottom:8px;"><div style="max-width:80%;background:' + bg + ';padding:8px 12px;border-radius:10px;box-shadow:0 1px 1px rgba(0,0,0,.06);"><div style="font-size:14px;color:#0f172a;white-space:pre-wrap;word-break:break-word;">' + escapeHtml(m.text || '') + '</div><div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:4px;">' + (m.atText || '') + '</div></div></div>';
-                }).join('') || '<div style="text-align:center;color:#94a3b8;padding:20px;">No messages</div>';
+                    const mine = !!m.fromMe;
+                    return '<div style="display:flex;justify-content:' + (mine ? 'flex-end' : 'flex-start') + ';margin-bottom:6px;">' +
+                        '<div style="max-width:78%;background:' + (mine ? '#d9fdd3' : '#fff') + ';padding:6px 10px 4px;border-radius:8px;box-shadow:0 1px 0.5px rgba(11,20,26,.13);">' +
+                        '<div style="font-size:14.2px;color:#111b21;white-space:pre-wrap;word-break:break-word;line-height:1.35;">' + escapeHtml(m.text || '') + '</div>' +
+                        '<div style="font-size:11px;color:#667781;text-align:right;margin-top:2px;">' + (m.atText || '') + '</div></div></div>';
+                }).join('') || '<div style="text-align:center;color:#667781;padding:24px;">No messages</div>';
                 box.scrollTop = box.scrollHeight;
+                loadInboxList();
             }).catch(() => {});
         }
+
         function escapeHtml(s) {
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
+
         function sendInboxReply() {
             const input = document.getElementById('inboxReplyInput');
             const text = (input && input.value || '').trim();
@@ -1101,20 +1219,25 @@
             if (!text) return;
             fetch('/api/inbox/send', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: inboxSelectedPhone, text })
+                body: JSON.stringify({ phone: inboxSelectedPhone, text, sessionId: inboxSelectedSessionId })
             }).then(r => r.json()).then(d => {
-                if (d.success) { input.value = ''; openInboxChat(inboxSelectedPhone); loadInboxList(); }
+                if (d.success) { input.value = ''; openInboxChat(inboxSelectedPhone); }
                 else showToast(d.error || 'Send fail', true);
             }).catch(() => showToast('Network error', true));
         }
+
         function startInboxPolling() {
-            if (inboxPollTimer) return;
+            if (inboxView === 'wa' || !inboxView) { inboxView = 'wa'; }
+            renderInboxView();
             loadInboxList();
+            if (inboxPollTimer) return;
             inboxPollTimer = setInterval(() => {
                 const sec = document.getElementById('inboxSec');
                 if (sec && sec.classList.contains('active')) {
                     loadInboxList();
-                    if (inboxSelectedPhone) openInboxChat(inboxSelectedPhone);
+                    if (inboxView === 'thread' && inboxSelectedPhone) openInboxChat(inboxSelectedPhone);
+                    else if (inboxView === 'chats') renderInboxChatList();
+                    else if (inboxView === 'wa') loadInboxWaList();
                 }
             }, 5000);
         }
@@ -1334,7 +1457,7 @@
                 const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.name;
                 if (prevSelected.includes(t.id)) opt.selected = true; drop.appendChild(opt);
                 const btnInfo = (t.buttons && t.buttons.length) ? (' · 🔘 ' + t.buttons.map(b => b.text).join(', ')) : '';
-                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between;"><div><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span><br><span style="font-size:11px;color:#059669;">${btnInfo}</span></div><button style="background:#fee2e2; color:var(--danger); border:none; padding:5px 10px; border-radius:5px;" onclick="deleteTemplate('${t.id}')">Delete</button></div>`;
+                document.getElementById('templateListArea').innerHTML += `<div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:10px; display:flex; justify-content:space-between; gap:10px; align-items:flex-start;"><div style="min-width:0;flex:1;"><strong style="color:var(--primary);">${t.name}</strong><br><span style="font-size:13px;">${safeMessage}...</span><br><span style="font-size:11px;color:#059669;">${btnInfo}</span></div><div style="display:flex;gap:6px;flex-shrink:0;"><button style="background:#dbeafe;color:#1d4ed8;border:none;padding:6px 10px;border-radius:6px;font-weight:600;cursor:pointer;" onclick="editTemplate('${t.id}')">Edit</button><button style="background:#fee2e2;color:var(--danger);border:none;padding:6px 10px;border-radius:6px;cursor:pointer;" onclick="deleteTemplate('${t.id}')">Delete</button></div></div>`;
             }); applySelectedTemplates();
         }
         function collectTemplateButtons() {
@@ -1394,10 +1517,20 @@
             const msg = document.getElementById('newTplMsg').value;
             const fileInput = document.getElementById('newTplImage');
             if (!name || !msg) return showToast('⚠️ नाम और मैसेज डालना ज़रूरी है!', true);
-            const id = 'tpl_' + Date.now();
+            const isEdit = !!editingTemplateId;
+            const id = isEdit ? editingTemplateId : ('tpl_' + Date.now());
             let attachments = [];
             try {
-                attachments = await readFilesAsAttachments(fileInput.files, 5, 10);
+                if (fileInput.files && fileInput.files.length) {
+                    attachments = await readFilesAsAttachments(fileInput.files, 5, 10);
+                } else if (isEdit) {
+                    const old = allTemplates.find(x => x.id === id);
+                    if (old) {
+                        attachments = (old.attachments && old.attachments.length) ? old.attachments : (
+                            (old.fileBase64 || old.imageBase64) ? [{ fileBase64: old.fileBase64 || old.imageBase64, fileMime: old.fileMime, fileName: old.fileName, fileKind: old.fileKind || 'image' }] : []
+                        );
+                    }
+                }
             } catch (e) {
                 return showToast('⚠️ ' + (e.message || 'File error'), true);
             }
@@ -1405,7 +1538,6 @@
             const payload = {
                 id, name, message: msg,
                 attachments,
-                // backward compat (pehli file)
                 imageBase64: first ? first.fileBase64 : null,
                 fileBase64: first ? first.fileBase64 : null,
                 fileMime: first ? first.fileMime : null,
@@ -1413,10 +1545,17 @@
                 fileKind: first ? first.fileKind : null,
                 buttons: collectTemplateButtons()
             };
-            doSaveTemplate(payload);
+            doSaveTemplate(payload, isEdit);
         }
-        function doSaveTemplate(payload) {
-            allTemplates.push(payload);
+        function doSaveTemplate(payload, isEdit) {
+            if (isEdit) {
+                const idx = allTemplates.findIndex(t => t.id === payload.id);
+                if (idx >= 0) allTemplates[idx] = payload;
+                else allTemplates.push(payload);
+            } else {
+                allTemplates.push(payload);
+            }
+            editingTemplateId = null;
             try {
                 document.getElementById('newTplName').value = '';
                 document.getElementById('newTplMsg').value = '';
@@ -1426,8 +1565,31 @@
                     const v = document.getElementById('tplBtn' + i + 'Value'); if (v) v.value = '';
                 }
             } catch(e){}
-            renderTemplates(); document.getElementById('templateDropdown').value = payload.id; applySelectedTemplates(); showToast(`✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!`);
-            fetch('/api/templates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }).catch(e => console.error("Template Save Error:", e));
+            renderTemplates(); document.getElementById('templateDropdown').value = payload.id; applySelectedTemplates();
+            showToast(isEdit ? '✅ Template update ho gaya!' : '✅ टेम्प्लेट सफलतापूर्वक सेव हो गया!');
+            const url = isEdit ? '/api/templates/update' : '/api/templates';
+            fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }).catch(e => console.error("Template Save Error:", e));
+        }
+        let editingTemplateId = null;
+        function editTemplate(id) {
+            const t = allTemplates.find(x => x.id === id);
+            if (!t) return showToast('Template nahi mila', true);
+            editingTemplateId = id;
+            document.getElementById('newTplName').value = t.name || '';
+            document.getElementById('newTplMsg').value = t.message || '';
+            const btns = t.buttons || [];
+            for (let i = 1; i <= 3; i++) {
+                const b = btns[i - 1];
+                const te = document.getElementById('tplBtn' + i + 'Text'); if (te) te.value = b ? (b.text || '') : '';
+                const ty = document.getElementById('tplBtn' + i + 'Type'); if (ty && b) ty.value = b.type || 'reply';
+                const v = document.getElementById('tplBtn' + i + 'Value'); if (v) v.value = b ? (b.value || '') : '';
+            }
+            showToast('Template edit mode — message badlo, Save dabao');
+            try {
+                document.getElementById('newTplName').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (e) {}
+            const saveBtn = document.querySelector('#templateSec .action-btn.btn-success, #templateSec button[onclick*="saveNewTemplate"]');
+            // label hint via toast only
         }
         function deleteTemplate(id) { 
             if(!confirm("क्या आप सच में इसे डिलीट करना चाहते हैं?")) return;
