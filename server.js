@@ -717,30 +717,46 @@ async function startSession(sessionId, sessionName) {
                     const recent = chat.slice(-8).map(x => (x.fromMe ? 'Business' : 'Customer') + ': ' + x.text).join('\n');
                     const sys = (geminiBotPrompt || '') + '\n\nBusiness welcome/menu context:\n' + (autoReplyMessage || '');
                     const prompt = sys + '\n\nRecent chat:\n' + recent + '\n\nCustomer just said: ' + text + '\n\nWrite ONLY the reply message to send on WhatsApp (no quotes, no labels).';
-                    const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-3.7-flash'];
+                    const models = [
+                        'gemini-2.0-flash-lite',
+                        'gemini-2.0-flash',
+                        'gemini-1.5-flash-8b',
+                        'gemini-1.5-flash',
+                        'gemini-1.5-pro',
+                        'gemini-pro'
+                    ];
                     let reply = '';
                     let lastErr = '';
+                    async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
                     for (const model of models) {
-                        try {
-                            const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey);
-                            const r = await fetch(url, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                                    generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
-                                })
-                            });
-                            const data = await r.json();
-                            if (!r.ok) {
-                                lastErr = (data.error && data.error.message) || (model + ' HTTP ' + r.status);
-                                continue;
+                        for (let attempt = 0; attempt < 3; attempt++) {
+                            try {
+                                if (attempt > 0) await sleep(800 * attempt);
+                                const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey);
+                                const r = await fetch(url, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                                        generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
+                                    })
+                                });
+                                const data = await r.json();
+                                if (!r.ok) {
+                                    lastErr = (data.error && data.error.message) || (model + ' HTTP ' + r.status);
+                                    // high demand / rate limit → next attempt or model
+                                    if (r.status === 429 || /high demand|resource exhausted|quota|rate/i.test(lastErr)) {
+                                        continue;
+                                    }
+                                    break; // other error → next model
+                                }
+                                try { reply = data.candidates[0].content.parts.map(p => p.text || '').join('').trim(); } catch (e) { lastErr = 'empty candidates'; reply = ''; }
+                                if (reply) break;
+                            } catch (e) {
+                                lastErr = e.message || String(e);
                             }
-                            try { reply = data.candidates[0].content.parts.map(p => p.text || '').join('').trim(); } catch (e) { lastErr = 'empty candidates'; continue; }
-                            if (reply) break;
-                        } catch (e) {
-                            lastErr = e.message || String(e);
                         }
+                        if (reply) break;
                     }
                     reply = (reply || '').replace(/^["']|["']$/g, '').slice(0, 1500);
                     if (!reply) {
