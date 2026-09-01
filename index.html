@@ -556,15 +556,21 @@
             <button class="action-btn btn-success" onclick="updateAutoReplyMsg()">💾 Update Menu Message</button>
 
             <div style="margin-top:22px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:14px;">
+                <h3 style="margin:0 0 8px;">✨ Gemini Chatbot (har WhatsApp alag)</h3>
+                <p style="font-size:12px;color:#64748b;margin:0 0 12px;">Har connected WhatsApp ka apna business / topic / page. Customer jis number pe msg kare, usi WA ka bot jawab dega.</p>
+                <div class="form-group">
+                    <label>WhatsApp select karo</label>
+                    <select id="botSessionSelect" onchange="loadSessionBotSettings()"></select>
+                </div>
                 <div class="switch-wrapper" style="margin:0 0 12px;">
-                    <div class="switch-text"><h3 style="margin:0;">✨ Gemini Automation Chatbot</h3><p style="margin:4px 0 0;">Customer ke text ka AI jawab (Gemini key AI Studio mein save hona chahiye).</p></div>
+                    <div class="switch-text"><h3 style="margin:0;">Is WhatsApp pe Gemini ON</h3><p style="margin:4px 0 0;">AI Studio mein Gemini key save zaroori.</p></div>
                     <label class="switch"><input type="checkbox" id="geminiBotToggle" onchange="toggleGeminiBot()"><span class="slider"></span></label>
                 </div>
-                <div class="form-group"><label>Bot instructions (kaise jawab de):</label>
-                    <textarea id="geminiBotPrompt" style="height:100px;" placeholder="Short Hinglish replies, polite, business context..."></textarea>
+                <div class="form-group"><label>Is business ki details + page/Facebook link</label>
+                    <textarea id="geminiBotPrompt" style="height:140px;" placeholder="Example:&#10;Business: Global Trading&#10;Products: ...&#10;Price range: ...&#10;Website/FB: https://...&#10;Tone: professional Hinglish. Menu 1/2/3 mat bhejo."></textarea>
                 </div>
-                <button type="button" class="action-btn btn-primary btn-sm" style="width:auto;" onclick="saveGeminiBotPrompt()">💾 Save Bot Instructions</button>
-                <p style="font-size:11px;color:#64748b;margin:10px 0 0;">Gemini ON hone par menu auto-reply band. AI Studio mein key save zaroori. Inbox mein chats dikhengi.</p>
+                <button type="button" class="action-btn btn-primary btn-sm" style="width:auto;" onclick="saveGeminiBotPrompt()">💾 Save + Page Read (is WA ke liye)</button>
+                <p style="font-size:11px;color:#64748b;margin:10px 0 0;">Bot page padhega, missing info pe sawal puchega, Gemini app jaisa thoughtful reply. Har WA alag config.</p>
                 <p id="geminiBotStatus" style="font-size:12px;margin:8px 0 0;color:#64748b;"></p>
             </div>
         </div>
@@ -961,6 +967,7 @@
 
         function showSection(id, btn) {
             if (id === 'inboxSec') { startInboxPolling(); loadInboxList(); }
+            if (id === 'autoReply') { loadAllSessionBots(); }
             document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
@@ -1052,19 +1059,65 @@
                     if (d && d.geminiBot === false && document.getElementById('geminiBotToggle')) document.getElementById('geminiBotToggle').checked = false;
                 }).catch(() => {});
         }
+        function getSelectedBotSessionId() {
+            return (document.getElementById('botSessionSelect') || {}).value || '';
+        }
+        function refreshBotSessionDropdown(sessions) {
+            const sel = document.getElementById('botSessionSelect');
+            if (!sel) return;
+            const prev = sel.value;
+            const list = sessions || [];
+            sel.innerHTML = list.map(s => '<option value="' + s.id + '">' + (s.name || s.id) + (s.connected ? ' · online' : '') + (s.botEnabled ? ' · bot ON' : '') + '</option>').join('')
+                || '<option value="">Pehle WhatsApp connect karo</option>';
+            if (prev && list.some(s => s.id === prev)) sel.value = prev;
+            else if (list.length) sel.value = list[0].id;
+        }
+        function loadSessionBotSettings() {
+            const sid = getSelectedBotSessionId();
+            if (!sid) return;
+            fetch('/api/session-bot?sessionId=' + encodeURIComponent(sid))
+                .then(r => r.json()).then(d => {
+                    if (document.getElementById('geminiBotToggle')) document.getElementById('geminiBotToggle').checked = !!d.enabled;
+                    if (document.getElementById('geminiBotPrompt')) document.getElementById('geminiBotPrompt').value = d.prompt || '';
+                    const gbs = document.getElementById('geminiBotStatus');
+                    if (gbs) {
+                        let t = d.enabled ? '<b style="color:#059669;">Bot ON</b> is WhatsApp pe' : 'Bot OFF is WhatsApp pe';
+                        if (d.knowledgeChars) t += ' · knowledge ' + d.knowledgeChars + ' chars';
+                        if (d.lastError) t += '<br><b style="color:#dc2626;">Error:</b> ' + d.lastError;
+                        if (d.hasGeminiKey === false) t += '<br><b style="color:#dc2626;">Gemini key missing</b>';
+                        gbs.innerHTML = t;
+                    }
+                }).catch(() => {});
+        }
+        function loadAllSessionBots() {
+            fetch('/api/session-bot').then(r => r.json()).then(d => {
+                refreshBotSessionDropdown(d.sessions || []);
+                loadSessionBotSettings();
+            }).catch(() => {});
+        }
         function toggleGeminiBot() {
             const on = document.getElementById('geminiBotToggle').checked;
-            fetch('/toggle-geminibot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: on }) })
+            const sid = getSelectedBotSessionId();
+            if (!sid) return showToast('Pehle WhatsApp select karo', true);
+            fetch('/toggle-geminibot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: on, sessionId: sid }) })
                 .then(r => r.json()).then(d => {
-                    if (d && d.autoReply === false && document.getElementById('autoReplyToggle')) document.getElementById('autoReplyToggle').checked = false;
                     if (on && d && d.hasGeminiKey === false) showToast('Gemini key nahi mili — AI Studio mein save karo', true);
-                    else showToast(on ? 'Gemini chatbot ON' : 'Gemini chatbot OFF');
+                    else showToast(on ? 'Is WhatsApp pe Gemini ON' : 'Is WhatsApp pe Gemini OFF');
+                    loadAllSessionBots();
                 }).catch(() => showToast('Network error', true));
         }
         function saveGeminiBotPrompt() {
             const prompt = (document.getElementById('geminiBotPrompt') || {}).value || '';
-            fetch('/update-geminibot-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) })
-                .then(r => r.json()).then(d => { if (d.success) showToast('Bot instructions saved'); }).catch(() => showToast('Fail', true));
+            const sid = getSelectedBotSessionId();
+            if (!sid) return showToast('Pehle WhatsApp select karo', true);
+            showToast('Is WA ke liye save + page read...');
+            fetch('/update-geminibot-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, sessionId: sid }) })
+                .then(r => r.json()).then(d => {
+                    if (!d.success) return showToast(d.error || 'Save fail', true);
+                    if (d.knowledgeLoaded) showToast('Saved + page padh liya (' + (d.knowledgeChars || 0) + ' chars)');
+                    else showToast(d.note || 'Saved — link weak, detail text mein likho', true);
+                    loadSessionBotSettings();
+                }).catch(() => showToast('Fail', true));
         }
 
         let inboxSelectedPhone = null;
