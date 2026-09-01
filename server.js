@@ -187,6 +187,25 @@ function pushInboxMessage({ phone, name, text, fromMe, sessionId, sessionName })
 let isGeminiBotEnabled = false;
 let geminiBotPrompt = `You are a helpful WhatsApp business assistant for an Indian small business.
 Reply in short Hinglish or Hindi. Be polite. Max 3-4 lines. If customer asks price/service, answer helpfully from context. If unsure, say team will contact soon.`;
+let lastGeminiBotError = null;
+
+function loadBotSettingsFromMeta() {
+    try {
+        const m = getMeta() || {};
+        if (typeof m.isGeminiBotEnabled === 'boolean') isGeminiBotEnabled = m.isGeminiBotEnabled;
+        if (typeof m.isAutoReplyEnabled === 'boolean') isAutoReplyEnabled = m.isAutoReplyEnabled;
+        if (m.geminiBotPrompt) geminiBotPrompt = m.geminiBotPrompt;
+    } catch (e) {}
+}
+async function saveBotSettingsToMeta() {
+    try {
+        const meta = { ...getMeta() };
+        meta.isGeminiBotEnabled = !!isGeminiBotEnabled;
+        meta.isAutoReplyEnabled = !!isAutoReplyEnabled;
+        meta.geminiBotPrompt = geminiBotPrompt;
+        await persist('meta', meta);
+    } catch (e) {}
+}
 
 
 
@@ -625,16 +644,28 @@ async function startSession(sessionId, sessionName) {
             const phone = jid.split('@')[0].replace(/\D/g, '');
             if (!phone) return;
             const fromMe = !!msg.key.fromMe;
-            const messageType = Object.keys(msg.message)[0];
+            // unwrap ephemeral / viewOnce / edited
+            let content = msg.message;
+            if (content.ephemeralMessage && content.ephemeralMessage.message) content = content.ephemeralMessage.message;
+            if (content.viewOnceMessage && content.viewOnceMessage.message) content = content.viewOnceMessage.message;
+            if (content.viewOnceMessageV2 && content.viewOnceMessageV2.message) content = content.viewOnceMessageV2.message;
+            if (content.templateMessage) content = content.templateMessage.hydratedTemplate || content;
+            const messageType = Object.keys(content)[0];
             let text = '';
-            if (messageType === 'conversation') text = (msg.message.conversation || '').trim();
-            else if (messageType === 'extendedTextMessage') text = (msg.message.extendedTextMessage && msg.message.extendedTextMessage.text || '').trim();
-            else if (messageType === 'imageMessage') text = (msg.message.imageMessage && msg.message.imageMessage.caption) || '[Photo]';
-            else if (messageType === 'videoMessage') text = (msg.message.videoMessage && msg.message.videoMessage.caption) || '[Video]';
-            else if (messageType === 'documentMessage') text = (msg.message.documentMessage && msg.message.documentMessage.fileName) || '[Document]';
-            else if (messageType === 'audioMessage' || messageType === 'pttMessage') text = '[Audio]';
-            else text = '[' + messageType + ']';
+            if (messageType === 'conversation') text = (content.conversation || '').trim();
+            else if (messageType === 'extendedTextMessage') text = (content.extendedTextMessage && content.extendedTextMessage.text || '').trim();
+            else if (messageType === 'imageMessage') text = (content.imageMessage && content.imageMessage.caption) || '[Photo]';
+            else if (messageType === 'videoMessage') text = (content.videoMessage && content.videoMessage.caption) || '[Video]';
+            else if (messageType === 'documentMessage') text = (content.documentMessage && content.documentMessage.fileName) || '[Document]';
+            else if (messageType === 'audioMessage' || messageType === 'pttMessage' || messageType === 'pttMessageV2') text = '[Audio]';
+            else if (messageType === 'buttonsResponseMessage') text = (content.buttonsResponseMessage && content.buttonsResponseMessage.selectedDisplayText) || '';
+            else if (messageType === 'listResponseMessage') text = (content.listResponseMessage && content.listResponseMessage.title) || '';
+            else text = '';
             if (!text) return;
+            // media-only: still allow short ack via gemini
+            if (text === '[Photo]' || text === '[Video]' || text === '[Audio]' || text === '[Document]') {
+                if (!isGeminiBotEnabled) return;
+            }
 
             let pushName = (msg.pushName || '').trim();
             pushInboxMessage({
@@ -675,33 +706,54 @@ async function startSession(sessionId, sessionName) {
 
             // Gemini chatbot
             if (isGeminiBotEnabled) {
-                const apiKey = getGeminiKey();
-                if (!apiKey) return;
+                const apiKey = (typeof getGeminiKey === 'function' ? getGeminiKey() : '') || '';
+                if (!apiKey) {
+                    lastGeminiBotError = 'Gemini API key missing — AI Studio mein key save karo';
+                    console.error(lastGeminiBotError);
+                    return;
+                }
                 try {
                     const chat = (getInbox().chats[phone] && getInbox().chats[phone].messages) || [];
                     const recent = chat.slice(-8).map(x => (x.fromMe ? 'Business' : 'Customer') + ': ' + x.text).join('\n');
                     const sys = (geminiBotPrompt || '') + '\n\nBusiness welcome/menu context:\n' + (autoReplyMessage || '');
                     const prompt = sys + '\n\nRecent chat:\n' + recent + '\n\nCustomer just said: ' + text + '\n\nWrite ONLY the reply message to send on WhatsApp (no quotes, no labels).';
-                    const model = 'gemini-3.7-flash';
-                    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey);
-                    const r = await fetch(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                            generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
-                        })
-                    });
-                    const data = await r.json();
-                    if (!r.ok) return;
+                    const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-3.7-flash'];
                     let reply = '';
-                    try { reply = data.candidates[0].content.parts.map(p => p.text || '').join('').trim(); } catch (e) {}
-                    reply = reply.replace(/^["']|["']$/g, '').slice(0, 1500);
-                    if (!reply) return;
+                    let lastErr = '';
+                    for (const model of models) {
+                        try {
+                            const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey);
+                            const r = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                                    generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
+                                })
+                            });
+                            const data = await r.json();
+                            if (!r.ok) {
+                                lastErr = (data.error && data.error.message) || (model + ' HTTP ' + r.status);
+                                continue;
+                            }
+                            try { reply = data.candidates[0].content.parts.map(p => p.text || '').join('').trim(); } catch (e) { lastErr = 'empty candidates'; continue; }
+                            if (reply) break;
+                        } catch (e) {
+                            lastErr = e.message || String(e);
+                        }
+                    }
+                    reply = (reply || '').replace(/^["']|["']$/g, '').slice(0, 1500);
+                    if (!reply) {
+                        lastGeminiBotError = lastErr || 'Gemini empty reply';
+                        console.error('gemini bot no reply', lastGeminiBotError);
+                        return;
+                    }
+                    lastGeminiBotError = null;
                     await sock.sendMessage(jid, { text: reply });
                     pushInboxMessage({ phone, name: pushName || phone, text: reply, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
                 } catch (e) {
-                    console.error('gemini bot reply fail', e.message || e);
+                    lastGeminiBotError = e.message || String(e);
+                    console.error('gemini bot reply fail', lastGeminiBotError);
                 }
             }
         } catch (e) {
@@ -728,7 +780,7 @@ async function bootstrapSessions() {
 
 app.get('/status', (req, res) => {
     const list = listSessionsPublic(); const primary = list.find(s => s.connected) || list[0] || null;
-    res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
+    res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled, geminiBotError: lastGeminiBotError, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
 });
 
 app.get('/api/sessions', (req, res) => res.json({ sessions: listSessionsPublic() }));
@@ -778,7 +830,7 @@ app.post('/api/inbox/send', async (req, res) => {
     if (!phone || !text) return res.status(400).json({ success: false, error: 'phone/text missing' });
     const chat = (getInbox().chats || {})[phone];
     let sock = null;
-    let sid = chat && chat.sessionId;
+    let sid = (req.body && req.body.sessionId) || (chat && chat.sessionId);
     if (sid && sessions.get(sid) && sessions.get(sid).connected) sock = sessions.get(sid).sock;
     if (!sock) {
         const s = getSelectedOrRandomSock(null);
@@ -795,17 +847,20 @@ app.post('/api/inbox/send', async (req, res) => {
         res.status(500).json({ success: false, error: e.message || 'send fail' });
     }
 });
-app.post('/toggle-geminibot', (req, res) => {
+app.post('/toggle-geminibot', async (req, res) => {
     isGeminiBotEnabled = !!(req.body && req.body.enabled);
-    if (isGeminiBotEnabled) isAutoReplyEnabled = false; // prefer one mode
-    res.json({ success: true, geminiBot: isGeminiBotEnabled, autoReply: isAutoReplyEnabled });
+    if (isGeminiBotEnabled) isAutoReplyEnabled = false;
+    lastGeminiBotError = null;
+    await saveBotSettingsToMeta();
+    res.json({ success: true, geminiBot: isGeminiBotEnabled, autoReply: isAutoReplyEnabled, hasGeminiKey: !!(typeof getGeminiKey === 'function' && getGeminiKey()) });
 });
-app.post('/update-geminibot-prompt', (req, res) => {
+app.post('/update-geminibot-prompt', async (req, res) => {
     if (req.body && typeof req.body.prompt === 'string') geminiBotPrompt = req.body.prompt;
+    await saveBotSettingsToMeta();
     res.json({ success: true });
 });
 
-app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = !!(req.body && req.body.enabled); if (isAutoReplyEnabled) isGeminiBotEnabled = false; res.json({ success: true, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled }); });
+app.post('/toggle-autoreply', async (req, res) => { isAutoReplyEnabled = !!(req.body && req.body.enabled); if (isAutoReplyEnabled) isGeminiBotEnabled = false; await saveBotSettingsToMeta(); res.json({ success: true, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled }); });
 app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
 app.get('/api/history', (req, res) => res.json(getHistory()));
@@ -885,6 +940,17 @@ app.post('/api/templates', async (req, res) => {
 });
 app.post('/api/templates/delete', async (req, res) => {
     let t = getTemplates().filter(x => x.id !== req.body.id); await persist('templates', t); res.json({ success: true });
+});
+app.post('/api/templates/update', async (req, res) => {
+    const body = req.body || {};
+    const id = body.id;
+    if (!id) return res.status(400).json({ success: false, error: 'id missing' });
+    let t = getTemplates();
+    const idx = t.findIndex(x => x.id === id);
+    if (idx < 0) return res.status(404).json({ success: false, error: 'template not found' });
+    t[idx] = { ...t[idx], ...body, id };
+    await persist('templates', t);
+    res.json({ success: true, template: t[idx] });
 });
 
 app.get('/api/contacts', (req, res) => res.json(getContacts()));
