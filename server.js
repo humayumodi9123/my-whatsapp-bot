@@ -53,6 +53,7 @@ const historyFile = __dirname + '/history.json';
 const templatesFile = __dirname + '/templates.json';
 const contactsFile = __dirname + '/contacts.json';
 const inboxFile = __dirname + '/inbox.json';
+const proFile = __dirname + '/pro.json';
 const connectionMetaFile = __dirname + '/connection_meta.json';
 
 const MONGODB_URI = process.env.MONGODB_URI || '';
@@ -60,12 +61,12 @@ let mongoClient = null;
 let db = null;
 let useMongo = false;
 
-let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {}, inbox: { chats: {} } };
+let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {}, inbox: { chats: {} }, pro: null };
 
 async function initMongo() {
     if (!MONGODB_URI || !MongoClient) {
         cache.contacts = getJsonFile(contactsFile) || {}; cache.templates = getJsonFile(templatesFile) || [];
-        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {}; cache.inbox = getJsonFile(inboxFile) || { chats: {} };
+        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {}; cache.inbox = getJsonFile(inboxFile) || { chats: {} }; cache.pro = getJsonFile(proFile) || null;
         return;
     }
     try {
@@ -94,7 +95,7 @@ async function persist(key, data) {
     if (useMongo && db) {
         try { await db.collection(key).updateOne({ _id: 'main' }, { $set: { data, updatedAt: new Date() } }, { upsert: true }); } catch (e) {}
     } else {
-        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile, inbox: inboxFile };
+        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile, inbox: inboxFile, pro: proFile };
         if (map[key]) saveJsonFile(map[key], data);
     }
 }
@@ -184,6 +185,165 @@ function pushInboxMessage({ phone, name, text, fromMe, sessionId, sessionName })
 let isAutoReplyEnabled = true; // global menu fallback (when session bot off)
 let autoReplyMessage = `🌟 Welcome! 🌟\n\nकृपया अपनी ज़रूरत के हिसाब से नीचे दिए गए नंबर का रिप्लाई करें:\n*1️⃣* - सर्विस और प्रोडक्ट\n*2️⃣* - प्राइस लिस्ट\n*3️⃣* - हमसे बात करने के लिए`;
 // Per-WhatsApp Gemini bots: sessionId -> { enabled, prompt, knowledge, lastError }
+
+function defaultPro() {
+    return {
+        blacklist: [],
+        quickReplies: [
+            { id: 'qr1', text: 'Namaste! Kaise help kar sakte hain?' },
+            { id: 'qr2', text: 'Rate confirm karke jaldi bhejenge. Quantity bataiye.' },
+            { id: 'qr3', text: 'Dhanyavaad! Team jald contact karegi.' }
+        ],
+        followUps: [],
+        keywords: ['price', 'rate', 'order', 'buy', 'book', 'urgent', 'complaint', 'agent', 'human'],
+        keywordHits: [],
+        leadTags: {},
+        crmNotes: {},
+        chatAssign: {},
+        handoff: {},
+        orderFlow: {},
+        numberQuality: {},
+        templateCooldown: {},
+        templateStats: {},
+        sessionStats: {},
+        campaignReplies: {},
+        signatures: ['', '— Team', 'Thanks', 'Regards'],
+        signatureEnabled: true,
+        templateCooldownHours: 24,
+        warmupEnabled: true,
+        sequences: {
+            enabled: false,
+            day0: '',
+            day3: 'Namaste! Kal wali baat pe follow-up — kya help chahiye?',
+            day7: 'Ek soft reminder — agar abhi need ho to reply karein.'
+        },
+        catalog: null,
+        faqText: '',
+        pinHash: '',
+        businessHours: { enabled: false, start: 8, end: 22, offMessage: 'Abhi business hours ke bahar hain (8 AM – 10 PM IST). Kal subah reply karenge. Urgent ho to message chhod dein.' },
+        multiLang: true
+    };
+}
+function getPro() {
+    if (!cache.pro || typeof cache.pro !== 'object') cache.pro = defaultPro();
+    const d = defaultPro();
+    for (const k of Object.keys(d)) {
+        if (cache.pro[k] === undefined || cache.pro[k] === null) cache.pro[k] = d[k];
+    }
+    return cache.pro;
+}
+async function savePro() { await persist('pro', getPro()); }
+function normPhone(p) { return String(p || '').replace(/\D/g, '').slice(-10); }
+function isBlacklisted(phone) {
+    const n = normPhone(phone);
+    return (getPro().blacklist || []).some(x => normPhone(x) === n || String(x).replace(/\D/g, '').endsWith(n));
+}
+function bumpTemplateStat(name, ok) {
+    if (!name) return;
+    const pro = getPro();
+    if (!pro.templateStats[name]) pro.templateStats[name] = { sent: 0, failed: 0 };
+    if (ok) pro.templateStats[name].sent++; else pro.templateStats[name].failed++;
+    persist('pro', pro);
+}
+function bumpSessionStat(sessionName, ok) {
+    if (!sessionName) return;
+    const pro = getPro();
+    const day = new Date().toLocaleDateString('en-CA');
+    if (!pro.sessionStats[day]) pro.sessionStats[day] = {};
+    if (!pro.sessionStats[day][sessionName]) pro.sessionStats[day][sessionName] = { sent: 0, failed: 0 };
+    if (ok) pro.sessionStats[day][sessionName].sent++; else pro.sessionStats[day][sessionName].failed++;
+    persist('pro', pro);
+}
+function isWithinBusinessHours() {
+    const bh = getPro().businessHours || {};
+    if (!bh.enabled) return true;
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const h = now.getHours();
+    const start = Number(bh.start != null ? bh.start : 8);
+    const end = Number(bh.end != null ? bh.end : 22);
+    return h >= start && h < end;
+}
+function detectLangHint(text) {
+    const t = String(text || '');
+    if (/[\u0900-\u097F]/.test(t)) return 'Reply mainly in Hindi (Devanagari) or natural Hinglish.';
+    if (/^[a-zA-Z0-9\s.,!'?\"-]+$/.test(t) && t.length > 2) return 'Reply mainly in clear English.';
+    return 'Reply in natural Hinglish unless customer uses pure English or pure Hindi.';
+}
+
+function randomSignature() {
+    const pro = getPro();
+    if (!pro.signatureEnabled) return '';
+    const list = (pro.signatures || []).filter(s => s != null && String(s).length >= 0);
+    if (!list.length) return '';
+    const s = list[Math.floor(Math.random() * list.length)];
+    return s ? ('\n\n' + String(s).trim()) : '';
+}
+function isTemplateOnCooldown(phone, tplName) {
+    if (!tplName) return false;
+    const pro = getPro();
+    const hours = Number(pro.templateCooldownHours != null ? pro.templateCooldownHours : 24);
+    const key = normPhone(phone) + '|' + tplName;
+    const last = (pro.templateCooldown || {})[key];
+    if (!last) return false;
+    return (Date.now() - last) < hours * 3600 * 1000;
+}
+function markTemplateSent(phone, tplName) {
+    if (!tplName) return;
+    const pro = getPro();
+    if (!pro.templateCooldown) pro.templateCooldown = {};
+    pro.templateCooldown[normPhone(phone) + '|' + tplName] = Date.now();
+    // prune old
+    const keys = Object.keys(pro.templateCooldown);
+    if (keys.length > 5000) {
+        keys.sort((a, b) => pro.templateCooldown[a] - pro.templateCooldown[b]);
+        keys.slice(0, keys.length - 4000).forEach(k => delete pro.templateCooldown[k]);
+    }
+    persist('pro', pro);
+}
+function bumpNumberQuality(phone, field) {
+    const pro = getPro();
+    const n = normPhone(phone);
+    if (!n) return;
+    if (!pro.numberQuality[n]) pro.numberQuality[n] = { sent: 0, replies: 0, invalid: 0 };
+    pro.numberQuality[n][field] = (pro.numberQuality[n][field] || 0) + 1;
+    persist('pro', pro);
+}
+function getNumberScore(phone) {
+    const q = (getPro().numberQuality || {})[normPhone(phone)] || { sent: 0, replies: 0, invalid: 0 };
+    if (q.invalid) return { score: 0, label: 'invalid' };
+    if (!q.sent) return { score: 50, label: 'new' };
+    const rate = q.replies / q.sent;
+    if (rate >= 0.3) return { score: 90, label: 'hot' };
+    if (rate >= 0.1) return { score: 70, label: 'warm' };
+    if (q.sent >= 3 && q.replies === 0) return { score: 25, label: 'cold' };
+    return { score: 50, label: 'ok' };
+}
+function getSessionAgeDays(sessionId) {
+    try {
+        const s = sessions.get(sessionId);
+        if (s && s.firstConnectedAt) {
+            return Math.floor((Date.now() - new Date(s.firstConnectedAt).getTime()) / 86400000);
+        }
+    } catch (e) {}
+    return getAccountAgeDays();
+}
+function getWarmupDailyLimit(sessionId) {
+    const pro = getPro();
+    if (pro.warmupEnabled === false) return getDailyLimit();
+    const age = getSessionAgeDays(sessionId);
+    if (age < 3) return 40;
+    if (age < 7) return 80;
+    return getDailyLimit();
+}
+function simplePinHash(pin) {
+    const s = String(pin || '');
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i) | 0;
+    return 'p' + Math.abs(h) + '_' + s.length;
+}
+
+
+
 let sessionBots = {};
 let lastGeminiBotError = null;
 
@@ -350,7 +510,15 @@ function getAccountAgeDays() {
     const meta = getMeta(); if (!meta || !meta.firstConnectedAt) return 0;
     return Math.floor((new Date() - new Date(meta.firstConnectedAt)) / (1000 * 60 * 60 * 24));
 }
-function getDailyLimit() { const age = getAccountAgeDays(); return age < 3 ? 80 : (age < 7 ? 150 : 200); }
+function getDailyLimit() {
+    const pro = getPro();
+    const age = getAccountAgeDays();
+    if (pro.warmupEnabled !== false) {
+        if (age < 3) return 40;
+        if (age < 7) return 80;
+    }
+    return age < 3 ? 80 : (age < 7 ? 150 : 200);
+}
 function getTodaySentCount() { const today = new Date().toLocaleDateString('en-CA'); const stats = getStats(); return (stats[today] && stats[today].sent) ? stats[today].sent : 0; }
 function getDailyScanLimit() { return getAccountAgeDays() < 3 ? 80 : 200; }
 function getTodayScanCount() { const today = new Date().toLocaleDateString('en-CA'); const meta = getMeta(); if (!meta.scanByDate) meta.scanByDate = {}; return meta.scanByDate[today] || 0; }
@@ -690,8 +858,16 @@ async function startSession(sessionId, sessionName) {
         } else if (connection === 'open') {
             if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
             s.connected = true; s.qrCode = null; s._starting = false;
+            if (!s.firstConnectedAt) s.firstConnectedAt = new Date().toISOString();
             const meta = { ...getMeta() };
             if (!meta.firstConnectedAt) { meta.firstConnectedAt = new Date().toISOString(); persist('meta', meta); }
+            if (!meta.sessionFirstSeen) meta.sessionFirstSeen = {};
+            if (!meta.sessionFirstSeen[sessionId]) {
+                meta.sessionFirstSeen[sessionId] = s.firstConnectedAt;
+                persist('meta', meta);
+            } else {
+                s.firstConnectedAt = meta.sessionFirstSeen[sessionId];
+            }
             if (!meta.sessions) meta.sessions = [];
             // Sirf tab add karo jab meta mein pehle se planned session ho / create API se aaya ho
             if (!meta.sessions.find(x => x.id === sessionId)) {
@@ -746,9 +922,123 @@ async function startSession(sessionId, sessionName) {
             });
 
             if (fromMe) return;
+
+            // Blacklist: no bot reply
+            if (isBlacklisted(phone)) return;
+
+            // Number quality — count reply
+            try { bumpNumberQuality(phone, 'replies'); } catch (e) {}
+
+            // Human handoff keywords
+            try {
+                const low0 = text.toLowerCase();
+                if (/(agent|human|person|team|operator|बात कर|agent please)/i.test(low0)) {
+                    const pro = getPro();
+                    pro.handoff = pro.handoff || {};
+                    pro.handoff[normPhone(phone)] = { at: Date.now(), sessionId, name: pushName || phone };
+                    persist('pro', pro);
+                    const ack = 'Aapko team se connect kar rahe hain. Please wait — human agent reply karega.';
+                    try {
+                        await sock.sendMessage(jid, { text: ack });
+                        pushInboxMessage({ phone, name: pushName || phone, text: ack, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    } catch (e) {}
+                    try { if (typeof sendPushToAll === 'function') sendPushToAll('Human handoff', (pushName || phone) + ' agent maang raha hai'); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
+            // If handoff active — no bot
+            try {
+                const ho = (getPro().handoff || {})[normPhone(phone)];
+                if (ho) return;
+            } catch (e) {}
+
+            // Simple order flow state machine
+            try {
+                const pro = getPro();
+                const n = normPhone(phone);
+                const flow = (pro.orderFlow || {})[n];
+                const low = text.toLowerCase().trim();
+                if (flow && flow.step) {
+                    if (flow.step === 'qty') {
+                        flow.qty = text.trim();
+                        flow.step = 'city';
+                        pro.orderFlow[n] = flow;
+                        persist('pro', pro);
+                        const t = 'Quantity note ho gayi (' + flow.qty + '). Delivery city / area bataiye?';
+                        await sock.sendMessage(jid, { text: t });
+                        pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                        return;
+                    }
+                    if (flow.step === 'city') {
+                        flow.city = text.trim();
+                        flow.step = 'done';
+                        pro.orderFlow[n] = flow;
+                        persist('pro', pro);
+                        const t = 'Order summary:\nProduct interest: ' + (flow.product || '—') + '\nQty: ' + (flow.qty || '—') + '\nCity: ' + (flow.city || '—') + '\n\nTeam confirm karke rate/delivery bataogi. Dhanyavaad!';
+                        await sock.sendMessage(jid, { text: t });
+                        pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                        try { if (typeof sendPushToAll === 'function') sendPushToAll('Order lead', n + ' ' + (flow.qty || '') + ' ' + (flow.city || '')); } catch (e) {}
+                        return;
+                    }
+                }
+                if (/(order|book|khareedna|lena hai|order kar)/i.test(low)) {
+                    pro.orderFlow = pro.orderFlow || {};
+                    pro.orderFlow[n] = { step: 'qty', product: text.slice(0, 80), at: Date.now() };
+                    persist('pro', pro);
+                    const t = 'Order help karta hoon. Kitni quantity chahiye?';
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    return;
+                }
+            } catch (e) {}
+
+            // Voice note — no STT, ask text
+            if (text === '[Audio]') {
+                try {
+                    const t = 'Voice note mil gaya. Clear reply ke liye short text mein likh dein — main turant help karunga.';
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                } catch (e) {}
+                return;
+            }
+
+            // Keyword → team alert log
+            try {
+                const pro = getPro();
+                const keys = pro.keywords || [];
+                const low = text.toLowerCase();
+                const hit = keys.find(k => k && low.includes(String(k).toLowerCase()));
+                if (hit) {
+                    pro.keywordHits = pro.keywordHits || [];
+                    pro.keywordHits.unshift({
+                        phone, name: pushName || phone, keyword: hit, text: text.slice(0, 200),
+                        sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) || '',
+                        at: Date.now(), atText: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+                    });
+                    if (pro.keywordHits.length > 100) pro.keywordHits = pro.keywordHits.slice(0, 100);
+                    persist('pro', pro);
+                    try {
+                        if (typeof sendPushToAll === 'function') {
+                            sendPushToAll('Keyword: ' + hit, (pushName || phone) + ': ' + text.slice(0, 80));
+                        }
+                    } catch (e) {}
+                }
+            } catch (e) {}
+
             const botCfgEarly = getSessionBot(sessionId);
             const geminiOn = !!(botCfgEarly && botCfgEarly.enabled);
             if (!isAutoReplyEnabled && !geminiOn) return;
+
+            // Business hours gate for auto replies
+            if (!isWithinBusinessHours()) {
+                const offMsg = (getPro().businessHours && getPro().businessHours.offMessage) || 'Business hours ke baad reply karenge.';
+                try {
+                    await sock.sendMessage(jid, { text: offMsg });
+                    pushInboxMessage({ phone, name: pushName || phone, text: offMsg, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                } catch (e) {}
+                return;
+            }
 
             const lower = text.toLowerCase();
             // Menu-style auto reply only when THIS WA has Gemini OFF
@@ -805,6 +1095,7 @@ Owner instructions for THIS WhatsApp:
 ${botCfg.prompt || 'Be professional and helpful.'}
 
 ${knowledge ? ('Detailed business knowledge (website / Facebook / page text — READ carefully and use facts from here):\n' + knowledge + '\n') : 'No page knowledge loaded — rely on owner instructions and ask smart questions if needed.\n'}
+${(getPro().faqText ? ('FAQ / price list text:\n' + String(getPro().faqText).slice(0, 6000) + '\n') : '')}
 
 Intelligence rules (very important):
 1. Read the full knowledge and instructions before answering.
@@ -815,6 +1106,8 @@ Intelligence rules (very important):
 6. Natural Hinglish or Hindi, 2–6 short lines, warm and professional.
 7. If customer greets only (hi/hello), give a smart welcome about THIS business + invite their need — not a rigid 1/2/3 menu.
 8. Use recent chat memory so replies feel continuous.
+9. Language: ${(getPro().multiLang !== false) ? detectLangHint(text) : 'Hinglish'}
+10. Max ONE clarifying question if needed.
 
 Recent chat:
 ${recent}
@@ -1015,35 +1308,61 @@ app.get('/api/session-bot', (req, res) => {
     });
 });
 app.post('/toggle-geminibot', async (req, res) => {
-    const sid = String((req.body && req.body.sessionId) || '');
-    if (!sid) return res.status(400).json({ success: false, error: 'sessionId select karo' });
+    let sid = String((req.body && req.body.sessionId) || '');
+    if (!sid) {
+        const list = listSessionsPublic();
+        const online = list.find(s => s.connected) || list[0];
+        sid = online ? online.id : '';
+    }
+    if (!sid) return res.status(400).json({ success: false, error: 'Pehle WhatsApp connect karo' });
     const b = getSessionBot(sid);
     b.enabled = !!(req.body && req.body.enabled);
     b.lastError = null;
     lastGeminiBotError = null;
+    sessionBots[sid] = b;
     await saveBotSettingsToMeta();
+    console.log('[bot] toggle', sid, 'enabled=', b.enabled);
     res.json({ success: true, sessionId: sid, geminiBot: b.enabled, autoReply: isAutoReplyEnabled, hasGeminiKey: !!(typeof getGeminiKey === 'function' && getGeminiKey()) });
 });
 app.post('/update-geminibot-prompt', async (req, res) => {
-    const sid = String((req.body && req.body.sessionId) || '');
-    if (!sid) return res.status(400).json({ success: false, error: 'sessionId select karo' });
+    let sid = String((req.body && req.body.sessionId) || '');
+    if (!sid) {
+        const list = listSessionsPublic();
+        const online = list.find(s => s.connected) || list[0];
+        sid = online ? online.id : '';
+    }
+    if (!sid) return res.status(400).json({ success: false, error: 'Pehle WhatsApp connect karo' });
     const b = getSessionBot(sid);
     if (req.body && typeof req.body.prompt === 'string') b.prompt = req.body.prompt;
+    const promptText = b.prompt || '';
+    const hasUrl = /https?:\/\//i.test(promptText) || /(?:facebook|fb|instagram)\.com/i.test(promptText);
     let fetched = false;
     try {
-        const k = await refreshBotKnowledgeFromPrompt(b.prompt);
-        b.knowledge = k || '';
-        fetched = !!b.knowledge;
+        if (hasUrl) {
+            const k = await refreshBotKnowledgeFromPrompt(promptText);
+            if (k) {
+                b.knowledge = k;
+                fetched = true;
+            }
+            // keep old knowledge if fetch fails and user only updated text slightly
+            if (!fetched && !b.knowledge) b.knowledge = '';
+        } else {
+            // no link — instructions text itself is the knowledge
+            b.knowledge = promptText.slice(0, 12000);
+            fetched = false;
+        }
     } catch (e) {}
     await saveBotSettingsToMeta();
+    let note = 'Instructions save ho gayi — bot is text se jawab dega';
+    if (hasUrl && fetched) note = 'Page content + instructions save — bot dono se jawab dega';
+    if (hasUrl && !fetched) note = 'Instructions save. Link se page nahi padha (Facebook block). Jo text likha hai usi se bot chalega.';
     res.json({
         success: true,
         sessionId: sid,
-        knowledgeLoaded: fetched,
-        knowledgeChars: (b.knowledge || '').length,
-        note: fetched
-            ? 'Is WhatsApp ke liye page content read ho gaya'
-            : 'Link se content nahi padha (Facebook aksar block). Products/price instructions mein likho.'
+        knowledgeLoaded: fetched || (!hasUrl && !!(b.prompt && b.prompt.trim())),
+        knowledgeChars: (b.knowledge || b.prompt || '').length,
+        hasUrl: !!hasUrl,
+        note
     });
 });
 
@@ -1057,7 +1376,270 @@ app.post('/update-autoreply', async (req, res) => {
     await saveBotSettingsToMeta();
     res.json({ success: true });
 });
-app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
+
+app.get('/api/pro', (req, res) => {
+    const pro = getPro();
+    res.json({
+        success: true,
+        blacklist: pro.blacklist || [],
+        quickReplies: pro.quickReplies || [],
+        followUps: (pro.followUps || []).slice().sort((a, b) => (a.at || 0) - (b.at || 0)),
+        keywords: pro.keywords || [],
+        keywordHits: (pro.keywordHits || []).slice(0, 30),
+        leadTags: pro.leadTags || {},
+        crmNotes: pro.crmNotes || {},
+        chatAssign: pro.chatAssign || {},
+        handoff: pro.handoff || {},
+        templateStats: pro.templateStats || {},
+        sessionStats: pro.sessionStats || {},
+        numberQuality: pro.numberQuality || {},
+        sequences: pro.sequences || {},
+        signatures: pro.signatures || [],
+        signatureEnabled: pro.signatureEnabled !== false,
+        templateCooldownHours: pro.templateCooldownHours != null ? pro.templateCooldownHours : 24,
+        warmupEnabled: pro.warmupEnabled !== false,
+        catalog: pro.catalog ? { fileName: pro.catalog.fileName, hasFile: true } : null,
+        faqText: pro.faqText || '',
+        hasPin: !!(pro.pinHash),
+        businessHours: pro.businessHours || {},
+        multiLang: pro.multiLang !== false
+    });
+});
+
+app.post('/api/pro/crm-note', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    const note = String((req.body && req.body.note) || '').slice(0, 1000);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    const pro = getPro();
+    pro.crmNotes = pro.crmNotes || {};
+    pro.crmNotes[phone] = note;
+    await savePro();
+    res.json({ success: true });
+});
+app.post('/api/pro/assign', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    const agent = String((req.body && req.body.agent) || '').trim().slice(0, 40);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    const pro = getPro();
+    pro.chatAssign = pro.chatAssign || {};
+    if (!agent) delete pro.chatAssign[phone];
+    else pro.chatAssign[phone] = agent;
+    await savePro();
+    res.json({ success: true, chatAssign: pro.chatAssign });
+});
+app.post('/api/pro/handoff', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    const action = (req.body && req.body.action) || 'clear';
+    const pro = getPro();
+    pro.handoff = pro.handoff || {};
+    if (action === 'clear' && phone) delete pro.handoff[phone];
+    else if (action === 'clear-all') pro.handoff = {};
+    await savePro();
+    res.json({ success: true, handoff: pro.handoff });
+});
+app.post('/api/pro/sequences', async (req, res) => {
+    const pro = getPro();
+    const b = req.body || {};
+    pro.sequences = {
+        enabled: !!b.enabled,
+        day0: String(b.day0 || '').slice(0, 500),
+        day3: String(b.day3 || '').slice(0, 500),
+        day7: String(b.day7 || '').slice(0, 500)
+    };
+    await savePro();
+    res.json({ success: true, sequences: pro.sequences });
+});
+app.post('/api/pro/signatures', async (req, res) => {
+    const pro = getPro();
+    if (Array.isArray(req.body && req.body.signatures)) {
+        pro.signatures = req.body.signatures.map(s => String(s).slice(0, 80)).slice(0, 15);
+    }
+    if (typeof (req.body && req.body.signatureEnabled) === 'boolean') pro.signatureEnabled = req.body.signatureEnabled;
+    if (req.body && req.body.templateCooldownHours != null) pro.templateCooldownHours = Math.min(72, Math.max(1, Number(req.body.templateCooldownHours) || 24));
+    if (typeof (req.body && req.body.warmupEnabled) === 'boolean') pro.warmupEnabled = req.body.warmupEnabled;
+    await savePro();
+    res.json({ success: true });
+});
+app.post('/api/pro/catalog', async (req, res) => {
+    const pro = getPro();
+    if (req.body && req.body.clear) { pro.catalog = null; await savePro(); return res.json({ success: true }); }
+    const fileBase64 = req.body && req.body.fileBase64;
+    if (!fileBase64) return res.status(400).json({ success: false, error: 'file missing' });
+    pro.catalog = {
+        fileBase64: String(fileBase64).slice(0, 12 * 1024 * 1024),
+        fileName: String((req.body && req.body.fileName) || 'catalog.pdf').slice(0, 80),
+        fileMime: String((req.body && req.body.fileMime) || 'application/pdf')
+    };
+    await savePro();
+    res.json({ success: true, catalog: { fileName: pro.catalog.fileName, hasFile: true } });
+});
+app.post('/api/pro/send-catalog', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    const pro = getPro();
+    if (!pro.catalog || !pro.catalog.fileBase64) return res.status(400).json({ success: false, error: 'Catalog upload karo pehle' });
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    const sock = getSelectedOrRandomSock(null);
+    if (!sock) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi' });
+    try {
+        const raw = pro.catalog.fileBase64.includes(',') ? pro.catalog.fileBase64.split(',')[1] : pro.catalog.fileBase64;
+        const buf = Buffer.from(raw, 'base64');
+        const jid = phone + '@s.whatsapp.net';
+        await sock.sendMessage(jid, { document: buf, mimetype: pro.catalog.fileMime || 'application/pdf', fileName: pro.catalog.fileName || 'catalog.pdf', caption: 'Catalog / price list' });
+        pushInboxMessage({ phone, text: '[Catalog sent]', fromMe: true });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message || 'send fail' });
+    }
+});
+app.post('/api/pro/faq', async (req, res) => {
+    const pro = getPro();
+    pro.faqText = String((req.body && req.body.faqText) || '').slice(0, 12000);
+    await savePro();
+    res.json({ success: true });
+});
+app.post('/api/pro/pin', async (req, res) => {
+    const pro = getPro();
+    const action = (req.body && req.body.action) || 'set';
+    if (action === 'clear') { pro.pinHash = ''; await savePro(); return res.json({ success: true }); }
+    if (action === 'check') {
+        const ok = !pro.pinHash || pro.pinHash === simplePinHash(req.body && req.body.pin);
+        return res.json({ success: true, ok });
+    }
+    const pin = String((req.body && req.body.pin) || '');
+    if (pin.length < 4) return res.status(400).json({ success: false, error: 'PIN min 4 digits' });
+    pro.pinHash = simplePinHash(pin);
+    await savePro();
+    res.json({ success: true });
+});
+app.get('/api/pro/backup', (req, res) => {
+    res.json({
+        success: true,
+        exportedAt: new Date().toISOString(),
+        contacts: getContacts(),
+        templates: getTemplates().map(t => ({ ...t, imageBase64: undefined, fileBase64: undefined, attachments: (t.attachments || []).map(a => ({ fileName: a.fileName, fileKind: a.fileKind })) })),
+        pro: { ...getPro(), catalog: getPro().catalog ? { fileName: getPro().catalog.fileName } : null },
+        meta: { sessions: (getMeta().sessions || []) }
+    });
+});
+app.get('/api/pro/reply-rate', (req, res) => {
+    const pro = getPro();
+    const nq = pro.numberQuality || {};
+    let sent = 0, replies = 0;
+    Object.values(nq).forEach(q => { sent += q.sent || 0; replies += q.replies || 0; });
+    const rate = sent ? Math.round((replies / sent) * 100) : 0;
+    res.json({ success: true, sent, replies, rate });
+});
+
+
+app.post('/api/pro/blacklist', async (req, res) => {
+    const pro = getPro();
+    const action = (req.body && req.body.action) || 'add';
+    const phone = normPhone(req.body && req.body.phone);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    if (action === 'remove') pro.blacklist = (pro.blacklist || []).filter(x => normPhone(x) !== phone);
+    else if (!(pro.blacklist || []).some(x => normPhone(x) === phone)) pro.blacklist.push(phone);
+    await savePro();
+    res.json({ success: true, blacklist: pro.blacklist });
+});
+app.post('/api/pro/quick-replies', async (req, res) => {
+    const pro = getPro();
+    if (Array.isArray(req.body && req.body.quickReplies)) {
+        pro.quickReplies = req.body.quickReplies.filter(x => x && String(x.text || '').trim()).slice(0, 20).map((x, i) => ({
+            id: x.id || ('qr_' + Date.now() + '_' + i),
+            text: String(x.text).trim().slice(0, 500)
+        }));
+    }
+    await savePro();
+    res.json({ success: true, quickReplies: pro.quickReplies });
+});
+app.post('/api/pro/followups', async (req, res) => {
+    const pro = getPro();
+    const action = (req.body && req.body.action) || 'add';
+    if (action === 'delete') {
+        const id = req.body.id;
+        pro.followUps = (pro.followUps || []).filter(f => f.id !== id);
+    } else if (action === 'done') {
+        const id = req.body.id;
+        const f = (pro.followUps || []).find(x => x.id === id);
+        if (f) f.done = true;
+    } else {
+        const phone = normPhone(req.body && req.body.phone);
+        const note = String((req.body && req.body.note) || '').trim().slice(0, 300);
+        const when = req.body && req.body.when;
+        if (!phone || !when) return res.status(400).json({ success: false, error: 'phone + when required' });
+        const at = new Date(when).getTime();
+        if (!at) return res.status(400).json({ success: false, error: 'invalid when' });
+        pro.followUps = pro.followUps || [];
+        pro.followUps.push({
+            id: 'fu_' + Date.now(),
+            phone,
+            name: String((req.body && req.body.name) || phone),
+            note: note || 'Follow up',
+            at,
+            atText: new Date(at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+            done: false
+        });
+    }
+    await savePro();
+    res.json({ success: true, followUps: pro.followUps });
+});
+app.post('/api/pro/keywords', async (req, res) => {
+    const pro = getPro();
+    if (Array.isArray(req.body && req.body.keywords)) {
+        pro.keywords = req.body.keywords.map(k => String(k).trim()).filter(Boolean).slice(0, 40);
+    }
+    await savePro();
+    res.json({ success: true, keywords: pro.keywords });
+});
+app.post('/api/pro/lead-tag', async (req, res) => {
+    const pro = getPro();
+    const phone = normPhone(req.body && req.body.phone);
+    const tag = String((req.body && req.body.tag) || '').toLowerCase();
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    if (!['hot', 'warm', 'cold', ''].includes(tag)) return res.status(400).json({ success: false, error: 'tag hot|warm|cold|empty' });
+    pro.leadTags = pro.leadTags || {};
+    if (!tag) delete pro.leadTags[phone];
+    else pro.leadTags[phone] = tag;
+    // also on inbox chat
+    try {
+        const inbox = getInbox();
+        if (inbox.chats[phone]) { inbox.chats[phone].leadTag = tag || null; persist('inbox', inbox); }
+    } catch (e) {}
+    await savePro();
+    res.json({ success: true, leadTags: pro.leadTags });
+});
+app.post('/api/pro/business-hours', async (req, res) => {
+    const pro = getPro();
+    const b = req.body || {};
+    pro.businessHours = {
+        enabled: !!b.enabled,
+        start: Number(b.start != null ? b.start : 8),
+        end: Number(b.end != null ? b.end : 22),
+        offMessage: String(b.offMessage || pro.businessHours.offMessage || '').slice(0, 500)
+    };
+    if (typeof b.multiLang === 'boolean') pro.multiLang = b.multiLang;
+    await savePro();
+    res.json({ success: true, businessHours: pro.businessHours, multiLang: pro.multiLang !== false });
+});
+
+
+app.get('/api/stats', (req, res) => {
+    const stats = getStats();
+    const date = req.query.date;
+    if (date) return res.json(stats[date] || { sent: 0, failed: 0 });
+    const sent = Object.values(stats).reduce((a, b) => a + (b.sent || 0), 0);
+    const failed = Object.values(stats).reduce((a, b) => a + (b.failed || 0), 0);
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = d.toLocaleDateString('en-CA');
+        const label = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+        const row = stats[key] || { sent: 0, failed: 0 };
+        days.push({ date: key, label, sent: row.sent || 0, failed: row.failed || 0 });
+    }
+    res.json({ sent, failed, days });
+});
 app.get('/api/history', (req, res) => res.json(getHistory()));
 app.get('/api/live-status', (req, res) => {
     const agg = aggregateLiveForCompat();
@@ -1670,6 +2252,14 @@ app.post('/send', async (req, res) => {
                 if (!s.connected || !s.sock) break; if (s.restUntil && Date.now() < s.restUntil) break;
                 const item = queue.shift(); if (!item) break;
                 let num = item.phone; const customerName = item.name || 'Customer'; const idx = item.idx;
+                if (isBlacklisted(num)) {
+                    camp.failed++; camp.pending = Math.max(0, camp.pending - 1);
+                    if (camp.numbers[idx]) {
+                        camp.numbers[idx].status = 'Skipped 🚫 blacklist';
+                        camp.numbers[idx].state = 'failed';
+                    }
+                    continue;
+                }
 
                 try {
                     if (!num.startsWith('91')) num = '91' + num; const jid = num + '@s.whatsapp.net';
@@ -1678,7 +2268,19 @@ app.post('/send', async (req, res) => {
                     let tplName = '';
                     let buttons = [];
                     if (useRotation) {
-                        const tpl = templates[tplIndex % templates.length]; tplIndex++; tplName = tpl.name || '';
+                        let picked = null;
+                        for (let attempt = 0; attempt < templates.length; attempt++) {
+                            const cand = templates[tplIndex % templates.length];
+                            tplIndex++;
+                            const cname = cand.name || '';
+                            if (!isTemplateOnCooldown(num, cname)) { picked = cand; tplName = cname; break; }
+                        }
+                        if (!picked) {
+                            camp.failed++; camp.pending = Math.max(0, camp.pending - 1);
+                            if (camp.numbers[idx]) { camp.numbers[idx].status = 'Skipped ⏳ template cooldown'; camp.numbers[idx].state = 'failed'; }
+                            continue;
+                        }
+                        const tpl = picked;
                         finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
                         if (Array.isArray(tpl.attachments) && tpl.attachments.length) {
                             mediaList = tpl.attachments.slice(0, 5);
@@ -1749,7 +2351,7 @@ app.post('/send', async (req, res) => {
                     }
 
                     if (!mediaList.length) {
-                        await s.sock.sendMessage(jid, { text: finalMessage || ' ' });
+                        await s.sock.sendMessage(jid, { text: (finalMessage || ' ') + randomSignature() });
                     } else {
                         for (let mi = 0; mi < mediaList.length; mi++) {
                             const cap = mi === 0 ? finalMessage : undefined;
@@ -1791,6 +2393,21 @@ app.post('/send', async (req, res) => {
                     }
                     addHistory(num, finalMessage || 'Media Sent', s.name + (tplName ? ' | ' + tplName : ''));
                     saveStats(new Date().toLocaleDateString('en-CA'), 1, 0);
+                    bumpTemplateStat(tplName || 'Message', true);
+                    bumpSessionStat(s.name, true);
+                    markTemplateSent(num, tplName || 'Message');
+                    bumpNumberQuality(num, 'sent');
+                    try {
+                        const seq = getPro().sequences || {};
+                        if (seq.enabled) {
+                            const pro = getPro();
+                            pro.followUps = pro.followUps || [];
+                            const base = Date.now();
+                            if (seq.day3) pro.followUps.push({ id: 'seq3_' + num + '_' + base, phone: normPhone(num), name: customerName, note: seq.day3, at: base + 3 * 86400000, atText: new Date(base + 3 * 86400000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), done: false, auto: true });
+                            if (seq.day7) pro.followUps.push({ id: 'seq7_' + num + '_' + base, phone: normPhone(num), name: customerName, note: seq.day7, at: base + 7 * 86400000, atText: new Date(base + 7 * 86400000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), done: false, auto: true });
+                            persist('pro', pro);
+                        }
+                    } catch (e) {}
                     batchCount++; s.sentInBatch = batchCount;
 
                     const delayMs = (Math.floor(Math.random() * (maxD - minD + 1)) + minD) * 1000;
@@ -1814,6 +2431,8 @@ app.post('/send', async (req, res) => {
                         camp.numbers[idx].template = null;
                     }
                     saveStats(new Date().toLocaleDateString('en-CA'), 0, 1); batchCount++; s.sentInBatch = batchCount;
+                    bumpTemplateStat(camp.numbers[idx] && camp.numbers[idx].template, false);
+                    bumpSessionStat(s.name, false);
                 }
             }
             if (batchCount >= batchSize && queue.length > 0) {
