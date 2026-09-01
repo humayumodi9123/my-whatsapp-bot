@@ -55,6 +55,7 @@ const statsFile = __dirname + '/stats.json';
 const historyFile = __dirname + '/history.json';
 const templatesFile = __dirname + '/templates.json';
 const contactsFile = __dirname + '/contacts.json';
+const inboxFile = __dirname + '/inbox.json';
 const connectionMetaFile = __dirname + '/connection_meta.json';
 
 const MONGODB_URI = process.env.MONGODB_URI || '';
@@ -62,12 +63,12 @@ let mongoClient = null;
 let db = null;
 let useMongo = false;
 
-let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {} };
+let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {}, inbox: { chats: {} } };
 
 async function initMongo() {
     if (!MONGODB_URI || !MongoClient) {
         cache.contacts = getJsonFile(contactsFile) || {}; cache.templates = getJsonFile(templatesFile) || [];
-        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {};
+        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {}; cache.inbox = getJsonFile(inboxFile) || { chats: {} };
         return;
     }
     try {
@@ -96,7 +97,7 @@ async function persist(key, data) {
     if (useMongo && db) {
         try { await db.collection(key).updateOne({ _id: 'main' }, { $set: { data, updatedAt: new Date() } }, { upsert: true }); } catch (e) {}
     } else {
-        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile };
+        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile, inbox: inboxFile };
         if (map[key]) saveJsonFile(map[key], data);
     }
 }
@@ -124,6 +125,70 @@ function addHistory(number, messageSent, sessionName) {
 function getTemplates() { return cache.templates || []; }
 function getContacts() { return cache.contacts || {}; }
 function getMeta() { return cache.meta || {}; }
+
+function getInbox() {
+    if (!cache.inbox || typeof cache.inbox !== 'object') cache.inbox = { chats: {} };
+    if (!cache.inbox.chats) cache.inbox.chats = {};
+    return cache.inbox;
+}
+function listInboxChats() {
+    const chats = getInbox().chats || {};
+    return Object.values(chats)
+        .map(c => ({
+            phone: c.phone,
+            name: c.name || c.phone,
+            lastMessage: c.lastMessage || '',
+            lastAt: c.lastAt || 0,
+            lastAtText: c.lastAtText || '',
+            unread: c.unread || 0,
+            sessionId: c.sessionId || null,
+            sessionName: c.sessionName || ''
+        }))
+        .sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+}
+function pushInboxMessage({ phone, name, text, fromMe, sessionId, sessionName }) {
+    if (!phone || !text) return;
+    const inbox = getInbox();
+    if (!inbox.chats[phone]) {
+        inbox.chats[phone] = {
+            phone,
+            name: name || phone,
+            lastMessage: '',
+            lastAt: 0,
+            lastAtText: '',
+            unread: 0,
+            sessionId: sessionId || null,
+            sessionName: sessionName || '',
+            messages: []
+        };
+    }
+    const chat = inbox.chats[phone];
+    if (name && name !== phone) chat.name = name;
+    if (sessionId) chat.sessionId = sessionId;
+    if (sessionName) chat.sessionName = sessionName;
+    const now = Date.now();
+    const lastAtText = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    chat.messages = chat.messages || [];
+    chat.messages.push({ id: now + '_' + Math.random().toString(36).slice(2, 7), text: String(text).slice(0, 4000), fromMe: !!fromMe, at: now, atText: lastAtText });
+    if (chat.messages.length > 80) chat.messages = chat.messages.slice(-80);
+    chat.lastMessage = String(text).slice(0, 120);
+    chat.lastAt = now;
+    chat.lastAtText = lastAtText;
+    if (!fromMe) chat.unread = (chat.unread || 0) + 1;
+    // keep max 200 chats
+    const phones = Object.keys(inbox.chats);
+    if (phones.length > 200) {
+        const sorted = phones.sort((a, b) => (inbox.chats[a].lastAt || 0) - (inbox.chats[b].lastAt || 0));
+        sorted.slice(0, phones.length - 200).forEach(p => delete inbox.chats[p]);
+    }
+    persist('inbox', inbox);
+}
+
+let isGeminiBotEnabled = false;
+let geminiBotPrompt = `You are a helpful WhatsApp business assistant for an Indian small business.
+Reply in short Hinglish or Hindi. Be polite. Max 3-4 lines. If customer asks price/service, answer helpfully from context. If unsure, say team will contact soon.`;
+
+
 
 // Multi parallel campaigns (alag WA + alag template saath-saath)
 const liveCampaigns = new Map();
@@ -551,23 +616,100 @@ async function startSession(sessionId, sessionName) {
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify' || !isAutoReplyEnabled) return;
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        const jid = msg.key.remoteJid;
-        const phone = jid.split('@')[0];
-        const histList = getHistory();
-        if (!histList.find(c => c.number === phone)) return;
-        const messageType = Object.keys(msg.message)[0];
-        let text = messageType === 'conversation' ? msg.message.conversation.trim().toLowerCase() : (messageType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text.trim().toLowerCase() : '');
         try {
-            if (text === 'hi' || text === 'hello' || text === 'menu') await sock.sendMessage(jid, { text: autoReplyMessage });
-            else if (text === '1') await sock.sendMessage(jid, { text: "यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है..." });
-            else if (text === '2') await sock.sendMessage(jid, { text: "यहाँ हमारी प्राइस लिस्ट है..." });
-            else if (text === '3') await sock.sendMessage(jid, { text: "कृपया अपना सवाल यहाँ लिख दें, हमारी टीम जल्द ही आपसे संपर्क करेगी। धन्यवाद!" });
-        } catch (e) {}
+            if (m.type !== 'notify') return;
+            const msg = m.messages && m.messages[0];
+            if (!msg || !msg.message || !msg.key) return;
+            const jid = msg.key.remoteJid;
+            if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') return;
+            const phone = jid.split('@')[0].replace(/\D/g, '');
+            if (!phone) return;
+            const fromMe = !!msg.key.fromMe;
+            const messageType = Object.keys(msg.message)[0];
+            let text = '';
+            if (messageType === 'conversation') text = (msg.message.conversation || '').trim();
+            else if (messageType === 'extendedTextMessage') text = (msg.message.extendedTextMessage && msg.message.extendedTextMessage.text || '').trim();
+            else if (messageType === 'imageMessage') text = (msg.message.imageMessage && msg.message.imageMessage.caption) || '[Photo]';
+            else if (messageType === 'videoMessage') text = (msg.message.videoMessage && msg.message.videoMessage.caption) || '[Video]';
+            else if (messageType === 'documentMessage') text = (msg.message.documentMessage && msg.message.documentMessage.fileName) || '[Document]';
+            else if (messageType === 'audioMessage' || messageType === 'pttMessage') text = '[Audio]';
+            else text = '[' + messageType + ']';
+            if (!text) return;
+
+            let pushName = (msg.pushName || '').trim();
+            pushInboxMessage({
+                phone,
+                name: pushName || phone,
+                text,
+                fromMe,
+                sessionId,
+                sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) || sessionId
+            });
+
+            if (fromMe) return;
+            if (!isAutoReplyEnabled && !isGeminiBotEnabled) return;
+
+            const lower = text.toLowerCase();
+            // Menu-style auto reply
+            if (isAutoReplyEnabled && !isGeminiBotEnabled) {
+                try {
+                    if (lower === 'hi' || lower === 'hello' || lower === 'menu' || lower === 'hii' || lower === 'hey') {
+                        await sock.sendMessage(jid, { text: autoReplyMessage });
+                        pushInboxMessage({ phone, name: pushName || phone, text: autoReplyMessage, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    } else if (lower === '1') {
+                        const t = 'यहाँ हमारी सर्विस और प्रोडक्ट की जानकारी है। Detail ke liye team se baat karein.';
+                        await sock.sendMessage(jid, { text: t });
+                        pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    } else if (lower === '2') {
+                        const t = 'Price list ke liye apna requirement likhein — team jaldi reply karegi.';
+                        await sock.sendMessage(jid, { text: t });
+                        pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    } else if (lower === '3') {
+                        const t = 'Sawaal likh dein — hamari team jald contact karegi. Dhanyavaad!';
+                        await sock.sendMessage(jid, { text: t });
+                        pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    }
+                } catch (e) {}
+                return;
+            }
+
+            // Gemini chatbot
+            if (isGeminiBotEnabled) {
+                const apiKey = getGeminiKey();
+                if (!apiKey) return;
+                try {
+                    const chat = (getInbox().chats[phone] && getInbox().chats[phone].messages) || [];
+                    const recent = chat.slice(-8).map(x => (x.fromMe ? 'Business' : 'Customer') + ': ' + x.text).join('\n');
+                    const sys = (geminiBotPrompt || '') + '\n\nBusiness welcome/menu context:\n' + (autoReplyMessage || '');
+                    const prompt = sys + '\n\nRecent chat:\n' + recent + '\n\nCustomer just said: ' + text + '\n\nWrite ONLY the reply message to send on WhatsApp (no quotes, no labels).';
+                    const model = 'gemini-3.7-flash';
+                    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey);
+                    const r = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                            generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
+                        })
+                    });
+                    const data = await r.json();
+                    if (!r.ok) return;
+                    let reply = '';
+                    try { reply = data.candidates[0].content.parts.map(p => p.text || '').join('').trim(); } catch (e) {}
+                    reply = reply.replace(/^["']|["']$/g, '').slice(0, 1500);
+                    if (!reply) return;
+                    await sock.sendMessage(jid, { text: reply });
+                    pushInboxMessage({ phone, name: pushName || phone, text: reply, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                } catch (e) {
+                    console.error('gemini bot reply fail', e.message || e);
+                }
+            }
+        } catch (e) {
+            console.error('messages.upsert', e.message || e);
+        }
     });
 }
+
 
 async function bootstrapSessions() {
     const meta = getMeta();
@@ -586,7 +728,7 @@ async function bootstrapSessions() {
 
 app.get('/status', (req, res) => {
     const list = listSessionsPublic(); const primary = list.find(s => s.connected) || list[0] || null;
-    res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
+    res.json({ connected: anyConnected(), qrCode: primary && !primary.connected ? primary.qrCode : null, sessions: list, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled, currentMsg: autoReplyMessage, storage: useMongo ? 'mongodb' : 'local' });
 });
 
 app.get('/api/sessions', (req, res) => res.json({ sessions: listSessionsPublic() }));
@@ -618,7 +760,52 @@ app.post('/api/sessions/delete', async (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = req.body.enabled; res.json({ success: true }); });
+
+app.get('/api/inbox', (req, res) => {
+    res.json({ success: true, chats: listInboxChats() });
+});
+app.get('/api/inbox/:phone', (req, res) => {
+    const phone = String(req.params.phone || '').replace(/\D/g, '');
+    const chat = (getInbox().chats || {})[phone];
+    if (!chat) return res.json({ success: true, phone, messages: [], name: phone });
+    chat.unread = 0;
+    persist('inbox', getInbox());
+    res.json({ success: true, phone, name: chat.name || phone, messages: chat.messages || [], sessionName: chat.sessionName || '' });
+});
+app.post('/api/inbox/send', async (req, res) => {
+    const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
+    const text = String((req.body && req.body.text) || '').trim();
+    if (!phone || !text) return res.status(400).json({ success: false, error: 'phone/text missing' });
+    const chat = (getInbox().chats || {})[phone];
+    let sock = null;
+    let sid = chat && chat.sessionId;
+    if (sid && sessions.get(sid) && sessions.get(sid).connected) sock = sessions.get(sid).sock;
+    if (!sock) {
+        const s = getSelectedOrRandomSock(null);
+        sock = s;
+        const _found = Array.from(sessions.values()).find(x => x.sock === sock); sid = _found && _found.id;
+    }
+    if (!sock) return res.status(400).json({ success: false, error: 'WhatsApp connect nahi hai' });
+    try {
+        const jid = phone.includes('@') ? phone : (phone + '@s.whatsapp.net');
+        await sock.sendMessage(jid, { text });
+        pushInboxMessage({ phone, text, fromMe: true, sessionId: sid, sessionName: (sessions.get(sid) && sessions.get(sid).name) });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message || 'send fail' });
+    }
+});
+app.post('/toggle-geminibot', (req, res) => {
+    isGeminiBotEnabled = !!(req.body && req.body.enabled);
+    if (isGeminiBotEnabled) isAutoReplyEnabled = false; // prefer one mode
+    res.json({ success: true, geminiBot: isGeminiBotEnabled, autoReply: isAutoReplyEnabled });
+});
+app.post('/update-geminibot-prompt', (req, res) => {
+    if (req.body && typeof req.body.prompt === 'string') geminiBotPrompt = req.body.prompt;
+    res.json({ success: true });
+});
+
+app.post('/toggle-autoreply', (req, res) => { isAutoReplyEnabled = !!(req.body && req.body.enabled); if (isAutoReplyEnabled) isGeminiBotEnabled = false; res.json({ success: true, autoReply: isAutoReplyEnabled, geminiBot: isGeminiBotEnabled }); });
 app.post('/update-autoreply', (req, res) => { autoReplyMessage = req.body.message; res.json({ success: true }); });
 app.get('/api/stats', (req, res) => { const stats = getStats(); const date = req.query.date; res.json(date ? (stats[date] || { sent: 0, failed: 0 }) : { sent: Object.values(stats).reduce((a,b) => a + b.sent, 0), failed: Object.values(stats).reduce((a,b) => a + b.failed, 0) }); });
 app.get('/api/history', (req, res) => res.json(getHistory()));
@@ -744,73 +931,44 @@ app.get('/api/scan-progress', (req, res) => {
 function getGeminiKey() {
     return process.env.GEMINI_API_KEY || (getMeta().geminiApiKey || '');
 }
-function getAiMeta() {
-    const m = getMeta() || {};
-    return {
-        geminiApiKey: process.env.GEMINI_API_KEY || m.geminiApiKey || '',
-        imageProvider: m.imageProvider || 'pollinations',
-        cfAccountId: m.cfAccountId || process.env.CF_ACCOUNT_ID || '',
-        cfApiToken: m.cfApiToken || process.env.CF_API_TOKEN || '',
-        hfToken: m.hfToken || process.env.HF_TOKEN || ''
-    };
-}
 
 app.get('/api/ai/settings', (req, res) => {
-    const a = getAiMeta();
+    const key = getGeminiKey();
     res.json({
         success: true,
-        hasKey: !!a.geminiApiKey,
-        keyPreview: a.geminiApiKey ? (a.geminiApiKey.slice(0, 8) + '…' + a.geminiApiKey.slice(-4)) : null,
-        imageProvider: a.imageProvider || 'pollinations',
-        hasCf: !!(a.cfAccountId && a.cfApiToken),
-        hasHf: !!a.hfToken,
-        cfPreview: a.cfAccountId ? (a.cfAccountId.slice(0, 6) + '…') : null,
-        hfPreview: a.hfToken ? (a.hfToken.slice(0, 6) + '…') : null,
-        providers: [
-            { id: 'pollinations', name: 'Pollinations (Flux) — FREE, no key', needsKey: false },
-            { id: 'cloudflare', name: 'Cloudflare Workers AI (FLUX)', needsKey: true },
-            { id: 'huggingface', name: 'Hugging Face', needsKey: true },
-            { id: 'gemini', name: 'Gemini image (quota often 0 on free)', needsKey: true }
-        ]
+        hasKey: !!key,
+        keyPreview: key ? (key.slice(0, 8) + '…' + key.slice(-4)) : null
     });
 });
 
 app.post('/api/ai/settings', async (req, res) => {
-    const body = req.body || {};
+    const key = String((req.body && req.body.geminiApiKey) || '').trim();
     const meta = { ...getMeta() };
-    if (body.geminiApiKey !== undefined) {
-        const key = String(body.geminiApiKey || '').trim();
-        if (!key) delete meta.geminiApiKey; else meta.geminiApiKey = key;
-    }
-    if (body.imageProvider) {
-        const p = String(body.imageProvider).trim();
-        if (['pollinations', 'cloudflare', 'huggingface', 'gemini'].includes(p)) meta.imageProvider = p;
-    }
-    if (body.cfAccountId !== undefined) {
-        const v = String(body.cfAccountId || '').trim();
-        if (!v) delete meta.cfAccountId; else meta.cfAccountId = v;
-    }
-    if (body.cfApiToken !== undefined) {
-        const v = String(body.cfApiToken || '').trim();
-        if (!v) delete meta.cfApiToken; else meta.cfApiToken = v;
-    }
-    if (body.hfToken !== undefined) {
-        const v = String(body.hfToken || '').trim();
-        if (!v) delete meta.hfToken; else meta.hfToken = v;
-    }
+    if (key === '') delete meta.geminiApiKey;
+    else meta.geminiApiKey = key;
+    // clear old multi-provider keys if any
+    delete meta.imageProvider;
+    delete meta.cfAccountId;
+    delete meta.cfApiToken;
+    delete meta.hfToken;
     await persist('meta', meta);
-    const a = getAiMeta();
-    res.json({ success: true, hasKey: !!a.geminiApiKey, imageProvider: a.imageProvider, hasCf: !!(a.cfAccountId && a.cfApiToken), hasHf: !!a.hfToken });
+    res.json({ success: true, hasKey: !!meta.geminiApiKey });
 });
 
 app.post('/api/ai/generate', async (req, res) => {
-    const ai = getAiMeta();
-    const apiKey = ai.geminiApiKey;
-    const topic = String((req.body && req.body.topic) || '').trim();
+    const apiKey = getGeminiKey();
+    if (!apiKey) {
+        return res.status(400).json({
+            success: false,
+            error: 'Gemini API key nahi mili. AI Studio mein key save karo (aistudio.google.com/apikey).'
+        });
+    }
+    let topic = String((req.body && req.body.topic) || '').trim();
+    let websiteUrl = String((req.body && req.body.websiteUrl) || '').trim();
     const tone = String((req.body && req.body.tone) || 'friendly').trim();
     const language = String((req.body && req.body.language) || 'hinglish').trim();
-    const mode = String((req.body && req.body.mode) || 'text').trim();
-    const imageProvider = String((req.body && req.body.imageProvider) || ai.imageProvider || 'pollinations').trim();
+    let mode = String((req.body && req.body.mode) || 'text').trim();
+    if (mode === 'image' || mode === 'all') mode = 'text';
     const allowedModels = {
         'gemini-3.7-flash': true,
         'gemini-3.5-flash-lite': true,
@@ -823,19 +981,16 @@ app.post('/api/ai/generate', async (req, res) => {
     let count = parseInt(req.body && req.body.count, 10);
     if (isNaN(count) || count < 1) count = 5;
     count = Math.min(15, count);
-    if (!topic) return res.status(400).json({ success: false, error: 'Topic / product likho' });
+    if (!topic && !websiteUrl) return res.status(400).json({ success: false, error: 'Topic ya website link likho' });
+    if (!topic && websiteUrl) topic = 'Offer from ' + websiteUrl;
 
-    const wantText = mode === 'text' || mode === 'both' || mode === 'all';
-    const wantHtml = mode === 'html' || mode === 'both' || mode === 'all';
-    const wantImage = mode === 'image' || mode === 'all';
-
-    if ((wantText || wantHtml) && !apiKey) {
-        return res.status(400).json({
-            success: false,
-            error: 'Text/HTML ke liye Gemini API key save karo (aistudio.google.com/apikey).'
-        });
+    // If website link diya aur sirf text mode — HTML bhi useful
+    if (websiteUrl && mode === 'text') {
+        // keep text; user can choose html. don't force
     }
 
+    const wantText = mode === 'text' || mode === 'both';
+    const wantHtml = mode === 'html' || mode === 'both';
     const langHint = language === 'hindi' ? 'Pure Hindi (Devanagari)' : (language === 'english' ? 'English only' : 'Hindi-English mix (Hinglish), natural Indian style');
 
     async function geminiText(prompt, maxTokens) {
@@ -855,184 +1010,54 @@ app.post('/api/ai/generate', async (req, res) => {
         return text.replace(/```json/gi, '').replace(/```html/gi, '').replace(/```/g, '').trim();
     }
 
-    async function freePollinationsImage(promptText) {
-        const q = encodeURIComponent(String(promptText).slice(0, 400));
-        const url = 'https://image.pollinations.ai/prompt/' + q + '?width=768&height=768&nologo=true&enhance=true&model=flux';
-        const r = await fetch(url, {
-            method: 'GET',
-            headers: { 'User-Agent': 'Mozilla/5.0 WebsiteBananeWala/1.0' },
-            redirect: 'follow'
-        });
-        if (!r.ok) throw new Error('Pollinations HTTP ' + r.status);
-        const ctype = (r.headers.get('content-type') || '').toLowerCase();
-        if (!ctype.includes('image')) throw new Error('Pollinations ne image nahi diya (limit/block)');
-        const buf = Buffer.from(await r.arrayBuffer());
-        if (buf.length < 1000) throw new Error('Pollinations empty image');
-        const mime = ctype.includes('jpeg') || ctype.includes('jpg') ? 'image/jpeg' : 'image/png';
-        return {
-            fileName: 'ai-photo-' + Date.now() + (mime === 'image/jpeg' ? '.jpg' : '.png'),
-            fileMime: mime,
-            fileKind: 'image',
-            fileBase64: 'data:' + mime + ';base64,' + buf.toString('base64'),
-            provider: 'pollinations'
-        };
-    }
-
-    async function cloudflareImage(promptText) {
-        const accountId = ai.cfAccountId;
-        const token = ai.cfApiToken;
-        if (!accountId || !token) throw new Error('Cloudflare Account ID + API Token save karo (AI Studio settings)');
-        const url = 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(accountId) + '/ai/run/@cf/black-forest-labs/flux-1-schnell';
-        const r = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + token,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ prompt: String(promptText).slice(0, 500) })
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error((data.errors && data.errors[0] && data.errors[0].message) || ('Cloudflare HTTP ' + r.status));
-        // response: { result: { image: "base64..." } } or binary in some versions
-        let b64 = null;
-        if (data.result && data.result.image) b64 = data.result.image;
-        else if (data.image) b64 = data.image;
-        else if (typeof data.result === 'string') b64 = data.result;
-        if (!b64) throw new Error('Cloudflare ne image nahi diya — Workers AI enable check karo');
-        return {
-            fileName: 'cf-flux-' + Date.now() + '.png',
-            fileMime: 'image/png',
-            fileKind: 'image',
-            fileBase64: 'data:image/png;base64,' + b64,
-            provider: 'cloudflare'
-        };
-    }
-
-    async function huggingFaceImage(promptText) {
-        const token = ai.hfToken;
-        if (!token) throw new Error('Hugging Face token save karo (huggingface.co/settings/tokens)');
-        const models = [
-            'black-forest-labs/FLUX.1-schnell',
-            'stabilityai/stable-diffusion-xl-base-1.0'
-        ];
-        let lastErr = 'HF fail';
-        for (const model of models) {
-            try {
-                const url = 'https://api-inference.huggingface.co/models/' + model;
-                const r = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + token,
-                        'Content-Type': 'application/json',
-                        'Accept': 'image/png'
-                    },
-                    body: JSON.stringify({ inputs: String(promptText).slice(0, 400) })
-                });
-                const ctype = (r.headers.get('content-type') || '').toLowerCase();
-                if (!r.ok) {
-                    const errTxt = await r.text().catch(() => '');
-                    lastErr = 'HF ' + model + ': ' + (errTxt.slice(0, 120) || r.status);
-                    continue;
-                }
-                if (!ctype.includes('image') && !ctype.includes('octet')) {
-                    lastErr = 'HF loading/queue — 20 sec baad try';
-                    continue;
-                }
-                const buf = Buffer.from(await r.arrayBuffer());
-                if (buf.length < 1000) { lastErr = 'HF empty'; continue; }
-                return {
-                    fileName: 'hf-photo-' + Date.now() + '.png',
-                    fileMime: 'image/png',
-                    fileKind: 'image',
-                    fileBase64: 'data:image/png;base64,' + buf.toString('base64'),
-                    provider: 'huggingface'
-                };
-            } catch (e) {
-                lastErr = e.message || String(e);
-            }
+    async function fetchSiteSnippet(urlStr) {
+        try {
+            let u = urlStr;
+            if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+            const r = await fetch(u, {
+                method: 'GET',
+                redirect: 'follow',
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WBWBot/1.0)', 'Accept': 'text/html' },
+                signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 12000); return c.signal; })()
+            });
+            if (!r.ok) return { error: 'Site HTTP ' + r.status, text: '' };
+            let html = await r.text();
+            html = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ');
+            const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
+            const metaDesc = (html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)/i) ||
+                html.match(/content=["']([^"']+)["'][^>]+name=["']description["']/i) || [])[1] || '';
+            const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
+            return { title: title.replace(/\s+/g, ' ').trim().slice(0, 200), metaDesc: String(metaDesc).slice(0, 300), text, url: u };
+        } catch (e) {
+            return { error: e.message || 'fetch fail', text: '' };
         }
-        throw new Error(lastErr);
-    }
-
-    async function geminiImage(promptText) {
-        if (!apiKey) throw new Error('Gemini key nahi');
-        const models = [selectedModel, 'gemini-3.7-flash', 'gemini-3.1-flash-image'];
-        let lastErr = 'Gemini image fail';
-        for (const model of models) {
-            try {
-                const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
-                const r = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ role: 'user', parts: [{ text: promptText }] }],
-                        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
-                    })
-                });
-                const data = await r.json();
-                if (!r.ok) {
-                    lastErr = (data.error && data.error.message) || (model + ' HTTP ' + r.status);
-                    continue;
-                }
-                const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
-                for (const part of parts) {
-                    const inline = part.inlineData || part.inline_data;
-                    if (inline && inline.data) {
-                        const mime = inline.mimeType || inline.mime_type || 'image/png';
-                        return {
-                            fileName: 'gemini-img-' + Date.now() + '.png',
-                            fileMime: mime,
-                            fileKind: 'image',
-                            fileBase64: 'data:' + mime + ';base64,' + inline.data,
-                            provider: model
-                        };
-                    }
-                }
-                lastErr = model + ': no image (quota?)';
-            } catch (e) {
-                lastErr = e.message || String(e);
-            }
-        }
-        throw new Error(lastErr);
-    }
-
-    async function generateImage(promptText) {
-        const order = [];
-        if (imageProvider === 'pollinations') order.push('pollinations', 'cloudflare', 'huggingface');
-        else if (imageProvider === 'cloudflare') order.push('cloudflare', 'pollinations', 'huggingface');
-        else if (imageProvider === 'huggingface') order.push('huggingface', 'pollinations', 'cloudflare');
-        else if (imageProvider === 'gemini') order.push('gemini', 'pollinations');
-        else order.push('pollinations', 'cloudflare', 'huggingface');
-
-        const tried = [];
-        let lastErr = 'Image fail';
-        for (const p of order) {
-            try {
-                if (p === 'pollinations') return await freePollinationsImage(promptText);
-                if (p === 'cloudflare') return await cloudflareImage(promptText);
-                if (p === 'huggingface') return await huggingFaceImage(promptText);
-                if (p === 'gemini') return await geminiImage(promptText);
-            } catch (e) {
-                lastErr = e.message || String(e);
-                tried.push(p + ': ' + lastErr);
-            }
-        }
-        throw new Error(tried.join(' | ') || lastErr);
     }
 
     try {
         let messages = [];
         let files = [];
-        let imageError = null;
+        let siteInfo = null;
+        if (websiteUrl) {
+            siteInfo = await fetchSiteSnippet(websiteUrl);
+        }
 
         if (wantText) {
-            const prompt = `You are a WhatsApp marketing copywriter for Indian small businesses.
+            let prompt = `You are a WhatsApp marketing copywriter for Indian small businesses.
 Topic/product: ${topic}
 Tone: ${tone}
 Language: ${langHint}
-
+`;
+            if (siteInfo && siteInfo.text) {
+                prompt += `Reference website: ${siteInfo.url}
+Site title: ${siteInfo.title || ''}
+Site about: ${siteInfo.metaDesc || ''}
+Site text sample: ${siteInfo.text.slice(0, 1500)}
+Write messages as if promoting this same business/brand.
+`;
+            }
+            prompt += `
 Generate exactly ${count} DIFFERENT WhatsApp message variants.
-Rules: 2–5 short lines, [Name] once, no spam walls, unique wording, max 1 emoji.
+Rules: 2–5 short lines, use [Name] placeholder once for customer name, no spam walls, unique wording, max 1 emoji.
 Return ONLY JSON array: ["message1","message2",...]`;
             const text = await geminiText(prompt, 2048);
             try { messages = JSON.parse(text); } catch (e) {
@@ -1043,55 +1068,75 @@ Return ONLY JSON array: ["message1","message2",...]`;
         }
 
         if (wantHtml) {
-            const htmlPrompt = `Create ONE complete standalone HTML page (mobile flyer) for:
-${topic}
-Tone: ${tone}. Visible text language: ${langHint}.
-Full HTML5, inline CSS only, gradient header, title, 3 benefits, CTA, no JS, no external images.
-Return ONLY raw HTML.`;
-            const html = await geminiText(htmlPrompt, 4096);
+            let htmlPrompt = `Create ONE complete standalone HTML5 page — a mobile marketing flyer.
+Topic: ${topic}
+Tone: ${tone}
+Visible text language: ${langHint}
+
+CRITICAL personalization:
+- Greet the customer with placeholder exactly [Name] (e.g. "Namaste [Name]," or "Hi [Name],")
+- This [Name] will be replaced per contact later
+
+`;
+            if (siteInfo && (siteInfo.text || siteInfo.title)) {
+                htmlPrompt += `Clone the LOOK and OFFER style of this website (not a pixel-perfect copy — similar colors, brand feel, services):
+URL: ${siteInfo.url || websiteUrl}
+Title: ${siteInfo.title || ''}
+Description: ${siteInfo.metaDesc || ''}
+Content sample: ${(siteInfo.text || '').slice(0, 2500)}
+
+Match brand colors if you can infer them. Include business name from the site if clear.
+`;
+            } else if (websiteUrl) {
+                htmlPrompt += `Inspired by website: ${websiteUrl} (could not fully fetch — invent a professional mobile landing matching a typical Indian business site for this topic).\n`;
+            }
+
+            htmlPrompt += `
+Requirements:
+- Full HTML document, inline CSS only, mobile-first (max-width 480px centered)
+- Header with brand, personal greeting with [Name], offer section, 3 benefits, CTA button style, footer
+- No JavaScript, no external images (CSS gradients/shapes only)
+- Return ONLY raw HTML`;
+
+            const html = await geminiText(htmlPrompt, 8192);
             let clean = html.trim();
             if (!/^<!DOCTYPE/i.test(clean) && !/^<html/i.test(clean)) {
                 clean = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offer</title></head><body>' + clean + '</body></html>';
             }
+            // ensure [Name] exists
+            if (!/\[Name\]/i.test(clean)) {
+                clean = clean.replace(/<body[^>]*>/i, (m) => m + '<p style="padding:12px;font-family:sans-serif;">Namaste [Name],</p>');
+            }
             files.push({
-                fileName: 'ai-flyer-' + Date.now() + '.html',
+                fileName: 'site-flyer-' + Date.now() + '.html',
                 fileMime: 'text/html',
                 fileKind: 'document',
                 fileBase64: 'data:text/html;base64,' + Buffer.from(clean, 'utf8').toString('base64')
             });
-            if (!messages.length) messages = ['[Name], offer flyer attach hai — dekho. ' + topic.slice(0, 60)];
-        }
-
-        if (wantImage) {
-            try {
-                const imgPrompt = `Professional WhatsApp marketing poster for Indian small business. Topic: ${topic}. Bright, modern, square 1:1, short headline text only, high contrast, no watermark.`;
-                const imgFile = await generateImage(imgPrompt);
-                files.push(imgFile);
-                if (!messages.length) messages = ['[Name], dekho ye offer 👇 ' + topic.slice(0, 80)];
-            } catch (e) {
-                imageError = e.message || 'Image generate fail';
+            if (!messages.length) {
+                messages = ['[Name], aapke liye personal offer page ready hai — file open karke dekho 👆'];
             }
         }
 
         if (!messages.length && !files.length) {
-            return res.status(500).json({ success: false, error: imageError || 'AI se output nahi bana' });
+            return res.status(500).json({ success: false, error: 'Gemini se output nahi bana' });
         }
         res.json({
             success: true,
             messages,
             files,
             topic,
+            websiteUrl: websiteUrl || null,
+            siteFetched: !!(siteInfo && siteInfo.text),
             mode,
             model: selectedModel,
-            imageProvider,
             count: messages.length,
-            imageError: imageError || null,
-            note: imageError
-                ? ('Photo fail: ' + imageError)
-                : (files.some(f => f.fileKind === 'image') ? ('Photo ready via ' + (files.find(f => f.fileKind === 'image').provider || imageProvider)) : null)
+            note: files.length
+                ? ('HTML flyer ready' + (websiteUrl ? ' (website inspired + [Name])' : ' ([Name] personal)') + ' — template save karke campaign mein bhejo.')
+                : null
         });
     } catch (e) {
-        res.status(500).json({ success: false, error: e.message || 'AI request failed' });
+        res.status(500).json({ success: false, error: e.message || 'Gemini request failed' });
     }
 });
 
