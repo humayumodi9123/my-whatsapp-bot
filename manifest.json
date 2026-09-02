@@ -1,7 +1,7 @@
 {
-  "name": "Website Banane Wala",
-  "short_name": "WBW Campaign",
-  "description": "WhatsApp marketing dashboard — campaigns, contacts, AI templates",
+  "name": "WhatsApp Bot",
+  "short_name": "WA Bot",
+  "description": "WhatsApp marketing & chatbot",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
@@ -10,7 +10,10 @@
   "theme_color": "#0f172a",
   "lang": "hi",
   "dir": "ltr",
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/192/733/733585.png",
@@ -26,4 +29,3 @@
     }
   ]
 }
-
