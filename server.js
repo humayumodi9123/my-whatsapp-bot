@@ -139,6 +139,9 @@ function listInboxChats() {
             lastAt: c.lastAt || 0,
             lastAtText: c.lastAtText || '',
             unread: c.unread || 0,
+            lastCustomerAt: c.lastCustomerAt || 0,
+            lastAgentAt: c.lastAgentAt || 0,
+            label: c.label || (getPro().chatLabels || {})[c.phone] || 'open',
             sessionId: c.sessionId || null,
             sessionName: c.sessionName || ''
         }))
@@ -172,7 +175,13 @@ function pushInboxMessage({ phone, name, text, fromMe, sessionId, sessionName })
     chat.lastMessage = String(text).slice(0, 120);
     chat.lastAt = now;
     chat.lastAtText = lastAtText;
-    if (!fromMe) chat.unread = (chat.unread || 0) + 1;
+    if (!fromMe) {
+        chat.unread = (chat.unread || 0) + 1;
+        chat.lastCustomerAt = now;
+        if (!chat.label) chat.label = 'open';
+    } else {
+        chat.lastAgentAt = now;
+    }
     // keep max 200 chats
     const phones = Object.keys(inbox.chats);
     if (phones.length > 200) {
@@ -240,6 +249,25 @@ function defaultPro() {
         morningBriefHour: 8,
         lastMorningBriefDate: '',
         typingDelayMs: 2500,
+        workingDays: { enabled: false, closedDays: [0], holidays: [], closedMessage: 'Aaj business band hai. Next working day reply karenge.' },
+        ratings: {},
+        locations: {},
+        chatLabels: {},
+        chatMerge: {},
+        auditLog: [],
+        floodMap: {},
+        floodLimit: 20,
+        floodWindowMs: 60000,
+        geoIndiaOnly: true,
+        maxMediaMb: 15,
+        quickReplyFolders: {
+            Sales: ['Rate confirm karke bhejenge. Quantity bataiye.', 'Order book karne ke liye qty + city bhejein.'],
+            Support: ['Issue samajh gaya — team dekh rahi hai.', 'Thoda detail likhein taaki help kar saken.'],
+            Order: ['Order note ho gaya. Confirm karke batate hain.', 'Payment / delivery detail jaldi share karenge.']
+        },
+        productHints: 'jeera, dhaniya, spices, wholesale',
+        askRatingAfterHandoffClear: true,
+        uiLang: 'hi',
         businessHours: { enabled: false, start: 8, end: 22, offMessage: 'Abhi business hours ke bahar hain (8 AM – 10 PM IST). Kal subah reply karenge. Urgent ho to message chhod dein.' },
         multiLang: true
     };
@@ -274,6 +302,77 @@ function bumpSessionStat(sessionName, ok) {
     if (ok) pro.sessionStats[day][sessionName].sent++; else pro.sessionStats[day][sessionName].failed++;
     persist('pro', pro);
 }
+
+function isWorkingDayNow() {
+    const wd = getPro().workingDays || {};
+    if (!wd.enabled) return true;
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const day = ist.getDay(); // 0 Sun
+    const closed = wd.closedDays || [0];
+    if (closed.map(Number).includes(day)) return false;
+    const ymd = ist.toLocaleDateString('en-CA');
+    if ((wd.holidays || []).includes(ymd)) return false;
+    return true;
+}
+function getWorkingClosedMessage() {
+    return (getPro().workingDays && getPro().workingDays.closedMessage) || 'Aaj business band hai.';
+}
+function audit(action, detail) {
+    try {
+        const pro = getPro();
+        pro.auditLog = pro.auditLog || [];
+        pro.auditLog.unshift({ at: Date.now(), atText: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), action, detail: String(detail || '').slice(0, 300) });
+        if (pro.auditLog.length > 300) pro.auditLog = pro.auditLog.slice(0, 300);
+        persist('pro', pro);
+    } catch (e) {}
+}
+function checkFlood(phone) {
+    const pro = getPro();
+    const n = normPhone(phone);
+    const now = Date.now();
+    const windowMs = Number(pro.floodWindowMs || 60000);
+    const limit = Number(pro.floodLimit || 20);
+    if (!pro.floodMap) pro.floodMap = {};
+    let arr = (pro.floodMap[n] || []).filter(t => now - t < windowMs);
+    arr.push(now);
+    pro.floodMap[n] = arr;
+    // occasional persist
+    if (arr.length % 5 === 0) persist('pro', pro);
+    return arr.length > limit;
+}
+function isIndiaPhone(phone) {
+    const d = String(phone || '').replace(/\D/g, '');
+    if (d.length === 10) return /^[6-9]/.test(d);
+    if (d.length === 12 && d.startsWith('91')) return /^91[6-9]/.test(d);
+    return false;
+}
+function resolveMergedPhone(phone) {
+    const pro = getPro();
+    const n = normPhone(phone);
+    const map = pro.chatMerge || {};
+    return map[n] || n;
+}
+function getLeadStatusText(phone) {
+    const pro = getPro();
+    const n = normPhone(phone);
+    const tag = (pro.leadTags || {})[n] || '—';
+    const note = (pro.crmNotes || {})[n] || '';
+    const flow = (pro.orderFlow || {})[n];
+    const loc = (pro.locations || {})[n];
+    const label = (pro.chatLabels || {})[n] || 'open';
+    const rating = (pro.ratings || {})[n];
+    let order = 'No active order form';
+    if (flow) {
+        if (flow.step === 'done') order = 'Order captured: ' + (flow.product || '') + ' | qty ' + (flow.qty || '') + ' | ' + (flow.city || '');
+        else order = 'Order form incomplete (step: ' + flow.step + ')';
+    }
+    return 'Status update:\\n• Lead: ' + tag + '\\n• Label: ' + label + '\\n• ' + order +
+        (loc ? ('\\n• Location: ' + loc) : '') +
+        (rating ? ('\\n• Rating: ' + rating + '/5') : '') +
+        (note ? ('\\n• Note: ' + note.slice(0, 120)) : '');
+}
+
+
 function isWithinBusinessHours() {
     const bh = getPro().businessHours || {};
     if (!bh.enabled) return true;
@@ -951,11 +1050,96 @@ async function startSession(sessionId, sessionName) {
             // Blacklist: no bot reply
             if (isBlacklisted(phone)) return;
 
-            // STOP / opt-out
+            // Flood protect
+            try {
+                if (checkFlood(phone)) {
+                    const t = 'Bahut saare messages aa gaye. 1 minute baad try karein.';
+                    try { await sock.sendMessage(jid, { text: t }); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
+            // Quick status reply
+            try {
+                const low = text.toLowerCase().trim();
+                if (/^(status\??|order status\??|mera status\??|lead status\??)$/i.test(low) || low === 'status?' || low === 'status') {
+                    const t = getLeadStatusText(phone);
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, name: pushName || phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    return;
+                }
+            } catch (e) {}
+
+            // Rating 1-5
+            try {
+                const m = text.trim().match(/^(?:rate|rating|star|stars)?\s*([1-5])\s*(?:\/\s*5)?$/i) || text.trim().match(/^([1-5])\s*[★⭐*]?$/);
+                if (m) {
+                    const pro = getPro();
+                    const n = normPhone(phone);
+                    pro.ratings = pro.ratings || {};
+                    pro.ratings[n] = Number(m[1]);
+                    persist('pro', pro);
+                    const t = 'Dhanyavaad! Aapki rating ' + m[1] + '/5 save ho gayi.';
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    audit('rating', n + '=' + m[1]);
+                    return;
+                }
+            } catch (e) {}
+
+            // Location save (text maps link or coordinates)
+            try {
+                const locMatch = text.match(/https?:\/\/(?:maps\.google|goo\.gl|maps\.app\.goo\.gl)[^\s]+/i) || text.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+                if (locMatch) {
+                    const pro = getPro();
+                    const n = normPhone(phone);
+                    pro.locations = pro.locations || {};
+                    pro.locations[n] = locMatch[0];
+                    persist('pro', pro);
+                    const t = 'Location save ho gayi delivery ke liye. Shukriya!';
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    return;
+                }
+                if (/\b(location|mera address|delivery address|loc bhej)\b/i.test(text) && text.length < 80) {
+                    const t = 'Delivery ke liye apna Google Maps location link ya address bhej dein.';
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    return;
+                }
+            } catch (e) {}
+
+            // Photo → product match (text hint; full vision needs image bytes)
+            try {
+                if (text === '[Photo]' || (messageType === 'imageMessage')) {
+                    const hints = (getPro().productHints || 'products');
+                    const t = 'Photo mil gaya. Hum ' + hints + ' deal karte hain. Is photo jaisa product chahiye to name/qty likh dein — ya Catalog maangein.';
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    // still allow gemini if enabled later? return to avoid double
+                    return;
+                }
+            } catch (e) {}
+
+            // STOP / opt-out — only clear short intent (not random news/links)
             try {
                 const lowStop = text.toLowerCase().trim();
                 const optWords = getPro().optOutWords || ['stop'];
-                if (optWords.some(w => lowStop === w || lowStop.includes(w))) {
+                function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+                function isClearOptOut(msg) {
+                    // long paragraphs / links = not opt-out
+                    if (!msg || msg.length > 60) return false;
+                    if (/https?:\/\//i.test(msg)) return false;
+                    return optWords.some(w => {
+                        const ww = String(w || '').toLowerCase().trim();
+                        if (!ww) return false;
+                        if (msg === ww) return true;
+                        // whole phrase/word only
+                        const re = new RegExp('(?:^|\\s)' + escapeRe(ww) + '(?:\\s|$|[!.?])', 'i');
+                        return re.test(msg);
+                    });
+                }
+                if (isClearOptOut(lowStop)) {
                     const pro = getPro();
                     const n = normPhone(phone);
                     if (!(pro.blacklist || []).some(x => normPhone(x) === n)) {
@@ -973,11 +1157,17 @@ async function startSession(sessionId, sessionName) {
                 }
             } catch (e) {}
 
-            // Complaint auto-pause bot
+            // Complaint auto-pause bot — whole word, short-ish messages only
             try {
-                const lowC = text.toLowerCase();
+                const lowC = text.toLowerCase().trim();
                 const cw = getPro().complaintWords || [];
-                if (cw.some(w => w && lowC.includes(String(w).toLowerCase()))) {
+                const isComplaint = lowC.length <= 200 && !/https?:\/\//i.test(lowC) && cw.some(w => {
+                    const ww = String(w || '').toLowerCase().trim();
+                    if (!ww) return false;
+                    const re = new RegExp('(?:^|\\s)' + ww.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$|[!.?])', 'i');
+                    return re.test(lowC);
+                });
+                if (isComplaint) {
                     const pro = getPro();
                     pro.handoff = pro.handoff || {};
                     pro.handoff[normPhone(phone)] = { at: Date.now(), sessionId, name: pushName || phone, reason: 'complaint' };
@@ -1153,6 +1343,15 @@ async function startSession(sessionId, sessionName) {
             const geminiOn = !!(botCfgEarly && botCfgEarly.enabled);
             if (!isAutoReplyEnabled && !geminiOn) return;
 
+            // Working day / holiday gate
+            if (!isWorkingDayNow()) {
+                try {
+                    const offMsg = getWorkingClosedMessage();
+                    await sock.sendMessage(jid, { text: offMsg });
+                    pushInboxMessage({ phone, name: pushName || phone, text: offMsg, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                } catch (e) {}
+                return;
+            }
             // Business hours gate for auto replies
             if (!isWithinBusinessHours()) {
                 const offMsg = (getPro().businessHours && getPro().businessHours.offMessage) || 'Business hours ke baad reply karenge.';
@@ -1458,6 +1657,7 @@ app.post('/api/inbox/send', async (req, res) => {
         const jid = phone.includes('@') ? phone : (phone + '@s.whatsapp.net');
         await sock.sendMessage(jid, { text });
         pushInboxMessage({ phone, text, fromMe: true, sessionId: sid, sessionName: (sessions.get(sid) && sessions.get(sid).name) });
+        try { audit('agent_send', (sessions.get(sid) && sessions.get(sid).name) + ' → ' + phone + ': ' + String(text).slice(0, 80)); } catch (e) {}
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message || 'send fail' });
@@ -1592,6 +1792,17 @@ app.get('/api/pro', (req, res) => {
         quoteRates: pro.quoteRates || {},
         typingDelayMs: pro.typingDelayMs != null ? pro.typingDelayMs : 2500,
         festivalPack: pro.festivalPack || [],
+        workingDays: pro.workingDays || {},
+        ratings: pro.ratings || {},
+        locations: pro.locations || {},
+        chatLabels: pro.chatLabels || {},
+        chatMerge: pro.chatMerge || {},
+        quickReplyFolders: pro.quickReplyFolders || {},
+        productHints: pro.productHints || '',
+        geoIndiaOnly: pro.geoIndiaOnly !== false,
+        maxMediaMb: pro.maxMediaMb || 15,
+        floodLimit: pro.floodLimit || 20,
+        auditLog: (pro.auditLog || []).slice(0, 30),
         businessHours: pro.businessHours || {},
         multiLang: pro.multiLang !== false
     });
@@ -1721,6 +1932,92 @@ app.get('/api/pro/reply-rate', (req, res) => {
     res.json({ success: true, sent, replies, rate });
 });
 
+
+
+
+app.post('/api/pro/working-days', async (req, res) => {
+    const pro = getPro();
+    const b = req.body || {};
+    pro.workingDays = {
+        enabled: !!b.enabled,
+        closedDays: Array.isArray(b.closedDays) ? b.closedDays.map(Number) : (pro.workingDays.closedDays || [0]),
+        holidays: Array.isArray(b.holidays) ? b.holidays : (pro.workingDays.holidays || []),
+        closedMessage: String(b.closedMessage || pro.workingDays.closedMessage || '').slice(0, 300)
+    };
+    await savePro();
+    res.json({ success: true, workingDays: pro.workingDays });
+});
+app.post('/api/pro/chat-label', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    const label = String((req.body && req.body.label) || 'open').toLowerCase();
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    if (!['open', 'pending', 'closed'].includes(label)) return res.status(400).json({ success: false, error: 'open|pending|closed' });
+    const pro = getPro();
+    pro.chatLabels = pro.chatLabels || {};
+    pro.chatLabels[phone] = label;
+    await savePro();
+    audit('label', phone + '=' + label);
+    res.json({ success: true });
+});
+app.post('/api/pro/chat-merge', async (req, res) => {
+    const a = normPhone(req.body && req.body.phoneA);
+    const b = normPhone(req.body && req.body.phoneB);
+    if (!a || !b) return res.status(400).json({ success: false, error: 'phoneA + phoneB' });
+    const pro = getPro();
+    pro.chatMerge = pro.chatMerge || {};
+    pro.chatMerge[b] = a;
+    await savePro();
+    res.json({ success: true, primary: a });
+});
+app.post('/api/pro/qr-folders', async (req, res) => {
+    const pro = getPro();
+    if (req.body && typeof req.body.quickReplyFolders === 'object') pro.quickReplyFolders = req.body.quickReplyFolders;
+    await savePro();
+    res.json({ success: true, quickReplyFolders: pro.quickReplyFolders });
+});
+app.post('/api/pro/product-hints', async (req, res) => {
+    const pro = getPro();
+    pro.productHints = String((req.body && req.body.productHints) || '').slice(0, 300);
+    if (typeof (req.body && req.body.geoIndiaOnly) === 'boolean') pro.geoIndiaOnly = req.body.geoIndiaOnly;
+    if (req.body && req.body.maxMediaMb != null) pro.maxMediaMb = Math.min(50, Math.max(1, Number(req.body.maxMediaMb) || 15));
+    if (req.body && req.body.floodLimit != null) pro.floodLimit = Math.min(100, Math.max(5, Number(req.body.floodLimit) || 20));
+    await savePro();
+    res.json({ success: true });
+});
+app.get('/api/pro/audit', (req, res) => {
+    res.json({ success: true, auditLog: (getPro().auditLog || []).slice(0, 100) });
+});
+app.post('/api/pro/ask-rating', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone' });
+    const sock = getSelectedOrRandomSock(null);
+    if (!sock) return res.status(400).json({ success: false, error: 'WA offline' });
+    const t = 'Service kaisi lagi? 1 se 5 star mein reply karein (example: 5)';
+    try {
+        let p = phone; if (p.length === 10) p = '91' + p;
+        await sock.sendMessage(p + '@s.whatsapp.net', { text: t });
+        pushInboxMessage({ phone, text: t, fromMe: true });
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+app.post('/api/pro/translate-note', async (req, res) => {
+    const text = String((req.body && req.body.text) || '').slice(0, 1000);
+    if (!text) return res.status(400).json({ success: false, error: 'text missing' });
+    // lightweight without Gemini dependency failure: simple flag
+    const apiKey = (typeof getGeminiKey === 'function' ? getGeminiKey() : '') || '';
+    if (!apiKey) return res.json({ success: true, hindi: text, note: 'Gemini key nahi — original text' });
+    try {
+        const prompt = 'Translate to simple Hindi (Devanagari). Only translation, no quotes:\\n' + text;
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(apiKey);
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 256 } }) });
+        const data = await r.json();
+        let hindi = text;
+        try { hindi = data.candidates[0].content.parts.map(p => p.text || '').join('').trim() || text; } catch (e) {}
+        res.json({ success: true, hindi });
+    } catch (e) {
+        res.json({ success: true, hindi: text, error: e.message });
+    }
+});
 
 
 app.post('/api/pro/vip', async (req, res) => {
@@ -2471,7 +2768,13 @@ app.post('/send', async (req, res) => {
     const seenPhone = new Set(); let uniqueNumbers = [];
     for (const n of numbers) {
         const p = String(n.phone || '').replace(/\D/g, '').slice(-10);
-        if (p.length === 10 && !seenPhone.has(p)) { seenPhone.add(p); uniqueNumbers.push({ phone: p, name: n.name || 'Customer' }); }
+        if (p.length === 10 && !seenPhone.has(p)) {
+            if (getPro().geoIndiaOnly !== false && !isIndiaPhone(p)) {
+                /* skip non-India */
+            } else {
+                seenPhone.add(p); uniqueNumbers.push({ phone: p, name: n.name || 'Customer' });
+            }
+        }
     }
 
     // Daily limit always applies (80 / WA etc.) — custom batch se bypass nahi
