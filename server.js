@@ -220,6 +220,26 @@ function defaultPro() {
         catalog: null,
         faqText: '',
         pinHash: '',
+        vipList: [],
+        starred: {},
+        snooze: {},
+        internalNotes: {},
+        agentStats: {},
+        shiftRoster: { enabled: false, morning: '', evening: '', morningEndHour: 14 },
+        complaintWords: ['fraud', 'police', 'court', 'cyber', 'nc', 'consumer court', 'complaint', 'legal'],
+        optOutWords: ['stop', 'unsubscribe', 'opt out', 'opt-out', 'remove me', 'band karo'],
+        quoteRates: {},
+        festivalPack: [
+            { name: 'Diwali Offer', message: 'Namaste [Name]! Diwali ki hardik shubhkamnayein. Is tyohar par special rates — reply karein details ke liye.' },
+            { name: 'Eid Greetings', message: 'Eid Mubarak [Name]! Aapke business ke liye best wishes. Zarurat ho to message karein.' },
+            { name: 'New Year', message: 'Happy New Year [Name]! Naye saal mein better rates / service — interested ho to reply karein.' },
+            { name: 'Holi Wishes', message: 'Holi ki shubhkamnayein [Name]! Colors of success aapke business ke saath.' }
+        ],
+        lastCampaignFingerprints: [],
+        bestSendHours: {},
+        morningBriefHour: 8,
+        lastMorningBriefDate: '',
+        typingDelayMs: 2500,
         businessHours: { enabled: false, start: 8, end: 22, offMessage: 'Abhi business hours ke bahar hain (8 AM – 10 PM IST). Kal subah reply karenge. Urgent ho to message chhod dein.' },
         multiLang: true
     };
@@ -278,8 +298,13 @@ function randomSignature() {
     const s = list[Math.floor(Math.random() * list.length)];
     return s ? ('\n\n' + String(s).trim()) : '';
 }
+function isVipPhone(phone) {
+    const n = normPhone(phone);
+    return (getPro().vipList || []).some(x => normPhone(x) === n);
+}
 function isTemplateOnCooldown(phone, tplName) {
     if (!tplName) return false;
+    if (isVipPhone(phone)) return false;
     const pro = getPro();
     const hours = Number(pro.templateCooldownHours != null ? pro.templateCooldownHours : 24);
     const key = normPhone(phone) + '|' + tplName;
@@ -926,8 +951,84 @@ async function startSession(sessionId, sessionName) {
             // Blacklist: no bot reply
             if (isBlacklisted(phone)) return;
 
+            // STOP / opt-out
+            try {
+                const lowStop = text.toLowerCase().trim();
+                const optWords = getPro().optOutWords || ['stop'];
+                if (optWords.some(w => lowStop === w || lowStop.includes(w))) {
+                    const pro = getPro();
+                    const n = normPhone(phone);
+                    if (!(pro.blacklist || []).some(x => normPhone(x) === n)) {
+                        pro.blacklist = pro.blacklist || [];
+                        pro.blacklist.push(n);
+                    }
+                    persist('pro', pro);
+                    const bye = 'Aapko list se hata diya gaya hai. Ab promotional message nahi jayenge. Phir se join ke liye team se contact karein.';
+                    try {
+                        await sock.sendMessage(jid, { text: bye });
+                        pushInboxMessage({ phone, name: pushName || phone, text: bye, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    } catch (e) {}
+                    try { if (typeof sendPushToAll === 'function') sendPushToAll('Opt-out', n + ' STOP'); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
+            // Complaint auto-pause bot
+            try {
+                const lowC = text.toLowerCase();
+                const cw = getPro().complaintWords || [];
+                if (cw.some(w => w && lowC.includes(String(w).toLowerCase()))) {
+                    const pro = getPro();
+                    pro.handoff = pro.handoff || {};
+                    pro.handoff[normPhone(phone)] = { at: Date.now(), sessionId, name: pushName || phone, reason: 'complaint' };
+                    persist('pro', pro);
+                    const t = 'Aapki baat serious hai — human team dekh rahi hai. Bot reply pause. Jaldi contact karenge.';
+                    try {
+                        await sock.sendMessage(jid, { text: t });
+                        pushInboxMessage({ phone, name: pushName || phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    } catch (e) {}
+                    try { if (typeof sendPushToAll === 'function') sendPushToAll('Complaint alert', (pushName || phone) + ': ' + text.slice(0, 80)); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
             // Number quality — count reply
             try { bumpNumberQuality(phone, 'replies'); } catch (e) {}
+            // Best hour tracking
+            try {
+                const pro = getPro();
+                const h = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })).getHours();
+                pro.bestSendHours = pro.bestSendHours || {};
+                pro.bestSendHours[h] = (pro.bestSendHours[h] || 0) + 1;
+                persist('pro', pro);
+            } catch (e) {}
+            // Agent performance: reply on assigned chat
+            try {
+                const agent = (getPro().chatAssign || {})[normPhone(phone)];
+                if (agent) {
+                    const pro = getPro();
+                    pro.agentStats = pro.agentStats || {};
+                    if (!pro.agentStats[agent]) pro.agentStats[agent] = { assignedReplies: 0, notes: 0 };
+                    pro.agentStats[agent].assignedReplies++;
+                    persist('pro', pro);
+                }
+            } catch (e) {}
+            // Shift roster auto-assign if empty
+            try {
+                const pro = getPro();
+                const n = normPhone(phone);
+                const roster = pro.shiftRoster || {};
+                if (roster.enabled && !(pro.chatAssign || {})[n]) {
+                    const h = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })).getHours();
+                    const endM = Number(roster.morningEndHour != null ? roster.morningEndHour : 14);
+                    const agent = h < endM ? (roster.morning || '') : (roster.evening || '');
+                    if (agent) {
+                        pro.chatAssign = pro.chatAssign || {};
+                        pro.chatAssign[n] = agent;
+                        persist('pro', pro);
+                    }
+                }
+            } catch (e) {}
 
             // Human handoff keywords
             try {
@@ -965,7 +1066,19 @@ async function startSession(sessionId, sessionName) {
                         flow.step = 'city';
                         pro.orderFlow[n] = flow;
                         persist('pro', pro);
-                        const t = 'Quantity note ho gayi (' + flow.qty + '). Delivery city / area bataiye?';
+                        let t = 'Quantity note ho gayi (' + flow.qty + '). Delivery city / area bataiye?';
+                        try {
+                            const qtyNum = parseFloat(String(flow.qty).replace(/[^0-9.]/g, '')) || 0;
+                            const rates = pro.quoteRates || {};
+                            const prod = String(flow.product || '').toLowerCase();
+                            for (const k of Object.keys(rates)) {
+                                if (prod.includes(k.toLowerCase()) || k.toLowerCase().includes(prod.split(/\s+/)[0] || '')) {
+                                    const rate = Number(rates[k]);
+                                    if (qtyNum && rate) t = 'Qty ' + flow.qty + ' · rough estimate ₹' + (rate * qtyNum) + ' (₹' + rate + '/unit, confirm later). City / area bataiye?';
+                                    break;
+                                }
+                            }
+                        } catch (e) {}
                         await sock.sendMessage(jid, { text: t });
                         pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
                         return;
@@ -974,6 +1087,7 @@ async function startSession(sessionId, sessionName) {
                         flow.city = text.trim();
                         flow.step = 'done';
                         pro.orderFlow[n] = flow;
+                        (pro.followUps || []).forEach(f => { if (f.abandon && normPhone(f.phone) === n) f.done = true; });
                         persist('pro', pro);
                         const t = 'Order summary:\nProduct interest: ' + (flow.product || '—') + '\nQty: ' + (flow.qty || '—') + '\nCity: ' + (flow.city || '—') + '\n\nTeam confirm karke rate/delivery bataogi. Dhanyavaad!';
                         await sock.sendMessage(jid, { text: t });
@@ -985,6 +1099,15 @@ async function startSession(sessionId, sessionName) {
                 if (/(order|book|khareedna|lena hai|order kar)/i.test(low)) {
                     pro.orderFlow = pro.orderFlow || {};
                     pro.orderFlow[n] = { step: 'qty', product: text.slice(0, 80), at: Date.now() };
+                    pro.followUps = pro.followUps || [];
+                    pro.followUps.push({
+                        id: 'abandon_' + n + '_' + Date.now(),
+                        phone: n, name: pushName || phone,
+                        note: 'Order adhoora tha — abhi complete karna hai kya? Quantity/city bhej dein.',
+                        at: Date.now() + 24 * 3600 * 1000,
+                        atText: new Date(Date.now() + 86400000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+                        done: false, auto: true, abandon: true
+                    });
                     persist('pro', pro);
                     const t = 'Order help karta hoon. Kitni quantity chahiye?';
                     await sock.sendMessage(jid, { text: t });
@@ -1182,6 +1305,8 @@ Write ONLY the WhatsApp reply (no quotes, no labels).`;
                     }
                     lastGeminiBotError = null;
                     botCfg.lastError = null;
+                    const delayMs = Math.min(8000, Math.max(0, Number((getPro().typingDelayMs != null ? getPro().typingDelayMs : 2500))));
+                    if (delayMs) await new Promise(r => setTimeout(r, delayMs));
                     await sock.sendMessage(jid, { text: reply });
                     pushInboxMessage({ phone, name: pushName || phone, text: reply, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
                 } catch (e) {
@@ -1195,6 +1320,63 @@ Write ONLY the WhatsApp reply (no quotes, no labels).`;
     });
 }
 
+
+
+async function checkFollowUps() {
+    try {
+        const pro0 = getPro();
+        const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+        const day = ist.toLocaleDateString('en-CA');
+        const hour = ist.getHours();
+        const briefH = Number(pro0.morningBriefHour != null ? pro0.morningBriefHour : 8);
+        if (hour === briefH && pro0.lastMorningBriefDate !== day) {
+            pro0.lastMorningBriefDate = day;
+            const stats = getStats()[day] || { sent: 0, failed: 0 };
+            const handoffN = Object.keys(pro0.handoff || {}).length;
+            const fuN = (pro0.followUps || []).filter(f => !f.done && f.at && f.at <= Date.now()).length;
+            const msg = 'Morning brief: aaj sent ' + (stats.sent || 0) + ', fail ' + (stats.failed || 0) + ', handoff ' + handoffN + ', follow-ups due ' + fuN;
+            try { if (typeof sendPushToAll === 'function') sendPushToAll('Morning brief', msg); } catch (e) {}
+            persist('pro', pro0);
+            console.log('[morning brief]', msg);
+        }
+    } catch (e) {}
+    try {
+        const pro = getPro();
+        const now = Date.now();
+        let changed = false;
+        for (const f of (pro.followUps || [])) {
+            if (f.done || f.notified) continue;
+            if (f.at && f.at <= now) {
+                f.notified = true;
+                changed = true;
+                try { if (typeof sendPushToAll === 'function') sendPushToAll('Follow-up due', (f.name || f.phone) + ': ' + (f.note || '')); } catch (e) {}
+                if (f.auto && f.note && !isBlacklisted(f.phone)) {
+                    try {
+                        const sock = getSelectedOrRandomSock(null);
+                        if (sock) {
+                            let p = String(f.phone).replace(/\D/g, '');
+                            if (p.length === 10) p = '91' + p;
+                            const jid = p + '@s.whatsapp.net';
+                            const body = String(f.note) + (typeof randomSignature === 'function' ? randomSignature() : '');
+                            await sock.sendMessage(jid, { text: body });
+                            f.done = true;
+                            pushInboxMessage({ phone: normPhone(f.phone), text: body, fromMe: true });
+                        }
+                    } catch (e) { console.error('auto follow-up send', e.message || e); }
+                }
+                // abandon: only if order still incomplete
+                if (f.abandon) {
+                    const flow = (pro.orderFlow || {})[normPhone(f.phone)];
+                    if (flow && flow.step === 'done') { f.done = true; }
+                }
+                console.log('[follow-up due]', f.phone, f.note);
+            }
+        }
+        // clear expired snooze with notification already via follow-up
+        if (changed) persist('pro', pro);
+    } catch (e) {}
+}
+setInterval(() => { checkFollowUps().catch(() => {}); }, 60000);
 
 async function bootstrapSessions() {
     const meta = getMeta();
@@ -1401,6 +1583,15 @@ app.get('/api/pro', (req, res) => {
         catalog: pro.catalog ? { fileName: pro.catalog.fileName, hasFile: true } : null,
         faqText: pro.faqText || '',
         hasPin: !!(pro.pinHash),
+        vipList: pro.vipList || [],
+        starred: pro.starred || {},
+        snooze: pro.snooze || {},
+        internalNotes: pro.internalNotes || {},
+        agentStats: pro.agentStats || {},
+        shiftRoster: pro.shiftRoster || {},
+        quoteRates: pro.quoteRates || {},
+        typingDelayMs: pro.typingDelayMs != null ? pro.typingDelayMs : 2500,
+        festivalPack: pro.festivalPack || [],
         businessHours: pro.businessHours || {},
         multiLang: pro.multiLang !== false
     });
@@ -1528,6 +1719,147 @@ app.get('/api/pro/reply-rate', (req, res) => {
     Object.values(nq).forEach(q => { sent += q.sent || 0; replies += q.replies || 0; });
     const rate = sent ? Math.round((replies / sent) * 100) : 0;
     res.json({ success: true, sent, replies, rate });
+});
+
+
+
+app.post('/api/pro/vip', async (req, res) => {
+    const pro = getPro();
+    const phone = normPhone(req.body && req.body.phone);
+    const action = (req.body && req.body.action) || 'add';
+    pro.vipList = pro.vipList || [];
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    if (action === 'remove') pro.vipList = pro.vipList.filter(x => normPhone(x) !== phone);
+    else if (!pro.vipList.some(x => normPhone(x) === phone)) pro.vipList.push(phone);
+    await savePro();
+    res.json({ success: true, vipList: pro.vipList });
+});
+app.post('/api/pro/star', async (req, res) => {
+    const pro = getPro();
+    const phone = normPhone(req.body && req.body.phone);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    pro.starred = pro.starred || {};
+    if (req.body && req.body.star === false) delete pro.starred[phone];
+    else pro.starred[phone] = true;
+    await savePro();
+    res.json({ success: true, starred: pro.starred });
+});
+app.post('/api/pro/snooze', async (req, res) => {
+    const pro = getPro();
+    const phone = normPhone(req.body && req.body.phone);
+    const hours = Math.min(48, Math.max(1, Number(req.body && req.body.hours) || 2));
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    pro.snooze = pro.snooze || {};
+    pro.snooze[phone] = Date.now() + hours * 3600 * 1000;
+    pro.followUps = pro.followUps || [];
+    pro.followUps.push({
+        id: 'snooze_' + phone + '_' + Date.now(),
+        phone, name: phone, note: 'Snooze khatam — is chat ko check karo',
+        at: pro.snooze[phone], atText: new Date(pro.snooze[phone]).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        done: false, auto: false
+    });
+    await savePro();
+    res.json({ success: true });
+});
+app.post('/api/pro/internal-note', async (req, res) => {
+    const pro = getPro();
+    const phone = normPhone(req.body && req.body.phone);
+    const note = String((req.body && req.body.note) || '').slice(0, 1000);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone missing' });
+    pro.internalNotes = pro.internalNotes || {};
+    pro.internalNotes[phone] = note;
+    const agent = (pro.chatAssign || {})[phone];
+    if (agent) {
+        pro.agentStats = pro.agentStats || {};
+        if (!pro.agentStats[agent]) pro.agentStats[agent] = { assignedReplies: 0, notes: 0 };
+        pro.agentStats[agent].notes++;
+    }
+    await savePro();
+    res.json({ success: true });
+});
+app.post('/api/pro/shift-roster', async (req, res) => {
+    const pro = getPro();
+    const b = req.body || {};
+    pro.shiftRoster = {
+        enabled: !!b.enabled,
+        morning: String(b.morning || '').slice(0, 40),
+        evening: String(b.evening || '').slice(0, 40),
+        morningEndHour: Math.min(23, Math.max(0, Number(b.morningEndHour) || 14))
+    };
+    await savePro();
+    res.json({ success: true, shiftRoster: pro.shiftRoster });
+});
+app.post('/api/pro/quote-rates', async (req, res) => {
+    const pro = getPro();
+    if (req.body && typeof req.body.quoteRates === 'object') pro.quoteRates = req.body.quoteRates;
+    await savePro();
+    res.json({ success: true, quoteRates: pro.quoteRates });
+});
+app.post('/api/pro/quote', async (req, res) => {
+    const product = String((req.body && req.body.product) || '').toLowerCase().trim();
+    const qty = Number(req.body && req.body.qty) || 0;
+    const rates = getPro().quoteRates || {};
+    let rate = null;
+    for (const k of Object.keys(rates)) {
+        if (product.includes(k.toLowerCase()) || k.toLowerCase().includes(product)) { rate = Number(rates[k]); break; }
+    }
+    if (rate == null) return res.json({ success: false, error: 'Product rate Pro Tools mein set karo', estimate: null });
+    const total = rate * qty;
+    const text = qty && product
+        ? ('Estimate: ' + product + ' x ' + qty + ' ≈ ₹' + total + ' (₹' + rate + '/unit). Final rate confirm hogi.')
+        : ('Rate ~ ₹' + rate + '/unit. Quantity bhejo exact estimate ke liye.');
+    res.json({ success: true, rate, qty, total, text });
+});
+app.post('/api/pro/typing-delay', async (req, res) => {
+    const pro = getPro();
+    pro.typingDelayMs = Math.min(8000, Math.max(0, Number(req.body && req.body.ms) || 2500));
+    await savePro();
+    res.json({ success: true, typingDelayMs: pro.typingDelayMs });
+});
+app.get('/api/pro/festival-pack', (req, res) => {
+    res.json({ success: true, templates: (getPro().festivalPack || []) });
+});
+app.post('/api/pro/add-festival-templates', async (req, res) => {
+    const pack = getPro().festivalPack || [];
+    const templates = getTemplates();
+    let added = 0;
+    pack.forEach(p => {
+        if (templates.some(t => t.name === p.name)) return;
+        templates.push({ name: p.name, message: p.message, attachments: [], buttons: [] });
+        added++;
+    });
+    await persist('templates', templates);
+    res.json({ success: true, added, total: templates.length });
+});
+app.get('/api/pro/best-time', (req, res) => {
+    const hours = getPro().bestSendHours || {};
+    const sorted = Object.keys(hours).map(h => ({ hour: Number(h), replies: hours[h] })).sort((a, b) => b.replies - a.replies);
+    const top = sorted.slice(0, 3);
+    const tip = top.length
+        ? ('Best reply hours (IST): ' + top.map(t => t.hour + ':00 (' + t.replies + ')').join(', '))
+        : 'Abhi data kam — replies aane do';
+    res.json({ success: true, top, tip });
+});
+app.get('/api/pro/template-rank', (req, res) => {
+    const ts = getPro().templateStats || {};
+    const rank = Object.keys(ts).map(name => {
+        const s = ts[name];
+        const total = (s.sent || 0) + (s.failed || 0);
+        return { name, sent: s.sent || 0, failed: s.failed || 0, rate: total ? Math.round((s.sent || 0) / total * 100) : 0 };
+    }).sort((a, b) => b.sent - a.sent || b.rate - a.rate);
+    res.json({ success: true, rank });
+});
+app.get('/api/pro/group-roi', (req, res) => {
+    // approximate: contacts groups if stored as group field
+    const contacts = getContacts();
+    const groups = {};
+    Object.keys(contacts || {}).forEach(g => {
+        const list = contacts[g] || [];
+        let valid = 0, total = list.length;
+        list.forEach(c => { if (c.waStatus === 'valid') valid++; });
+        groups[g] = { total, valid, invalid: list.filter(c => c.waStatus === 'invalid').length };
+    });
+    res.json({ success: true, groups });
 });
 
 
@@ -2146,6 +2478,25 @@ app.post('/send', async (req, res) => {
     const dailyLimit = getDailyLimit() * selectedIds.length; const alreadySent = getTodaySentCount();
     if (alreadySent >= dailyLimit) return res.status(400).json({ success: false, error: `Anti-Ban: aaj ka limit (${dailyLimit}) pure. Kal try karo.` });
     const remainingQuota = dailyLimit - alreadySent; if (uniqueNumbers.length > remainingQuota) uniqueNumbers = uniqueNumbers.slice(0, remainingQuota);
+
+    // Duplicate campaign guard (same numbers fingerprint within 48h)
+    try {
+        const pro = getPro();
+        const fp = uniqueNumbers.map(n => normPhone(n.phone || n)).filter(Boolean).sort().join(',');
+        const hash = String(fp.length) + '_' + fp.slice(0, 40) + '_' + fp.slice(-40);
+        pro.lastCampaignFingerprints = pro.lastCampaignFingerprints || [];
+        const hit = pro.lastCampaignFingerprints.find(x => x.hash === hash && (Date.now() - x.at) < 48 * 3600 * 1000);
+        if (hit && !(req.body && req.body.forceDuplicate)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Duplicate campaign guard: yahi numbers ~48h pehle campaign mein the. Force ke liye forceDuplicate:true bhejo.',
+                duplicate: true
+            });
+        }
+        pro.lastCampaignFingerprints.unshift({ hash, at: Date.now(), count: uniqueNumbers.length });
+        pro.lastCampaignFingerprints = pro.lastCampaignFingerprints.slice(0, 30);
+        persist('pro', pro);
+    } catch (e) {}
 
     // Custom batch / rest — empty = default 30 / 2hr
     let batchSize = SESSION_BATCH;
