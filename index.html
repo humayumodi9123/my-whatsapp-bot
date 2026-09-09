@@ -381,16 +381,21 @@
         </div>
         <div class="sidebar-menu">
             <button class="sidebar-btn active" onclick="showSection('dashboard', this)">📊 Dashboard</button>
-            <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaign Sender</button>
+            <button class="sidebar-btn" onclick="showSection('sendMsg', this)">📨 Campaigns</button>
+            <button class="sidebar-btn" onclick="showSection('schedulerSec', this)">📅 Scheduler</button>
+            <button class="sidebar-btn" onclick="showSection('crmSec', this)">👥 CRM / Customers</button>
+            <button class="sidebar-btn" onclick="showSection('inboxSec', this)">💬 Inbox</button>
+            <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 AI Automation</button>
+            <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Templates</button>
+            <button class="sidebar-btn" onclick="showSection('productsSec', this)">📦 Products</button>
+            <button class="sidebar-btn" onclick="showSection('ordersSec', this)">🛒 Orders</button>
+            <button class="sidebar-btn" onclick="showSection('quoteSec', this)">💰 Quotation</button>
             <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
-            <button class="sidebar-btn" onclick="showSection('historySec', this)">📜 Campaign History</button>
-            <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contact Book</button>
-            <button class="sidebar-btn" onclick="showSection('templateSec', this)">📝 Template Manager</button>
-            <button class="sidebar-btn" onclick="showSection('aiStudioSec', this)">✨ AI Studio (Gemini)</button>
-            <button class="sidebar-btn" onclick="showSection('inboxSec', this)">💬 Messages (Inbox)</button>
-            <button class="sidebar-btn" onclick="showSection('autoReply', this)">🤖 Smart Auto-Reply</button>
+            <button class="sidebar-btn" onclick="showSection('historySec', this)">📈 Analytics / History</button>
+            <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contacts</button>
+            <button class="sidebar-btn" onclick="showSection('aiStudioSec', this)">✨ AI Studio</button>
             <button class="sidebar-btn" onclick="showSection('proToolsSec', this)">🧩 Pro Tools</button>
-            <button class="sidebar-btn" onclick="showSection('connectWp', this)">🔗 Device Settings</button>
+            <button class="sidebar-btn" onclick="showSection('connectWp', this)">📱 Devices</button>
         </div>
     </div>
 
@@ -682,6 +687,7 @@
         <!-- 6. Template Manager -->
         <div id="templateSec" class="content-section">
             <h2 class="section-title">📝 Template Manager</h2>
+            <p style="font-size:12px;color:#64748b;">Categories: Sales / Festival / Follow-up / Welcome · Duplicate via API when editing</p>
             <div style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e2e8f0;">
                 <div class="form-group"><label>टेम्प्लेट का नाम:</label><input type="text" id="newTplName" placeholder="e.g. Diwali Offer"></div>
                 <div class="form-group">
@@ -1098,6 +1104,87 @@
                     <button type="button" class="action-btn btn-primary btn-sm" onclick="proDownloadBackup()">Backup JSON</button>
                 </div>
             </div>
+        </div>
+
+
+        <div id="crmSec" class="content-section">
+            <h2 class="section-title">CRM / Customers</h2>
+            <p style="font-size:13px;color:#64748b;">Name, company, city, category · Status pipeline · Tags · Score · Last msg</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                <input id="crmSearch" placeholder="Search name/phone/city" style="flex:1;min-width:140px;margin:0;" oninput="loadCrmList()">
+                <select id="crmStatusFilter" onchange="loadCrmList()" style="width:auto;margin:0;">
+                    <option value="">All status</option>
+                    <option>New</option><option>Interested</option><option>Follow-up</option><option>Customer</option><option>Lost</option>
+                </select>
+                <button type="button" class="action-btn btn-primary btn-sm" onclick="loadCrmList()">Refresh</button>
+            </div>
+            <div id="crmList" style="font-size:13px;"></div>
+            <div style="margin-top:16px;padding:14px;background:#f8fafc;border-radius:14px;border:1px solid #e2e8f0;">
+                <div style="font-weight:800;margin-bottom:8px;">Edit customer</div>
+                <input id="crmPhone" placeholder="Phone" style="margin-bottom:8px;">
+                <input id="crmName" placeholder="Name" style="margin-bottom:8px;">
+                <input id="crmCompany" placeholder="Company" style="margin-bottom:8px;">
+                <input id="crmCity" placeholder="City" style="margin-bottom:8px;">
+                <input id="crmCategory" placeholder="Category e.g. Retailer" style="margin-bottom:8px;">
+                <select id="crmStatus" style="margin-bottom:8px;">
+                    <option>New</option><option>Interested</option><option>Follow-up</option><option>Customer</option><option>Lost</option>
+                </select>
+                <input id="crmTags" placeholder="Tags: Retailer, Wholesaler, VIP" style="margin-bottom:8px;">
+                <textarea id="crmNotes" style="height:70px;" placeholder="Customer notes"></textarea>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                    <button type="button" class="action-btn btn-success btn-sm" onclick="saveCrmCustomer()">Save CRM</button>
+                    <button type="button" class="action-btn btn-primary btn-sm" onclick="crmAiSummary()">AI Summary</button>
+                    <button type="button" class="action-btn btn-primary btn-sm" onclick="crmSegmentToCampaign()">Segment → Campaign numbers</button>
+                </div>
+                <pre id="crmSummaryOut" style="white-space:pre-wrap;font-size:12px;margin-top:10px;color:#334155;"></pre>
+            </div>
+        </div>
+
+        <div id="schedulerSec" class="content-section">
+            <h2 class="section-title">Campaign Scheduler</h2>
+            <input id="schName" placeholder="Schedule name" style="margin-bottom:8px;">
+            <input id="schWhen" type="datetime-local" style="margin-bottom:8px;">
+            <select id="schRecurring" style="margin-bottom:8px;">
+                <option value="">One time</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+            </select>
+            <button type="button" class="action-btn btn-success" onclick="addSchedule()">Schedule reminder</button>
+            <p style="font-size:12px;color:#64748b;">IST timezone. Due hone pe notification aayegi; numbers payload ke saath auto-run limited hai — Live se campaign confirm karein.</p>
+            <div id="schList" style="margin-top:14px;font-size:13px;"></div>
+        </div>
+
+        <div id="productsSec" class="content-section">
+            <h2 class="section-title">Product Catalogue</h2>
+            <input id="prdName" placeholder="Product name" style="margin-bottom:8px;">
+            <input id="prdPrice" type="number" placeholder="Price" style="margin-bottom:8px;">
+            <input id="prdStock" type="number" placeholder="Stock" style="margin-bottom:8px;">
+            <textarea id="prdDesc" style="height:60px;" placeholder="Description"></textarea>
+            <button type="button" class="action-btn btn-success btn-sm" style="margin-top:8px;" onclick="saveProduct()">Save product</button>
+            <div id="prdList" style="margin-top:14px;font-size:13px;"></div>
+        </div>
+
+        <div id="ordersSec" class="content-section">
+            <h2 class="section-title">Order Management</h2>
+            <input id="ordPhone" placeholder="Customer phone" style="margin-bottom:8px;">
+            <input id="ordName" placeholder="Name" style="margin-bottom:8px;">
+            <input id="ordAmount" type="number" placeholder="Amount ₹" style="margin-bottom:8px;">
+            <input id="ordItems" placeholder="Items e.g. Jeera 50kg" style="margin-bottom:8px;">
+            <button type="button" class="action-btn btn-success btn-sm" onclick="createOrder()">Create order</button>
+            <div id="ordList" style="margin-top:14px;font-size:13px;"></div>
+        </div>
+
+        <div id="quoteSec" class="content-section">
+            <h2 class="section-title">Quotation Generator</h2>
+            <input id="qtPhone" placeholder="Phone" style="margin-bottom:8px;">
+            <input id="qtName" placeholder="Customer name" style="margin-bottom:8px;">
+            <textarea id="qtItems" style="height:90px;" placeholder="One per line: Product,qty,price&#10;Jeera,50,450"></textarea>
+            <input id="qtGst" type="number" placeholder="GST %" value="0" style="margin-top:8px;">
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+                <button type="button" class="action-btn btn-primary btn-sm" onclick="makeQuote(false)">Generate</button>
+                <button type="button" class="action-btn btn-success btn-sm" onclick="makeQuote(true)">Generate + WhatsApp send</button>
+            </div>
+            <pre id="qtOut" style="white-space:pre-wrap;margin-top:12px;font-size:13px;"></pre>
         </div>
 
         <!-- 8. Connect Device -->
@@ -2007,6 +2094,161 @@
             }
         });
 
+
+        function loadCrmList() {
+            fetch('/api/crm').then(r => r.json()).then(d => {
+                let list = d.customers || [];
+                const q = ((document.getElementById('crmSearch') || {}).value || '').toLowerCase();
+                const st = (document.getElementById('crmStatusFilter') || {}).value || '';
+                if (st) list = list.filter(c => c.status === st);
+                if (q) list = list.filter(c => JSON.stringify(c).toLowerCase().includes(q));
+                const box = document.getElementById('crmList');
+                if (!box) return;
+                box.innerHTML = list.slice(0, 80).map(c => {
+                    const sc = c.scoreLabel === 'Hot' ? '🔥' : (c.scoreLabel === 'Cold' ? '🔵' : '🟡');
+                    return '<div onclick=\'fillCrm(' + JSON.stringify(c) + ')\' style="padding:10px;border-bottom:1px solid #e2e8f0;cursor:pointer;">' +
+                        '<b>' + escapeHtml(c.name || c.phone) + '</b> ' + sc + ' ' + (c.score || 0) +
+                        ' · <span style="color:#0369a1;">' + escapeHtml(c.status || '') + '</span>' +
+                        '<br><span style="color:#64748b;">' + escapeHtml([c.company, c.city, (c.tags || []).join(', ')].filter(Boolean).join(' · ')) + '</span>' +
+                        '<br><span style="color:#94a3b8;font-size:11px;">Last: ' + escapeHtml((c.lastMessage || '').slice(0, 60)) + '</span></div>';
+                }).join('') || '<span style="color:#94a3b8;">No customers yet — chats aayenge to auto create</span>';
+            }).catch(() => {});
+        }
+        function fillCrm(c) {
+            document.getElementById('crmPhone').value = c.phone || '';
+            document.getElementById('crmName').value = c.name || '';
+            document.getElementById('crmCompany').value = c.company || '';
+            document.getElementById('crmCity').value = c.city || '';
+            document.getElementById('crmCategory').value = c.category || '';
+            document.getElementById('crmStatus').value = c.status || 'New';
+            document.getElementById('crmTags').value = (c.tags || []).join(', ');
+            document.getElementById('crmNotes').value = c.notes || '';
+        }
+        function saveCrmCustomer() {
+            const tags = ((document.getElementById('crmTags') || {}).value || '').split(/[,]/).map(s => s.trim()).filter(Boolean);
+            fetch('/api/crm/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                phone: document.getElementById('crmPhone').value,
+                name: document.getElementById('crmName').value,
+                company: document.getElementById('crmCompany').value,
+                city: document.getElementById('crmCity').value,
+                category: document.getElementById('crmCategory').value,
+                status: document.getElementById('crmStatus').value,
+                tags,
+                notes: document.getElementById('crmNotes').value
+            })}).then(r => r.json()).then(d => { if (d.success) { showToast('CRM saved'); loadCrmList(); } else showToast(d.error || 'Fail', true); });
+        }
+        function crmAiSummary() {
+            fetch('/api/crm/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('crmPhone').value }) })
+                .then(r => r.json()).then(d => { document.getElementById('crmSummaryOut').textContent = d.summary || ''; });
+        }
+        function crmSegmentToCampaign() {
+            const city = document.getElementById('crmCity').value;
+            const status = document.getElementById('crmStatus').value;
+            const tag = ((document.getElementById('crmTags') || {}).value || '').split(',')[0];
+            fetch('/api/crm/segment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ city, status, tag: tag && tag.trim() }) })
+                .then(r => r.json()).then(d => {
+                    if (!d.count) return showToast('No match', true);
+                    const ta = document.getElementById('numbers');
+                    if (ta) ta.value = (d.phones || []).join('\\n');
+                    showToast(d.count + ' numbers → Campaign numbers box');
+                    const btn = document.querySelector('.sidebar-btn[onclick*="sendMsg"]');
+                    if (btn) showSection('sendMsg', btn);
+                });
+        }
+        function addSchedule() {
+            const when = document.getElementById('schWhen').value;
+            if (!when) return showToast('Date/time choose karo', true);
+            const runAt = new Date(when).getTime();
+            fetch('/api/schedules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                name: document.getElementById('schName').value || 'Schedule',
+                runAt,
+                runAtText: new Date(runAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+                recurring: document.getElementById('schRecurring').value || null
+            })}).then(r => r.json()).then(d => { if (d.success) { showToast('Scheduled'); loadSchedules(); } else showToast(d.error || 'Fail', true); });
+        }
+        function loadSchedules() {
+            fetch('/api/schedules').then(r => r.json()).then(d => {
+                const box = document.getElementById('schList');
+                if (!box) return;
+                box.innerHTML = (d.schedules || []).slice().reverse().map(s =>
+                    '<div style="padding:10px;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(s.name) + '</b> · ' + escapeHtml(s.status) +
+                    (s.paused ? ' (paused)' : '') + '<br>' + escapeHtml(s.runAtText || '') +
+                    '<br><button type="button" class="btn-sm" onclick="schAction(\\'' + s.id + '\\',\\'pause\\')">Pause</button> ' +
+                    '<button type="button" class="btn-sm" onclick="schAction(\\'' + s.id + '\\',\\'resume\\')">Resume</button> ' +
+                    '<button type="button" class="btn-sm" onclick="schAction(\\'' + s.id + '\\',\\'delete\\')">Delete</button></div>'
+                ).join('') || '<span style="color:#94a3b8;">No schedules</span>';
+            });
+        }
+        function schAction(id, action) {
+            fetch('/api/schedules/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action }) })
+                .then(r => r.json()).then(() => loadSchedules());
+        }
+        function loadProducts() {
+            fetch('/api/products').then(r => r.json()).then(d => {
+                const box = document.getElementById('prdList');
+                if (!box) return;
+                box.innerHTML = (d.products || []).map(p =>
+                    '<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(p.name) + '</b> · ₹' + (p.price || 0) + ' · stock ' + (p.stock || 0) +
+                    '<br>' + escapeHtml(p.description || '') +
+                    ' <button type="button" class="btn-sm" onclick="delProduct(\\'' + p.id + '\\')">Delete</button></div>'
+                ).join('') || '<span style="color:#94a3b8;">No products</span>';
+            });
+        }
+        function saveProduct() {
+            fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                name: document.getElementById('prdName').value,
+                price: document.getElementById('prdPrice').value,
+                stock: document.getElementById('prdStock').value,
+                description: document.getElementById('prdDesc').value
+            })}).then(r => r.json()).then(d => { if (d.success) { showToast('Product saved'); loadProducts(); } else showToast(d.error || 'Fail', true); });
+        }
+        function delProduct(id) {
+            fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }) })
+                .then(() => loadProducts());
+        }
+        function loadOrders() {
+            fetch('/api/orders').then(r => r.json()).then(d => {
+                const box = document.getElementById('ordList');
+                if (!box) return;
+                box.innerHTML = (d.orders || []).map(o =>
+                    '<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(o.name || o.phone) + '</b> · ₹' + (o.amount || 0) + ' · ' + escapeHtml(o.status) +
+                    '<br>' + escapeHtml((o.items || []).map(i => i.name || i).join(', ')) +
+                    '<br><select onchange="setOrderStatus(\\'' + o.id + '\\', this.value)">' +
+                    ['New','Processing','Shipped','Delivered','Cancelled'].map(s => '<option ' + (o.status===s?'selected':'') + '>' + s + '</option>').join('') +
+                    '</select></div>'
+                ).join('') || '<span style="color:#94a3b8;">No orders</span>';
+            });
+        }
+        function createOrder() {
+            fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                phone: document.getElementById('ordPhone').value,
+                name: document.getElementById('ordName').value,
+                amount: document.getElementById('ordAmount').value,
+                items: [{ name: document.getElementById('ordItems').value }]
+            })}).then(r => r.json()).then(d => { if (d.success) { showToast('Order created'); loadOrders(); } else showToast(d.error || 'Fail', true); });
+        }
+        function setOrderStatus(id, status) {
+            fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'status', id, status }) })
+                .then(() => loadOrders());
+        }
+        function makeQuote(send) {
+            const lines = (document.getElementById('qtItems').value || '').split('\\n').map(l => l.trim()).filter(Boolean);
+            const items = lines.map(l => {
+                const p = l.split(',');
+                return { name: (p[0] || '').trim(), qty: parseFloat(p[1]) || 0, price: parseFloat(p[2]) || 0 };
+            });
+            fetch('/api/quotation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                phone: document.getElementById('qtPhone').value,
+                name: document.getElementById('qtName').value,
+                items,
+                gst: parseFloat(document.getElementById('qtGst').value) || 0,
+                send: !!send
+            })}).then(r => r.json()).then(d => {
+                document.getElementById('qtOut').textContent = d.text || d.error || '';
+                if (d.success) showToast(send ? 'Quote sent' : 'Quote ready');
+            });
+        }
+
         function openSidebar() {
             const sb = document.getElementById('sidebar');
             const ov = document.getElementById('sidebarOverlay');
@@ -2030,6 +2272,10 @@
             if (id === 'inboxSec') { startInboxPolling(); loadInboxList(); }
             if (id === 'autoReply') { loadAllSessionBots(); }
             if (id === 'proToolsSec') { loadProTools(); }
+            if (id === 'crmSec') loadCrmList();
+            if (id === 'schedulerSec') loadSchedules();
+            if (id === 'productsSec') loadProducts();
+            if (id === 'ordersSec') loadOrders();
             if (id === 'inboxSec') { loadProTools(); }
             document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
             const sec = document.getElementById(id);
