@@ -54,6 +54,10 @@ const templatesFile = __dirname + '/templates.json';
 const contactsFile = __dirname + '/contacts.json';
 const inboxFile = __dirname + '/inbox.json';
 const proFile = __dirname + '/pro.json';
+const crmFile = __dirname + '/crm.json';
+const schedFile = __dirname + '/schedules.json';
+const productsFile = __dirname + '/products.json';
+const ordersFile = __dirname + '/orders.json';
 const connectionMetaFile = __dirname + '/connection_meta.json';
 
 const MONGODB_URI = process.env.MONGODB_URI || '';
@@ -61,12 +65,12 @@ let mongoClient = null;
 let db = null;
 let useMongo = false;
 
-let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {}, inbox: { chats: {} }, pro: null };
+let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {}, inbox: { chats: {} }, pro: null, crm: null, schedules: null, products: null, orders: null };
 
 async function initMongo() {
     if (!MONGODB_URI || !MongoClient) {
         cache.contacts = getJsonFile(contactsFile) || {}; cache.templates = getJsonFile(templatesFile) || [];
-        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {}; cache.inbox = getJsonFile(inboxFile) || { chats: {} }; cache.pro = getJsonFile(proFile) || null;
+        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {}; cache.inbox = getJsonFile(inboxFile) || { chats: {} }; cache.pro = getJsonFile(proFile) || null; cache.crm = getJsonFile(crmFile) || null; cache.schedules = getJsonFile(schedFile) || null; cache.products = getJsonFile(productsFile) || null; cache.orders = getJsonFile(ordersFile) || null;
         return;
     }
     try {
@@ -95,7 +99,7 @@ async function persist(key, data) {
     if (useMongo && db) {
         try { await db.collection(key).updateOne({ _id: 'main' }, { $set: { data, updatedAt: new Date() } }, { upsert: true }); } catch (e) {}
     } else {
-        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile, inbox: inboxFile, pro: proFile };
+        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile, inbox: inboxFile, pro: proFile, crm: crmFile, schedules: schedFile, products: productsFile, orders: ordersFile };
         if (map[key]) saveJsonFile(map[key], data);
     }
 }
@@ -182,6 +186,7 @@ function pushInboxMessage({ phone, name, text, fromMe, sessionId, sessionName })
     } else {
         chat.lastAgentAt = now;
     }
+    try { touchCustomerFromMsg(phone, name || chat.name, text, fromMe); } catch (e) {}
     // keep max 200 chats
     const phones = Object.keys(inbox.chats);
     if (phones.length > 200) {
@@ -272,6 +277,66 @@ function defaultPro() {
         multiLang: true
     };
 }
+
+function getCrm() {
+    if (!cache.crm || typeof cache.crm !== 'object') cache.crm = { customers: {} };
+    if (!cache.crm.customers) cache.crm.customers = {};
+    return cache.crm;
+}
+async function saveCrm() { await persist('crm', getCrm()); }
+function getCustomer(phone) {
+    const n = normPhone(phone);
+    const crm = getCrm();
+    if (!crm.customers[n]) {
+        crm.customers[n] = {
+            phone: n, name: '', company: '', city: '', category: '',
+            status: 'New', tags: [], notes: '',
+            lastMessage: '', lastReply: '', lastMessageAt: 0, lastReplyAt: 0,
+            score: 50, scoreLabel: 'Warm',
+            createdAt: Date.now(), updatedAt: Date.now()
+        };
+    }
+    return crm.customers[n];
+}
+function touchCustomerFromMsg(phone, name, text, fromMe) {
+    try {
+        const c = getCustomer(phone);
+        if (name && name !== phone) c.name = name;
+        if (fromMe) {
+            c.lastReply = String(text).slice(0, 200);
+            c.lastReplyAt = Date.now();
+        } else {
+            c.lastMessage = String(text).slice(0, 200);
+            c.lastMessageAt = Date.now();
+            // score bump on reply
+            c.score = Math.min(100, (c.score || 50) + 5);
+            const low = String(text).toLowerCase();
+            if (/price|rate|kitna|cost/.test(low)) c.score = Math.min(100, c.score + 8);
+            if (/order|buy|book|lena/.test(low)) { c.score = Math.min(100, c.score + 12); if (c.status === 'New') c.status = 'Interested'; }
+            if (/not interested|nahi chahiye|stop/.test(low)) { c.score = Math.max(0, c.score - 20); c.status = 'Lost'; }
+        }
+        c.scoreLabel = c.score >= 75 ? 'Hot' : (c.score >= 45 ? 'Warm' : 'Cold');
+        c.updatedAt = Date.now();
+        persist('crm', getCrm());
+    } catch (e) {}
+}
+function getSchedules() {
+    if (!Array.isArray(cache.schedules)) cache.schedules = [];
+    return cache.schedules;
+}
+async function saveSchedules() { await persist('schedules', getSchedules()); }
+function getProducts() {
+    if (!Array.isArray(cache.products)) cache.products = [];
+    return cache.products;
+}
+async function saveProducts() { await persist('products', getProducts()); }
+function getOrders() {
+    if (!Array.isArray(cache.orders)) cache.orders = [];
+    return cache.orders;
+}
+async function saveOrders() { await persist('orders', getOrders()); }
+
+
 function getPro() {
     if (!cache.pro || typeof cache.pro !== 'object') cache.pro = defaultPro();
     const d = defaultPro();
@@ -1070,6 +1135,46 @@ async function startSession(sessionId, sessionName) {
                 }
             } catch (e) {}
 
+            // Keyword Automation 2.0
+            try {
+                const low = text.toLowerCase();
+                const pro = getPro();
+                // PRICE
+                if (/\b(price|rate|kitna|price list|rate list|pricing)\b/i.test(low) && text.length < 120) {
+                    let t = 'Rate list / pricing:\n';
+                    const rates = pro.quoteRates || {};
+                    const keys = Object.keys(rates);
+                    if (keys.length) t += keys.map(k => '• ' + k + ': ₹' + rates[k]).join('\n');
+                    else t += (pro.faqText || 'Rate confirm karke jaldi bhejenge. Product + quantity likhein.');
+                    await sock.sendMessage(jid, { text: t.slice(0, 3500) });
+                    pushInboxMessage({ phone, text: t.slice(0, 500), fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    return;
+                }
+                // CATALOGUE
+                if (/\b(catalog|catalogue|katalog|brochure|price list pdf)\b/i.test(low) && text.length < 100) {
+                    if (pro.catalog && pro.catalog.fileBase64) {
+                        const raw = pro.catalog.fileBase64.includes(',') ? pro.catalog.fileBase64.split(',')[1] : pro.catalog.fileBase64;
+                        const buf = Buffer.from(raw, 'base64');
+                        await sock.sendMessage(jid, { document: buf, mimetype: pro.catalog.fileMime || 'application/pdf', fileName: pro.catalog.fileName || 'catalog.pdf', caption: 'Catalogue / price list' });
+                        pushInboxMessage({ phone, text: '[Catalog sent]', fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    } else {
+                        const t = 'Catalogue ready nahi — products ke liye name likhein. Pro Tools mein catalog upload kar sakte hain.';
+                        await sock.sendMessage(jid, { text: t });
+                        pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    }
+                    return;
+                }
+                // CALL
+                if (/\b(call|phone call|call me|call karo|ring)\b/i.test(low) && text.length < 80) {
+                    const t = 'Call request note ho gaya. Team jald contact karegi. Apna best time bhej dein.';
+                    await sock.sendMessage(jid, { text: t });
+                    pushInboxMessage({ phone, text: t, fromMe: true, sessionId, sessionName: (sessions.get(sessionId) && sessions.get(sessionId).name) });
+                    try { if (typeof sendPushToAll === 'function') sendPushToAll('Call request', (pushName || phone)); } catch (e) {}
+                    try { const c = getCustomer(phone); c.status = c.status === 'New' ? 'Follow-up' : c.status; persist('crm', getCrm()); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
             // Rating 1-5
             try {
                 const m = text.trim().match(/^(?:rate|rating|star|stars)?\s*([1-5])\s*(?:\/\s*5)?$/i) || text.trim().match(/^([1-5])\s*[★⭐*]?$/);
@@ -1576,6 +1681,45 @@ async function checkFollowUps() {
     } catch (e) {}
 }
 setInterval(() => { checkFollowUps().catch(() => {}); }, 60000);
+async function checkSchedules() {
+    try {
+        const list = getSchedules();
+        const now = Date.now();
+        let changed = false;
+        for (const s of list) {
+            if (s.paused || s.status === 'done') continue;
+            if (s.runAt && s.runAt <= now && s.status === 'scheduled') {
+                s.status = 'running';
+                changed = true;
+                try {
+                    // fire via internal fetch-like: mark and notify
+                    if (typeof sendPushToAll === 'function') sendPushToAll('Scheduler', (s.name || 'Campaign') + ' due — open Campaign Sender to run payload');
+                    // auto-run if payload.numbers present
+                    if (s.payload && Array.isArray(s.payload.numbers) && s.payload.numbers.length) {
+                        console.log('[schedule] due', s.id, s.payload.numbers.length);
+                    }
+                    if (s.recurring === 'daily') {
+                        s.runAt = now + 86400000;
+                        s.runAtText = new Date(s.runAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+                        s.status = 'scheduled';
+                    } else if (s.recurring === 'weekly') {
+                        s.runAt = now + 7 * 86400000;
+                        s.runAtText = new Date(s.runAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+                        s.status = 'scheduled';
+                    } else {
+                        s.status = 'done';
+                    }
+                } catch (e) {
+                    s.status = 'error';
+                    s.error = e.message || String(e);
+                }
+            }
+        }
+        if (changed) await saveSchedules();
+    } catch (e) {}
+}
+setInterval(() => { checkSchedules().catch(() => {}); }, 30000);
+
 
 async function bootstrapSessions() {
     const meta = getMeta();
@@ -1758,6 +1902,220 @@ app.post('/update-autoreply', async (req, res) => {
     await saveBotSettingsToMeta();
     res.json({ success: true });
 });
+
+
+app.get('/api/crm', (req, res) => {
+    const crm = getCrm();
+    const list = Object.values(crm.customers || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    res.json({ success: true, customers: list });
+});
+app.get('/api/crm/:phone', (req, res) => {
+    const c = getCustomer(req.params.phone);
+    res.json({ success: true, customer: c });
+});
+app.post('/api/crm/save', async (req, res) => {
+    const b = req.body || {};
+    const n = normPhone(b.phone);
+    if (!n) return res.status(400).json({ success: false, error: 'phone required' });
+    const c = getCustomer(n);
+    if (b.name != null) c.name = String(b.name).slice(0, 80);
+    if (b.company != null) c.company = String(b.company).slice(0, 80);
+    if (b.city != null) c.city = String(b.city).slice(0, 60);
+    if (b.category != null) c.category = String(b.category).slice(0, 40);
+    if (b.status != null && ['New', 'Interested', 'Follow-up', 'Customer', 'Lost'].includes(b.status)) c.status = b.status;
+    if (Array.isArray(b.tags)) c.tags = b.tags.map(t => String(t).slice(0, 30)).slice(0, 10);
+    if (b.notes != null) c.notes = String(b.notes).slice(0, 2000);
+    if (b.score != null) {
+        c.score = Math.min(100, Math.max(0, Number(b.score) || 50));
+        c.scoreLabel = c.score >= 75 ? 'Hot' : (c.score >= 45 ? 'Warm' : 'Cold');
+    }
+    c.updatedAt = Date.now();
+    await saveCrm();
+    res.json({ success: true, customer: c });
+});
+app.post('/api/crm/segment', (req, res) => {
+    const b = req.body || {};
+    let list = Object.values(getCrm().customers || {});
+    if (b.city) list = list.filter(c => (c.city || '').toLowerCase() === String(b.city).toLowerCase());
+    if (b.tag) list = list.filter(c => (c.tags || []).map(t => t.toLowerCase()).includes(String(b.tag).toLowerCase()));
+    if (b.status) list = list.filter(c => c.status === b.status);
+    if (b.scoreMin != null) list = list.filter(c => (c.score || 0) >= Number(b.scoreMin));
+    if (b.repliedDays != null) {
+        const since = Date.now() - Number(b.repliedDays) * 86400000;
+        list = list.filter(c => (c.lastMessageAt || 0) >= since);
+    }
+    res.json({ success: true, phones: list.map(c => c.phone), count: list.length, customers: list.slice(0, 500) });
+});
+app.post('/api/crm/summary', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone' });
+    const c = getCustomer(phone);
+    const apiKey = (typeof getGeminiKey === 'function' ? getGeminiKey() : '') || '';
+    const base = 'Customer: ' + (c.name || phone) + '\\nCompany: ' + (c.company || '') + '\\nCity: ' + (c.city || '') +
+        '\\nStatus: ' + c.status + '\\nScore: ' + c.scoreLabel + ' (' + c.score + ')\\nTags: ' + (c.tags || []).join(', ') +
+        '\\nLast msg: ' + (c.lastMessage || '') + '\\nLast reply: ' + (c.lastReply || '') + '\\nNotes: ' + (c.notes || '');
+    if (!apiKey) return res.json({ success: true, summary: base });
+    try {
+        const prompt = 'Write a short Hindi/Hinglish CRM summary (4-6 lines): what customer asked, interest, suggested next follow-up date.\\n\\n' + base;
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(apiKey);
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 400 } }) });
+        const data = await r.json();
+        let summary = base;
+        try { summary = data.candidates[0].content.parts.map(p => p.text || '').join('').trim() || base; } catch (e) {}
+        res.json({ success: true, summary });
+    } catch (e) {
+        res.json({ success: true, summary: base });
+    }
+});
+
+app.get('/api/schedules', (req, res) => res.json({ success: true, schedules: getSchedules() }));
+app.post('/api/schedules', async (req, res) => {
+    const b = req.body || {};
+    const item = {
+        id: 'sch_' + Date.now(),
+        name: String(b.name || 'Scheduled campaign').slice(0, 80),
+        runAt: Number(b.runAt) || Date.parse(b.runAtIso || '') || 0,
+        runAtText: b.runAtText || new Date(Number(b.runAt) || Date.now()).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        recurring: b.recurring || null, // daily|weekly|null
+        payload: b.payload || {},
+        status: 'scheduled',
+        paused: false
+    };
+    if (!item.runAt) return res.status(400).json({ success: false, error: 'runAt required' });
+    const list = getSchedules();
+    list.push(item);
+    await saveSchedules();
+    res.json({ success: true, schedule: item });
+});
+app.post('/api/schedules/action', async (req, res) => {
+    const id = req.body && req.body.id;
+    const action = req.body && req.body.action;
+    const list = getSchedules();
+    const item = list.find(x => x.id === id);
+    if (!item) return res.status(404).json({ success: false, error: 'not found' });
+    if (action === 'pause') item.paused = true;
+    if (action === 'resume') item.paused = false;
+    if (action === 'delete') {
+        const i = list.findIndex(x => x.id === id);
+        if (i >= 0) list.splice(i, 1);
+    }
+    await saveSchedules();
+    res.json({ success: true, schedules: list });
+});
+
+app.get('/api/products', (req, res) => res.json({ success: true, products: getProducts() }));
+app.post('/api/products', async (req, res) => {
+    const b = req.body || {};
+    if (b.action === 'delete') {
+        cache.products = getProducts().filter(p => p.id !== b.id);
+        await saveProducts();
+        return res.json({ success: true, products: getProducts() });
+    }
+    const p = {
+        id: b.id || ('prd_' + Date.now()),
+        name: String(b.name || '').slice(0, 80),
+        price: Number(b.price) || 0,
+        description: String(b.description || '').slice(0, 500),
+        stock: Number(b.stock) || 0,
+        photo: b.photo ? String(b.photo).slice(0, 2 * 1024 * 1024) : ''
+    };
+    if (!p.name) return res.status(400).json({ success: false, error: 'name required' });
+    const list = getProducts();
+    const ix = list.findIndex(x => x.id === p.id);
+    if (ix >= 0) list[ix] = { ...list[ix], ...p };
+    else list.push(p);
+    await saveProducts();
+    res.json({ success: true, product: p, products: list });
+});
+
+app.get('/api/orders', (req, res) => res.json({ success: true, orders: getOrders() }));
+app.post('/api/orders', async (req, res) => {
+    const b = req.body || {};
+    if (b.action === 'status') {
+        const o = getOrders().find(x => x.id === b.id);
+        if (!o) return res.status(404).json({ success: false, error: 'not found' });
+        if (['New', 'Processing', 'Shipped', 'Delivered', 'Cancelled'].includes(b.status)) o.status = b.status;
+        o.updatedAt = Date.now();
+        await saveOrders();
+        return res.json({ success: true, order: o });
+    }
+    if (b.action === 'delete') {
+        cache.orders = getOrders().filter(x => x.id !== b.id);
+        await saveOrders();
+        return res.json({ success: true });
+    }
+    const order = {
+        id: 'ord_' + Date.now(),
+        phone: normPhone(b.phone),
+        name: String(b.name || '').slice(0, 80),
+        items: Array.isArray(b.items) ? b.items.slice(0, 20) : [],
+        amount: Number(b.amount) || 0,
+        status: 'New',
+        paymentStatus: b.paymentStatus || 'Unpaid',
+        dueDate: b.dueDate || '',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+    };
+    getOrders().unshift(order);
+    if (getOrders().length > 500) cache.orders = getOrders().slice(0, 500);
+    await saveOrders();
+    try { const c = getCustomer(order.phone); c.status = 'Customer'; persist('crm', getCrm()); } catch (e) {}
+    res.json({ success: true, order });
+});
+
+app.post('/api/quotation', async (req, res) => {
+    const b = req.body || {};
+    const phone = normPhone(b.phone);
+    const items = Array.isArray(b.items) ? b.items : [];
+    const gst = Number(b.gst) || 0;
+    let sub = 0;
+    items.forEach(it => { sub += (Number(it.qty) || 0) * (Number(it.price) || 0); });
+    const gstAmt = sub * gst / 100;
+    const total = sub + gstAmt;
+    const lines = [
+        'QUOTATION',
+        'Customer: ' + (b.name || phone),
+        'Date: ' + new Date().toLocaleDateString('en-IN'),
+        '----------'
+    ];
+    items.forEach(it => lines.push((it.name || 'Item') + ' x ' + (it.qty || 0) + ' @ ₹' + (it.price || 0) + ' = ₹' + ((it.qty || 0) * (it.price || 0))));
+    lines.push('Subtotal: ₹' + sub);
+    if (gst) lines.push('GST ' + gst + '%: ₹' + gstAmt.toFixed(2));
+    lines.push('Total: ₹' + total.toFixed(2));
+    lines.push('----------');
+    lines.push(b.note || 'Prices subject to confirmation.');
+    const text = lines.join('\\n');
+    if (b.send && phone) {
+        const sock = getSelectedOrRandomSock(null);
+        if (!sock) return res.status(400).json({ success: false, error: 'WA offline', text });
+        let p = phone; if (p.length === 10) p = '91' + p;
+        await sock.sendMessage(p + '@s.whatsapp.net', { text });
+        pushInboxMessage({ phone, text, fromMe: true });
+    }
+    res.json({ success: true, text, sub, gstAmt, total });
+});
+
+app.post('/api/templates/duplicate', async (req, res) => {
+    const id = req.body && req.body.id;
+    const templates = getTemplates();
+    const t = templates.find(x => x.id === id || x.name === id);
+    if (!t) return res.status(404).json({ success: false, error: 'template not found' });
+    const copy = { ...t, id: 'tpl_' + Date.now(), name: (t.name || 'Template') + ' (copy)', category: t.category || 'Sales' };
+    templates.push(copy);
+    await persist('templates', templates);
+    res.json({ success: true, template: copy });
+});
+app.post('/api/templates/category', async (req, res) => {
+    const id = req.body && req.body.id;
+    const category = String((req.body && req.body.category) || 'Sales');
+    const templates = getTemplates();
+    const t = templates.find(x => x.id === id);
+    if (!t) return res.status(404).json({ success: false, error: 'not found' });
+    t.category = category;
+    await persist('templates', templates);
+    res.json({ success: true });
+});
+
 
 app.get('/api/pro', (req, res) => {
     const pro = getPro();
