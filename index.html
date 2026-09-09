@@ -2170,13 +2170,17 @@
             fetch('/api/schedules').then(r => r.json()).then(d => {
                 const box = document.getElementById('schList');
                 if (!box) return;
-                box.innerHTML = (d.schedules || []).slice().reverse().map(s =>
-                    '<div style="padding:10px;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(s.name) + '</b> · ' + escapeHtml(s.status) +
+                box.innerHTML = (d.schedules || []).slice().reverse().map(s => {
+                    const id = String(s.id || '');
+                    return '<div style="padding:10px;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(s.name) + '</b> · ' + escapeHtml(s.status) +
                     (s.paused ? ' (paused)' : '') + '<br>' + escapeHtml(s.runAtText || '') +
-                    '<br><button type="button" class="btn-sm" onclick="schAction(\\'' + s.id + '\\',\\'pause\\')">Pause</button> ' +
-                    '<button type="button" class="btn-sm" onclick="schAction(\\'' + s.id + '\\',\\'resume\\')">Resume</button> ' +
-                    '<button type="button" class="btn-sm" onclick="schAction(\\'' + s.id + '\\',\\'delete\\')">Delete</button></div>'
-                ).join('') || '<span style="color:#94a3b8;">No schedules</span>';
+                    '<br><button type="button" class="btn-sm sch-btn" data-id="' + id + '" data-act="pause">Pause</button> ' +
+                    '<button type="button" class="btn-sm sch-btn" data-id="' + id + '" data-act="resume">Resume</button> ' +
+                    '<button type="button" class="btn-sm sch-btn" data-id="' + id + '" data-act="delete">Delete</button></div>';
+                }).join('') || '<span style="color:#94a3b8;">No schedules</span>';
+                box.querySelectorAll('.sch-btn').forEach(btn => {
+                    btn.onclick = () => schAction(btn.getAttribute('data-id'), btn.getAttribute('data-act'));
+                });
             });
         }
         function schAction(id, action) {
@@ -2187,11 +2191,15 @@
             fetch('/api/products').then(r => r.json()).then(d => {
                 const box = document.getElementById('prdList');
                 if (!box) return;
-                box.innerHTML = (d.products || []).map(p =>
-                    '<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(p.name) + '</b> · ₹' + (p.price || 0) + ' · stock ' + (p.stock || 0) +
+                box.innerHTML = (d.products || []).map(p => {
+                    const id = String(p.id || '');
+                    return '<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(p.name) + '</b> · ₹' + (p.price || 0) + ' · stock ' + (p.stock || 0) +
                     '<br>' + escapeHtml(p.description || '') +
-                    ' <button type="button" class="btn-sm" onclick="delProduct(\\'' + p.id + '\\')">Delete</button></div>'
-                ).join('') || '<span style="color:#94a3b8;">No products</span>';
+                    ' <button type="button" class="btn-sm prd-del" data-id="' + id + '">Delete</button></div>';
+                }).join('') || '<span style="color:#94a3b8;">No products</span>';
+                box.querySelectorAll('.prd-del').forEach(btn => {
+                    btn.onclick = () => delProduct(btn.getAttribute('data-id'));
+                });
             });
         }
         function saveProduct() {
@@ -2210,13 +2218,18 @@
             fetch('/api/orders').then(r => r.json()).then(d => {
                 const box = document.getElementById('ordList');
                 if (!box) return;
-                box.innerHTML = (d.orders || []).map(o =>
-                    '<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(o.name || o.phone) + '</b> · ₹' + (o.amount || 0) + ' · ' + escapeHtml(o.status) +
+                box.innerHTML = (d.orders || []).map(o => {
+                    const id = String(o.id || '');
+                    const opts = ['New','Processing','Shipped','Delivered','Cancelled'].map(s =>
+                        '<option value="' + s + '"' + (o.status===s ? ' selected' : '') + '>' + s + '</option>'
+                    ).join('');
+                    return '<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(o.name || o.phone) + '</b> · ₹' + (o.amount || 0) + ' · ' + escapeHtml(o.status) +
                     '<br>' + escapeHtml((o.items || []).map(i => i.name || i).join(', ')) +
-                    '<br><select onchange="setOrderStatus(\\'' + o.id + '\\', this.value)">' +
-                    ['New','Processing','Shipped','Delivered','Cancelled'].map(s => '<option ' + (o.status===s?'selected':'') + '>' + s + '</option>').join('') +
-                    '</select></div>'
-                ).join('') || '<span style="color:#94a3b8;">No orders</span>';
+                    '<br><select class="ord-status" data-id="' + id + '">' + opts + '</select></div>';
+                }).join('') || '<span style="color:#94a3b8;">No orders</span>';
+                box.querySelectorAll('.ord-status').forEach(sel => {
+                    sel.onchange = () => setOrderStatus(sel.getAttribute('data-id'), sel.value);
+                });
             });
         }
         function createOrder() {
