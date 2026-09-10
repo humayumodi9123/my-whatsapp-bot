@@ -130,6 +130,74 @@ function getTemplates() { return cache.templates || []; }
 function getContacts() { return cache.contacts || {}; }
 function getMeta() { return cache.meta || {}; }
 
+function getCloudAPI() {
+    const m = getMeta() || {};
+    return {
+        enabled: !!m.waCloudEnabled,
+        token: m.waCloudToken || process.env.WA_CLOUD_TOKEN || '',
+        phoneNumberId: m.waCloudPhoneNumberId || process.env.WA_CLOUD_PHONE_ID || '',
+        wabaId: m.waCloudWabaId || process.env.WA_CLOUD_WABA_ID || '',
+        apiVersion: m.waCloudApiVersion || 'v21.0'
+    };
+}
+function cloudAPIReady() {
+    const c = getCloudAPI();
+    return !!(c.enabled && c.token && c.phoneNumberId);
+}
+async function sendCloudText(toPhone10, text) {
+    const c = getCloudAPI();
+    if (!c.token || !c.phoneNumberId) throw new Error('Cloud API not configured');
+    let to = String(toPhone10 || '').replace(/\D/g, '');
+    if (to.length === 10) to = '91' + to;
+    const url = 'https://graph.facebook.com/' + c.apiVersion + '/' + c.phoneNumberId + '/messages';
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + c.token,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to,
+            type: 'text',
+            text: { preview_url: false, body: String(text || '').slice(0, 4096) }
+        })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+        const msg = (data.error && data.error.message) || ('Cloud API HTTP ' + r.status);
+        throw new Error(msg);
+    }
+    return data;
+}
+async function sendCloudTemplate(toPhone10, templateName, languageCode, components) {
+    const c = getCloudAPI();
+    let to = String(toPhone10 || '').replace(/\D/g, '');
+    if (to.length === 10) to = '91' + to;
+    const url = 'https://graph.facebook.com/' + c.apiVersion + '/' + c.phoneNumberId + '/messages';
+    const body = {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+            name: templateName,
+            language: { code: languageCode || 'en_US' }
+        }
+    };
+    if (components && components.length) body.template.components = components;
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + c.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((data.error && data.error.message) || ('Cloud template HTTP ' + r.status));
+    return data;
+}
+
+
+
 function getInbox() {
     if (!cache.inbox || typeof cache.inbox !== 'object') cache.inbox = { chats: {} };
     if (!cache.inbox.chats) cache.inbox.chats = {};
@@ -3642,10 +3710,190 @@ app.post('/api/validate-numbers', async (req, res) => {
     res.json({ success: true, valid, invalid: invalidCount, duplicatesRemoved, total: raw.length, validCount: valid.length });
 });
 
+
+app.get('/api/wa-cloud', (req, res) => {
+    const c = getCloudAPI();
+    res.json({
+        success: true,
+        enabled: c.enabled,
+        hasToken: !!c.token,
+        phoneNumberId: c.phoneNumberId || '',
+        wabaId: c.wabaId || '',
+        apiVersion: c.apiVersion,
+        ready: cloudAPIReady(),
+        tokenPreview: c.token ? (c.token.slice(0, 8) + '…' + c.token.slice(-4)) : null
+    });
+});
+app.post('/api/wa-cloud', async (req, res) => {
+    const meta = { ...getMeta() };
+    const b = req.body || {};
+    if (typeof b.enabled === 'boolean') meta.waCloudEnabled = b.enabled;
+    if (b.token != null) {
+        const t = String(b.token).trim();
+        if (!t) delete meta.waCloudToken; else meta.waCloudToken = t;
+    }
+    if (b.phoneNumberId != null) meta.waCloudPhoneNumberId = String(b.phoneNumberId).trim();
+    if (b.wabaId != null) meta.waCloudWabaId = String(b.wabaId).trim();
+    if (b.apiVersion) meta.waCloudApiVersion = String(b.apiVersion).trim();
+    await persist('meta', meta);
+    const c = getCloudAPI();
+    res.json({ success: true, ready: cloudAPIReady(), enabled: c.enabled, hasToken: !!c.token, phoneNumberId: c.phoneNumberId });
+});
+app.post('/api/wa-cloud/test', async (req, res) => {
+    try {
+        if (!cloudAPIReady()) return res.status(400).json({ success: false, error: 'Cloud API not ready' });
+        const phone = normPhone(req.body && req.body.phone);
+        if (!phone) return res.status(400).json({ success: false, error: 'phone required' });
+        const text = String((req.body && req.body.message) || 'WhatsApp Cloud API test from your bot ✅');
+        const data = await sendCloudText(phone, text);
+        pushInboxMessage({ phone, text, fromMe: true, sessionId: 'cloud', sessionName: 'Cloud API' });
+        res.json({ success: true, data });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message || 'test fail' });
+    }
+});
+// Meta webhook verify + receive
+app.get('/api/wa-webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    const verify = (getMeta().waCloudVerifyToken || 'wa_bot_verify');
+    if (mode === 'subscribe' && token === verify) return res.status(200).send(challenge);
+    res.sendStatus(403);
+});
+app.post('/api/wa-webhook', async (req, res) => {
+    res.sendStatus(200);
+    try {
+        const body = req.body || {};
+        const entries = body.entry || [];
+        for (const entry of entries) {
+            const changes = (entry.changes || []);
+            for (const ch of changes) {
+                const val = ch.value || {};
+                const msgs = val.messages || [];
+                for (const m of msgs) {
+                    const from = String(m.from || '').replace(/\\D/g, '').slice(-10);
+                    let text = '';
+                    if (m.type === 'text') text = (m.text && m.text.body) || '';
+                    else text = '[' + (m.type || 'msg') + ']';
+                    if (from && text) {
+                        pushInboxMessage({ phone: from, text, fromMe: false, sessionId: 'cloud', sessionName: 'Cloud API' });
+                    }
+                }
+            }
+        }
+    } catch (e) { console.error('wa webhook', e.message || e); }
+});
+
+
 app.post('/send', async (req, res) => {
-    if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp कनेक्ट नहीं है!' });
-    const { numbers, message, minDelay, maxDelay, imageBase64, attachments: reqAttachments, templates, sessionIds, customBatch, customRestHours } = req.body;
+    const { numbers, message, minDelay, maxDelay, imageBase64, attachments: reqAttachments, templates, sessionIds, customBatch, customRestHours, sendMode } = req.body;
     if (!Array.isArray(numbers) || numbers.length === 0) return res.status(400).json({ success: false, error: 'Number list empty!' });
+
+    // sendMode: qr | cloud | auto
+    let mode = String(sendMode || 'auto').toLowerCase();
+    if (mode === 'auto') mode = cloudAPIReady() && !anyConnected() ? 'cloud' : (anyConnected() ? 'qr' : (cloudAPIReady() ? 'cloud' : 'qr'));
+
+    if (mode === 'cloud') {
+        if (!cloudAPIReady()) return res.status(400).json({ success: false, error: 'Cloud API configure nahi — Devices mein Token + Phone Number ID save karo' });
+        // Cloud campaign path (text / simple templates only)
+        const seenPhone = new Set(); let uniqueNumbers = [];
+        for (const n of numbers) {
+            const p = String(n.phone || '').replace(/\D/g, '').slice(-10);
+            if (p.length === 10 && !seenPhone.has(p)) {
+                if (getPro().geoIndiaOnly !== false && !isIndiaPhone(p)) continue;
+                seenPhone.add(p); uniqueNumbers.push({ phone: p, name: n.name || 'Customer' });
+            }
+        }
+        if (!uniqueNumbers.length) return res.status(400).json({ success: false, error: 'Valid numbers nahi' });
+
+        const campaignId = 'cloud_' + Date.now();
+        const camp = {
+            id: campaignId,
+            name: 'Cloud API · ' + (message ? 'Text' : 'Campaign'),
+            cancelFlag: false,
+            isActive: true,
+            isPaused: false,
+            total: uniqueNumbers.length,
+            sent: 0,
+            failed: 0,
+            pending: uniqueNumbers.length,
+            numbers: uniqueNumbers.map(n => ({ phone: n.phone, name: n.name, status: 'Pending ⏳', state: 'pending', session: 'Cloud API', template: null })),
+            status: 'sending',
+            restReason: '',
+            resumeAt: null,
+            batchSize: 30,
+            restHours: '0',
+            sessionIds: ['cloud'],
+            sessions: [{ id: 'cloud', name: 'Cloud API', resting: false }],
+            sendMode: 'cloud'
+        };
+        if (!global.activeCampaigns) global.activeCampaigns = new Map();
+        // use same structure as QR campaigns if exists
+        let campsMap = null;
+        try {
+            // find activeCampaigns variable
+        } catch (e) {}
+
+        const minD = Math.max(3, parseInt(minDelay) || 5);
+        const maxD = Math.max(minD + 2, parseInt(maxDelay) || 12);
+
+        try { liveCampaigns.set(campaignId, camp); } catch (e) {}
+        res.json({ success: true, message: 'Cloud API campaign started', campaignId, mode: 'cloud', willSend: uniqueNumbers.length });
+
+        (async () => {
+
+            for (let i = 0; i < uniqueNumbers.length; i++) {
+                if (camp.cancelFlag || !camp.isActive) break;
+                while (camp.isPaused) await new Promise(r => setTimeout(r, 2000));
+                const num = uniqueNumbers[i];
+                const customerName = num.name || 'Customer';
+                let finalMessage = '';
+                let tplName = '';
+                if (Array.isArray(templates) && templates.length) {
+                    const tpl = templates[i % templates.length];
+                    tplName = tpl.name || '';
+                    finalMessage = (tpl.message || '').replace(/\[Name\]/gi, customerName);
+                } else {
+                    finalMessage = (message || '').replace(/\[Name\]/gi, customerName);
+                }
+                if (!finalMessage) finalMessage = 'Hello ' + customerName;
+                try {
+                    await sendCloudText(num.phone, finalMessage);
+                    camp.sent++; camp.pending = Math.max(0, camp.pending - 1);
+                    if (camp.numbers[i]) { camp.numbers[i].status = 'Sent ✅ Cloud'; camp.numbers[i].state = 'sent'; camp.numbers[i].template = tplName; }
+                    try {
+                        const stats = getStats();
+                        const day = new Date().toLocaleDateString('en-CA');
+                        if (!stats[day]) stats[day] = { sent: 0, failed: 0 };
+                        stats[day].sent++;
+                        persist('stats', stats);
+                    } catch (e) {}
+                    pushInboxMessage({ phone: num.phone, name: customerName, text: finalMessage, fromMe: true, sessionId: 'cloud', sessionName: 'Cloud API' });
+                } catch (e) {
+                    camp.failed++; camp.pending = Math.max(0, camp.pending - 1);
+                    if (camp.numbers[i]) { camp.numbers[i].status = 'Failed ❌ ' + (e.message || '').slice(0, 40); camp.numbers[i].state = 'failed'; }
+                    try {
+                        const stats = getStats();
+                        const day = new Date().toLocaleDateString('en-CA');
+                        if (!stats[day]) stats[day] = { sent: 0, failed: 0 };
+                        stats[day].failed++;
+                        persist('stats', stats);
+                    } catch (e2) {}
+                }
+                const wait = minD + Math.floor(Math.random() * Math.max(1, maxD - minD));
+                await new Promise(r => setTimeout(r, wait * 1000));
+            }
+            camp.status = 'done';
+            camp.isActive = false;
+            camp.restReason = 'Cloud campaign finished';
+        })().catch(e => console.error('cloud campaign', e));
+
+        return;
+    }
+
+    // QR / Baileys mode
+    if (!anyConnected()) return res.status(400).json({ success: false, error: 'WhatsApp QR connect nahi hai! Devices se QR link karo ya Cloud API mode use karo.' });
 
     let selectedIds = Array.isArray(sessionIds) && sessionIds.length ? sessionIds : Array.from(sessions.values()).filter(s => s.connected).map(s => s.id);
     selectedIds = selectedIds.filter(id => { const s = getSession(id); return s && s.connected && s.sock; });
