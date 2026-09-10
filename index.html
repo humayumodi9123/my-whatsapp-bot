@@ -390,6 +390,9 @@
             <button class="sidebar-btn" onclick="showSection('productsSec', this)">📦 Products</button>
             <button class="sidebar-btn" onclick="showSection('ordersSec', this)">🛒 Orders</button>
             <button class="sidebar-btn" onclick="showSection('quoteSec', this)">💰 Quotation</button>
+            <button class="sidebar-btn" onclick="showSection('invoiceSec', this)">🧾 Invoices</button>
+            <button class="sidebar-btn" onclick="showSection('teamSec', this)">👤 Team</button>
+            <button class="sidebar-btn" onclick="showSection('trackSec', this)">🔗 Link Tracking</button>
             <button class="sidebar-btn" onclick="showSection('liveTrackingSec', this)">📡 Live Tracking</button>
             <button class="sidebar-btn" onclick="showSection('historySec', this)">📈 Analytics / History</button>
             <button class="sidebar-btn" onclick="showSection('contactBook', this)">📇 Contacts</button>
@@ -745,8 +748,55 @@
 
         <!-- 7. Smart Auto Reply -->
         <div id="aiStudioSec" class="content-section">
-            <h2 class="section-title">✨ AI Studio (Gemini only)</h2>
-            <p style="font-size:13px;color:#64748b;margin:0 0 16px;line-height:1.5;">Sirf <b>Gemini API</b> — WhatsApp text messages aur HTML flyer. Photo ke liye gallery se template mein attach karo.</p>
+            <h2 class="section-title">✨ AI Studio (OpenAI / Gemini)</h2>
+            <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:14px;padding:14px;margin-bottom:14px;">
+                <label style="font-weight:700;">AI Provider</label>
+                <select id="aiProvider" style="margin-top:6px;">
+                    <option value="openai">OpenAI (GPT)</option>
+                    <option value="gemini">Google Gemini</option>
+                </select>
+                <label style="font-weight:700;margin-top:10px;display:block;">OpenAI API Key</label>
+                <p style="font-size:12px;margin:4px 0 6px;line-height:1.45;">
+                    Key yahan se banao:
+                    <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" style="color:#0284c7;font-weight:700;">platform.openai.com/api-keys</a>
+                    · Account:
+                    <a href="https://platform.openai.com/signup" target="_blank" rel="noopener" style="color:#0284c7;">Sign up</a>
+                    · Billing:
+                    <a href="https://platform.openai.com/settings/organization/billing" target="_blank" rel="noopener" style="color:#0284c7;">Billing</a>
+                </p>
+                <input id="openaiKeyInput" type="password" placeholder="sk-..." style="margin-top:4px;">
+                <label style="font-weight:700;margin-top:10px;display:block;">OpenAI model (chat)</label>
+                <select id="openaiModel">
+                    <option value="gpt-4o-mini">gpt-4o-mini (cheap bulk)</option>
+                    <option value="gpt-4o">gpt-4o</option>
+                    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                </select>
+                <label style="font-weight:700;margin-top:10px;display:block;">Bulk model</label>
+                <select id="openaiBulkModel">
+                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                </select>
+
+                <label style="font-weight:700;margin-top:14px;display:block;">Google Search API Key (optional — live Google data)</label>
+                <p style="font-size:12px;margin:4px 0 6px;line-height:1.45;">
+                    1) API enable + key:
+                    <a href="https://console.cloud.google.com/apis/library/customsearch.googleapis.com" target="_blank" rel="noopener" style="color:#0284c7;font-weight:700;">Custom Search API</a>
+                    ·
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:#0284c7;font-weight:700;">Create API key</a><br>
+                    2) Search Engine (CX) banao:
+                    <a href="https://programmablesearchengine.google.com/controlpanel/create" target="_blank" rel="noopener" style="color:#0284c7;font-weight:700;">Programmable Search Engine</a>
+                    · Guide:
+                    <a href="https://developers.google.com/custom-search/v1/overview" target="_blank" rel="noopener" style="color:#0284c7;">Docs</a>
+                </p>
+                <input id="googleSearchKey" type="password" placeholder="Google API key" style="margin-top:4px;">
+                <label style="font-weight:700;margin-top:10px;display:block;">Search Engine CX id</label>
+                <p style="font-size:11px;color:#64748b;margin:4px 0;">CX control panel → Overview → Search engine ID (jaise <code>a1b2c3d4e5f6g7h8i</code>)</p>
+                <input id="googleSearchCx" placeholder="CX id paste karo" style="margin-top:4px;">
+                <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:600;"><input type="checkbox" id="aiWebSearch"> Generate pe Google search use karo</label>
+                <button type="button" class="action-btn btn-primary btn-sm" style="margin-top:10px;" onclick="saveAiProviderSettings()">Save AI settings</button>
+                <p id="aiProviderStatus" style="font-size:12px;color:#64748b;margin:8px 0 0;">Status: …</p>
+            </div>
+            <p style="font-size:13px;color:#64748b;margin:0 0 16px;line-height:1.5;"><b>OpenAI</b> ya <b>Gemini</b> — dono se text/HTML flyer. Google Search optional (fresh web info). Photo template mein attach karo.</p>
 
             <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:16px;margin-bottom:18px;">
                 <label style="font-weight:700;color:#1e293b;">🔑 Gemini API Key</label>
@@ -869,6 +919,7 @@
                         <button type="button" class="btn-sm" style="background:#e5e7eb;color:#374151;border:none;border-radius:8px;padding:4px 8px;cursor:pointer;" onclick="setChatLabel('closed')">Closed</button>
                         <button type="button" class="btn-sm" style="background:#fce7f3;color:#9d174d;border:none;border-radius:8px;padding:4px 8px;cursor:pointer;" onclick="askRating()">Rating</button>
                         <button type="button" class="btn-sm" style="background:#ecfdf5;color:#047857;border:none;border-radius:8px;padding:4px 8px;cursor:pointer;" onclick="translateLastMsg()">हिंदी</button>
+                        <button type="button" class="btn-sm" style="background:#e2e8f0;color:#334155;border:none;border-radius:8px;padding:4px 8px;cursor:pointer;" onclick="archiveCurrentChat()">Archive</button>
                         <button type="button" class="btn-sm" style="background:#fee2e2;color:#b91c1c;border:none;border-radius:8px;padding:4px 8px;cursor:pointer;" onclick="blacklistCurrentChat()">Block</button>
                     </div>
                     <div style="display:flex;gap:8px;padding:10px;border-top:1px solid #e2e8f0;background:#f0f2f5;">
@@ -1107,6 +1158,42 @@
         </div>
 
 
+
+        <div id="invoiceSec" class="content-section">
+            <h2 class="section-title">Invoices</h2>
+            <input id="invPhone" placeholder="Phone" style="margin-bottom:8px;">
+            <input id="invName" placeholder="Name" style="margin-bottom:8px;">
+            <input id="invAmount" type="number" placeholder="Amount" style="margin-bottom:8px;">
+            <input id="invGst" type="number" placeholder="GST %" value="18" style="margin-bottom:8px;">
+            <input id="invDue" type="date" style="margin-bottom:8px;">
+            <button type="button" class="action-btn btn-success btn-sm" onclick="createInvoice(false)">Create</button>
+            <button type="button" class="action-btn btn-primary btn-sm" onclick="createInvoice(true)">Create + Send WA</button>
+            <div id="invList" style="margin-top:14px;font-size:13px;"></div>
+            <div id="stockAlertBox" style="margin-top:14px;font-size:13px;color:#b91c1c;"></div>
+        </div>
+        <div id="teamSec" class="content-section">
+            <h2 class="section-title">Team / Staff</h2>
+            <input id="teamUser" placeholder="Username" style="margin-bottom:8px;">
+            <input id="teamPin" placeholder="PIN" style="margin-bottom:8px;">
+            <select id="teamRole" style="margin-bottom:8px;">
+                <option value="admin">Admin</option>
+                <option value="manager">Manager</option>
+                <option value="sales">Sales</option>
+            </select>
+            <button type="button" class="action-btn btn-success btn-sm" onclick="saveTeamUser()">Save user</button>
+            <div id="teamList" style="margin-top:14px;font-size:13px;"></div>
+            <p style="font-size:12px;color:#64748b;">Roles: admin full · manager CRM/campaign · sales inbox/orders. PIN alag se dashboard PIN ho sakta hai.</p>
+        </div>
+        <div id="trackSec" class="content-section">
+            <h2 class="section-title">Link Tracking</h2>
+            <input id="trackUrl" placeholder="https://your-site.com/offer" style="margin-bottom:8px;">
+            <input id="trackCamp" placeholder="Campaign name" style="margin-bottom:8px;">
+            <button type="button" class="action-btn btn-primary btn-sm" onclick="createTrackLink()">Create short link</button>
+            <p id="trackOut" style="font-size:13px;margin-top:10px;"></p>
+            <div id="trackList" style="margin-top:12px;font-size:13px;"></div>
+            <div id="deviceHealthBox" style="margin-top:16px;font-size:13px;"></div>
+        </div>
+
         <div id="crmSec" class="content-section">
             <h2 class="section-title">CRM / Customers</h2>
             <p style="font-size:13px;color:#64748b;">Name, company, city, category · Status pipeline · Tags · Score · Last msg</p>
@@ -1118,6 +1205,11 @@
                 </select>
                 <button type="button" class="action-btn btn-primary btn-sm" onclick="loadCrmList()">Refresh</button>
             </div>
+            <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <button type="button" class="action-btn btn-primary btn-sm" onclick="loadCrmList()">List view</button>
+                <button type="button" class="action-btn btn-success btn-sm" onclick="loadCrmKanban()">Kanban board</button>
+            </div>
+            <div id="crmKanban" style="display:none;overflow:auto;margin-bottom:14px;"></div>
             <div id="crmList" style="font-size:13px;"></div>
             <div style="margin-top:16px;padding:14px;background:#f8fafc;border-radius:14px;border:1px solid #e2e8f0;">
                 <div style="font-weight:800;margin-bottom:8px;">Edit customer</div>
@@ -1130,6 +1222,8 @@
                     <option>New</option><option>Interested</option><option>Follow-up</option><option>Customer</option><option>Lost</option>
                 </select>
                 <input id="crmTags" placeholder="Tags: Retailer, Wholesaler, VIP" style="margin-bottom:8px;">
+                <input id="crmDeal" type="number" placeholder="Deal value ₹" style="margin-bottom:8px;">
+                <input id="crmFollowUp" type="datetime-local" style="margin-bottom:8px;">
                 <textarea id="crmNotes" style="height:70px;" placeholder="Customer notes"></textarea>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
                     <button type="button" class="action-btn btn-success btn-sm" onclick="saveCrmCustomer()">Save CRM</button>
@@ -2095,48 +2189,6 @@
         });
 
 
-        function loadCrmList() {
-            fetch('/api/crm').then(r => r.json()).then(d => {
-                let list = d.customers || [];
-                const q = ((document.getElementById('crmSearch') || {}).value || '').toLowerCase();
-                const st = (document.getElementById('crmStatusFilter') || {}).value || '';
-                if (st) list = list.filter(c => c.status === st);
-                if (q) list = list.filter(c => JSON.stringify(c).toLowerCase().includes(q));
-                const box = document.getElementById('crmList');
-                if (!box) return;
-                box.innerHTML = list.slice(0, 80).map(c => {
-                    const sc = c.scoreLabel === 'Hot' ? '🔥' : (c.scoreLabel === 'Cold' ? '🔵' : '🟡');
-                    return '<div onclick=\'fillCrm(' + JSON.stringify(c) + ')\' style="padding:10px;border-bottom:1px solid #e2e8f0;cursor:pointer;">' +
-                        '<b>' + escapeHtml(c.name || c.phone) + '</b> ' + sc + ' ' + (c.score || 0) +
-                        ' · <span style="color:#0369a1;">' + escapeHtml(c.status || '') + '</span>' +
-                        '<br><span style="color:#64748b;">' + escapeHtml([c.company, c.city, (c.tags || []).join(', ')].filter(Boolean).join(' · ')) + '</span>' +
-                        '<br><span style="color:#94a3b8;font-size:11px;">Last: ' + escapeHtml((c.lastMessage || '').slice(0, 60)) + '</span></div>';
-                }).join('') || '<span style="color:#94a3b8;">No customers yet — chats aayenge to auto create</span>';
-            }).catch(() => {});
-        }
-        function fillCrm(c) {
-            document.getElementById('crmPhone').value = c.phone || '';
-            document.getElementById('crmName').value = c.name || '';
-            document.getElementById('crmCompany').value = c.company || '';
-            document.getElementById('crmCity').value = c.city || '';
-            document.getElementById('crmCategory').value = c.category || '';
-            document.getElementById('crmStatus').value = c.status || 'New';
-            document.getElementById('crmTags').value = (c.tags || []).join(', ');
-            document.getElementById('crmNotes').value = c.notes || '';
-        }
-        function saveCrmCustomer() {
-            const tags = ((document.getElementById('crmTags') || {}).value || '').split(/[,]/).map(s => s.trim()).filter(Boolean);
-            fetch('/api/crm/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-                phone: document.getElementById('crmPhone').value,
-                name: document.getElementById('crmName').value,
-                company: document.getElementById('crmCompany').value,
-                city: document.getElementById('crmCity').value,
-                category: document.getElementById('crmCategory').value,
-                status: document.getElementById('crmStatus').value,
-                tags,
-                notes: document.getElementById('crmNotes').value
-            })}).then(r => r.json()).then(d => { if (d.success) { showToast('CRM saved'); loadCrmList(); } else showToast(d.error || 'Fail', true); });
-        }
         function crmAiSummary() {
             fetch('/api/crm/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: document.getElementById('crmPhone').value }) })
                 .then(r => r.json()).then(d => { document.getElementById('crmSummaryOut').textContent = d.summary || ''; });
@@ -2159,11 +2211,18 @@
             const when = document.getElementById('schWhen').value;
             if (!when) return showToast('Date/time choose karo', true);
             const runAt = new Date(when).getTime();
+            const nums = ((document.getElementById('numbers') || {}).value || '').split(/\n/).map(s => s.trim()).filter(Boolean);
+            const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
             fetch('/api/schedules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
                 name: document.getElementById('schName').value || 'Schedule',
                 runAt,
                 runAtText: new Date(runAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-                recurring: document.getElementById('schRecurring').value || null
+                recurring: document.getElementById('schRecurring').value || null,
+                payload: {
+                    numbers: nums.map(p => ({ phone: p, name: 'Customer' })),
+                    message: (document.getElementById('message') || {}).value || '',
+                    sessionIds
+                }
             })}).then(r => r.json()).then(d => { if (d.success) { showToast('Scheduled'); loadSchedules(); } else showToast(d.error || 'Fail', true); });
         }
         function loadSchedules() {
@@ -2262,6 +2321,185 @@
             });
         }
 
+
+        function loadAiProviderSettings() {
+            fetch('/api/ai/config').then(r => r.json()).then(d => {
+                const p = document.getElementById('aiProvider'); if (p) p.value = d.provider || 'openai';
+                const m = document.getElementById('openaiModel'); if (m && d.openaiModel) m.value = d.openaiModel;
+                const b = document.getElementById('openaiBulkModel'); if (b && d.openaiBulkModel) b.value = d.openaiBulkModel;
+                const st = document.getElementById('aiProviderStatus');
+                if (st) st.textContent = 'Provider: ' + (d.provider || '-') + ' · OpenAI: ' + (d.hasOpenAI ? 'YES' : 'NO') + ' · Gemini: ' + (d.hasGemini ? 'YES' : 'NO') + ' · Google Search: ' + (d.hasGoogleSearch ? 'YES' : 'NO');
+            }).catch(() => {});
+        }
+        function saveAiProviderSettings() {
+            fetch('/api/ai/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                provider: (document.getElementById('aiProvider') || {}).value,
+                openaiApiKey: (document.getElementById('openaiKeyInput') || {}).value,
+                openaiModel: (document.getElementById('openaiModel') || {}).value,
+                openaiBulkModel: (document.getElementById('openaiBulkModel') || {}).value,
+                googleSearchApiKey: (document.getElementById('googleSearchKey') || {}).value,
+                googleSearchCx: (document.getElementById('googleSearchCx') || {}).value
+            })}).then(r => r.json()).then(d => {
+                if (d.success) { showToast('AI settings saved'); loadAiProviderSettings(); }
+                else showToast(d.error || 'Fail', true);
+            });
+        }
+        function loadCrmKanban() {
+            const k = document.getElementById('crmKanban');
+            const list = document.getElementById('crmList');
+            if (list) list.style.display = 'none';
+            if (k) k.style.display = 'block';
+            fetch('/api/crm/kanban').then(r => r.json()).then(d => {
+                if (!k) return;
+                const cols = d.columns || {};
+                k.innerHTML = '<div style="display:flex;gap:10px;min-width:800px;">' + Object.keys(cols).map(name => {
+                    const items = cols[name] || [];
+                    return '<div style="flex:1;min-width:140px;background:#f1f5f9;border-radius:12px;padding:8px;"><div style="font-weight:800;margin-bottom:8px;">' + name + ' (' + items.length + ')</div>' +
+                        items.slice(0, 30).map(c => '<div onclick=\'fillCrm(' + JSON.stringify(c).replace(/'/g, "&#39;") + ')\' style="background:#fff;border-radius:8px;padding:8px;margin-bottom:6px;cursor:pointer;font-size:12px;"><b>' + escapeHtml(c.name || c.phone) + '</b><br>₹' + (c.dealValue || 0) + ' · ' + escapeHtml(c.scoreLabel || '') + '</div>').join('') + '</div>';
+                }).join('') + '</div>';
+            });
+        }
+        function loadCrmList() {
+            const k = document.getElementById('crmKanban');
+            const list = document.getElementById('crmList');
+            if (k) k.style.display = 'none';
+            if (list) list.style.display = 'block';
+            fetch('/api/crm').then(r => r.json()).then(d => {
+                let arr = d.customers || [];
+                const q = ((document.getElementById('crmSearch') || {}).value || '').toLowerCase();
+                const st = (document.getElementById('crmStatusFilter') || {}).value || '';
+                if (st) arr = arr.filter(c => c.status === st);
+                if (q) arr = arr.filter(c => JSON.stringify(c).toLowerCase().includes(q));
+                const box = document.getElementById('crmList');
+                if (!box) return;
+                box.innerHTML = arr.slice(0, 80).map(c => {
+                    const sc = c.scoreLabel === 'Hot' ? '🔥' : (c.scoreLabel === 'Cold' ? '🔵' : '🟡');
+                    return '<div onclick=\'fillCrm(' + JSON.stringify(c) + ')\' style="padding:10px;border-bottom:1px solid #e2e8f0;cursor:pointer;">' +
+                        '<b>' + escapeHtml(c.name || c.phone) + '</b> ' + sc + ' · ₹' + (c.dealValue || 0) +
+                        ' · <span style="color:#0369a1;">' + escapeHtml(c.status || '') + '</span>' +
+                        (c.nextFollowUpText ? (' · FU: ' + escapeHtml(c.nextFollowUpText)) : '') +
+                        '<br><span style="color:#64748b;">' + escapeHtml([c.company, c.city, (c.tags || []).join(', ')].filter(Boolean).join(' · ')) + '</span></div>';
+                }).join('') || '<span style="color:#94a3b8;">No customers</span>';
+            }).catch(() => {});
+        }
+        function fillCrm(c) {
+            document.getElementById('crmPhone').value = c.phone || '';
+            document.getElementById('crmName').value = c.name || '';
+            document.getElementById('crmCompany').value = c.company || '';
+            document.getElementById('crmCity').value = c.city || '';
+            document.getElementById('crmCategory').value = c.category || '';
+            document.getElementById('crmStatus').value = c.status || 'New';
+            document.getElementById('crmTags').value = (c.tags || []).join(', ');
+            document.getElementById('crmNotes').value = c.notes || '';
+            const deal = document.getElementById('crmDeal'); if (deal) deal.value = c.dealValue || '';
+            const fu = document.getElementById('crmFollowUp');
+            if (fu && c.nextFollowUpAt) {
+                try { fu.value = new Date(c.nextFollowUpAt).toISOString().slice(0, 16); } catch (e) {}
+            }
+        }
+        function saveCrmCustomer() {
+            const tags = ((document.getElementById('crmTags') || {}).value || '').split(/[,]/).map(s => s.trim()).filter(Boolean);
+            const fuEl = document.getElementById('crmFollowUp');
+            const fuAt = fuEl && fuEl.value ? new Date(fuEl.value).getTime() : 0;
+            fetch('/api/crm/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                phone: document.getElementById('crmPhone').value,
+                name: document.getElementById('crmName').value,
+                company: document.getElementById('crmCompany').value,
+                city: document.getElementById('crmCity').value,
+                category: document.getElementById('crmCategory').value,
+                status: document.getElementById('crmStatus').value,
+                tags,
+                notes: document.getElementById('crmNotes').value,
+                dealValue: document.getElementById('crmDeal').value,
+                nextFollowUpAt: fuAt
+            })}).then(r => r.json()).then(d => { if (d.success) { showToast('CRM saved'); loadCrmList(); } else showToast(d.error || 'Fail', true); });
+        }
+        function createInvoice(send) {
+            fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                phone: document.getElementById('invPhone').value,
+                name: document.getElementById('invName').value,
+                amount: document.getElementById('invAmount').value,
+                gst: document.getElementById('invGst').value,
+                dueDate: document.getElementById('invDue').value,
+                send: !!send
+            })}).then(r => r.json()).then(d => { if (d.success) { showToast('Invoice ' + d.invoice.number); loadInvoices(); } else showToast(d.error || 'Fail', true); });
+        }
+        function loadInvoices() {
+            fetch('/api/invoices').then(r => r.json()).then(d => {
+                const box = document.getElementById('invList');
+                if (!box) return;
+                box.innerHTML = (d.invoices || []).map(inv =>
+                    '<div style="padding:8px 0;border-bottom:1px solid #e2e8f0;"><b>' + escapeHtml(inv.number) + '</b> · ' + escapeHtml(inv.name || inv.phone) +
+                    ' · ₹' + (inv.amount || 0).toFixed ? '' : '' + (Number(inv.amount)||0).toFixed(2) + ' · ' + escapeHtml(inv.paymentStatus) +
+                    '<br><select data-inv="' + inv.id + '" class="inv-pay">' +
+                    ['Unpaid','Partial','Paid','Overdue'].map(s => '<option' + (inv.paymentStatus===s?' selected':'') + '>' + s + '</option>').join('') +
+                    '</select></div>'
+                ).join('') || 'No invoices';
+                box.querySelectorAll('.inv-pay').forEach(sel => {
+                    sel.onchange = () => fetch('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'status', id: sel.getAttribute('data-inv'), paymentStatus: sel.value }) }).then(() => loadInvoices());
+                });
+            });
+        }
+        function loadStockAlerts() {
+            fetch('/api/stock-alerts').then(r => r.json()).then(d => {
+                const box = document.getElementById('stockAlertBox');
+                if (!box) return;
+                const low = d.low || [];
+                box.innerHTML = low.length ? ('⚠️ Low stock: ' + low.map(p => p.name + '(' + p.stock + ')').join(', ')) : '';
+            });
+        }
+        function saveTeamUser() {
+            fetch('/api/team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                username: document.getElementById('teamUser').value,
+                pin: document.getElementById('teamPin').value,
+                role: document.getElementById('teamRole').value
+            })}).then(r => r.json()).then(d => { if (d.success) { showToast('User saved'); loadTeam(); } else showToast(d.error || 'Fail', true); });
+        }
+        function loadTeam() {
+            fetch('/api/team').then(r => r.json()).then(d => {
+                const box = document.getElementById('teamList');
+                if (!box) return;
+                box.innerHTML = (d.teamUsers || []).map(u => '<div>' + escapeHtml(u.username) + ' · ' + escapeHtml(u.role) + '</div>').join('') || 'No users';
+            });
+        }
+        function createTrackLink() {
+            fetch('/api/track/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                url: document.getElementById('trackUrl').value,
+                campaign: document.getElementById('trackCamp').value
+            })}).then(r => r.json()).then(d => {
+                const o = document.getElementById('trackOut');
+                if (o) o.textContent = d.shortUrl || d.error || '';
+                if (d.success) loadTracks();
+            });
+        }
+        function loadTracks() {
+            fetch('/api/track').then(r => r.json()).then(d => {
+                const box = document.getElementById('trackList');
+                if (!box) return;
+                const links = d.links || {};
+                box.innerHTML = Object.keys(links).map(code => {
+                    const L = links[code];
+                    return '<div style="padding:6px 0;border-bottom:1px solid #e2e8f0;"><b>/r/' + code + '</b> · clicks ' + (L.clicks || 0) + '<br>' + escapeHtml(L.campaign || '') + ' → ' + escapeHtml((L.target || '').slice(0, 60)) + '</div>';
+                }).join('') || 'No links';
+            });
+        }
+        function loadDeviceHealth() {
+            fetch('/api/device-health').then(r => r.json()).then(d => {
+                const box = document.getElementById('deviceHealthBox');
+                if (!box) return;
+                const h = d.health || {};
+                box.innerHTML = '<b>Device health</b><br>' + Object.keys(h).map(id => {
+                    const x = h[id];
+                    return id + ': score ' + (x.score || 0) + ' · sent ' + (x.sent || 0) + ' · errors ' + (x.errors || 0);
+                }).join('<br>') || 'No data yet';
+            });
+        }
+
+        function archiveCurrentChat() {
+            if (!inboxSelectedPhone) return showToast('Chat select karo', true);
+            fetch('/api/inbox/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: inboxSelectedPhone, archive: true }) })
+                .then(r => r.json()).then(d => { if (d.success) { showToast('Archived'); loadInboxList(); } });
+        }
         function openSidebar() {
             const sb = document.getElementById('sidebar');
             const ov = document.getElementById('sidebarOverlay');
@@ -2289,6 +2527,10 @@
             if (id === 'schedulerSec') loadSchedules();
             if (id === 'productsSec') loadProducts();
             if (id === 'ordersSec') loadOrders();
+            if (id === 'invoiceSec') { loadInvoices(); loadStockAlerts(); }
+            if (id === 'teamSec') loadTeam();
+            if (id === 'trackSec') { loadTracks(); loadDeviceHealth(); }
+            if (id === 'aiStudioSec') loadAiProviderSettings();
             if (id === 'inboxSec') { loadProTools(); }
             document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
             const sec = document.getElementById(id);
@@ -2634,7 +2876,7 @@
         function renderInboxChatList() {
             const box = document.getElementById('inboxChatList');
             if (!box) return;
-            let chats = inboxAllChats.filter(c => c.sessionId === inboxSelectedSessionId);
+            let chats = inboxAllChats.filter(c => c.sessionId === inboxSelectedSessionId && !c.archived);
             // fallback: if no sessionId match, show chats with matching sessionName
             if (!chats.length) {
                 chats = inboxAllChats.filter(c => (c.sessionName || '') === inboxSelectedSessionName);
@@ -2770,11 +3012,12 @@
                 // suggest html when only cloning site
             }
             const btn = document.getElementById('aiGenerateBtn');
-            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Gemini…'; }
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ AI…'; }
+            const webSearch = !!(document.getElementById('aiWebSearch') || {}).checked;
             fetch('/api/ai/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic: topic.trim(), websiteUrl: websiteUrl.trim(), tone, language, count, mode, model })
+                body: JSON.stringify({ topic: topic.trim(), websiteUrl: websiteUrl.trim(), tone, language, count, mode, model, webSearch })
             }).then(r => r.json()).then(d => {
                 if (!d.success) {
                     showToast(d.error || 'Generate fail', true);
