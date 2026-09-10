@@ -58,6 +58,8 @@ const crmFile = __dirname + '/crm.json';
 const schedFile = __dirname + '/schedules.json';
 const productsFile = __dirname + '/products.json';
 const ordersFile = __dirname + '/orders.json';
+const trackFile = __dirname + '/track.json';
+const staffFile = __dirname + '/staff.json';
 const connectionMetaFile = __dirname + '/connection_meta.json';
 
 const MONGODB_URI = process.env.MONGODB_URI || '';
@@ -65,12 +67,12 @@ let mongoClient = null;
 let db = null;
 let useMongo = false;
 
-let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {}, inbox: { chats: {} }, pro: null, crm: null, schedules: null, products: null, orders: null };
+let cache = { contacts: {}, templates: [], history: [], stats: {}, meta: {}, inbox: { chats: {} }, pro: null, crm: null, schedules: null, products: null, orders: null, track: null, staff: null };
 
 async function initMongo() {
     if (!MONGODB_URI || !MongoClient) {
         cache.contacts = getJsonFile(contactsFile) || {}; cache.templates = getJsonFile(templatesFile) || [];
-        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {}; cache.inbox = getJsonFile(inboxFile) || { chats: {} }; cache.pro = getJsonFile(proFile) || null; cache.crm = getJsonFile(crmFile) || null; cache.schedules = getJsonFile(schedFile) || null; cache.products = getJsonFile(productsFile) || null; cache.orders = getJsonFile(ordersFile) || null;
+        cache.history = getJsonFile(historyFile) || []; cache.stats = getJsonFile(statsFile) || {}; cache.meta = getJsonFile(connectionMetaFile) || {}; cache.inbox = getJsonFile(inboxFile) || { chats: {} }; cache.pro = getJsonFile(proFile) || null; cache.crm = getJsonFile(crmFile) || null; cache.schedules = getJsonFile(schedFile) || null; cache.products = getJsonFile(productsFile) || null; cache.orders = getJsonFile(ordersFile) || null; cache.track = getJsonFile(trackFile) || null; cache.staff = getJsonFile(staffFile) || null;
         return;
     }
     try {
@@ -99,7 +101,7 @@ async function persist(key, data) {
     if (useMongo && db) {
         try { await db.collection(key).updateOne({ _id: 'main' }, { $set: { data, updatedAt: new Date() } }, { upsert: true }); } catch (e) {}
     } else {
-        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile, inbox: inboxFile, pro: proFile, crm: crmFile, schedules: schedFile, products: productsFile, orders: ordersFile };
+        const map = { contacts: contactsFile, templates: templatesFile, history: historyFile, stats: statsFile, meta: connectionMetaFile, inbox: inboxFile, pro: proFile, crm: crmFile, schedules: schedFile, products: productsFile, orders: ordersFile, track: trackFile, staff: staffFile };
         if (map[key]) saveJsonFile(map[key], data);
     }
 }
@@ -273,9 +275,25 @@ function defaultPro() {
         productHints: 'jeera, dhaniya, spices, wholesale',
         askRatingAfterHandoffClear: true,
         uiLang: 'hi',
+        teamUsers: [],
+        invoices: [],
+        trackLinks: {},
+        deviceHealth: {},
         businessHours: { enabled: false, start: 8, end: 22, offMessage: 'Abhi business hours ke bahar hain (8 AM – 10 PM IST). Kal subah reply karenge. Urgent ho to message chhod dein.' },
         multiLang: true
     };
+}
+
+
+function getTrack() {
+    if (!cache.track || typeof cache.track !== 'object') cache.track = { links: {} };
+    if (!cache.track.links) cache.track.links = {};
+    return cache.track;
+}
+function getStaff() {
+    if (!cache.staff || typeof cache.staff !== 'object') cache.staff = { users: [] };
+    if (!Array.isArray(cache.staff.users)) cache.staff.users = [];
+    return cache.staff;
 }
 
 function getCrm() {
@@ -291,8 +309,9 @@ function getCustomer(phone) {
         crm.customers[n] = {
             phone: n, name: '', company: '', city: '', category: '',
             status: 'New', tags: [], notes: '',
+            dealValue: 0, nextFollowUpAt: 0, nextFollowUpText: '',
             lastMessage: '', lastReply: '', lastMessageAt: 0, lastReplyAt: 0,
-            score: 50, scoreLabel: 'Warm',
+            score: 50, scoreLabel: 'Warm', archived: false,
             createdAt: Date.now(), updatedAt: Date.now()
         };
     }
@@ -1011,9 +1030,12 @@ async function startSession(sessionId, sessionName) {
 
     const session = sessions.get(sessionId) || {
         id: sessionId, name: sessionName || sessionId, sock: null, connected: false,
-        qrCode: null, restUntil: null, sentInBatch: 0, batchSize: SESSION_BATCH
+        qrCode: null, restUntil: null, sentInBatch: 0, batchSize: SESSION_BATCH,
+        healthScore: 100, errorCount: 0, lastErrorAt: 0, slowFactor: 1
     };
     session.sock = sock; session.name = sessionName || session.name; session._starting = false;
+    if (session.healthScore == null) session.healthScore = 100;
+    if (session.slowFactor == null) session.slowFactor = 1;
     sessions.set(sessionId, session);
 
     sock.ev.on('connection.update', async (update) => {
@@ -1048,6 +1070,13 @@ async function startSession(sessionId, sessionName) {
             if (deletedSessionIds.has(sessionId) || !sessions.has(sessionId)) return;
             s.connected = true; s.qrCode = null; s._starting = false;
             if (!s.firstConnectedAt) s.firstConnectedAt = new Date().toISOString();
+            try {
+                const pro = getPro();
+                pro.deviceHealth = pro.deviceHealth || {};
+                pro.deviceHealth[sessionId] = pro.deviceHealth[sessionId] || { errors: 0, sent: 0, lastError: '', score: 100 };
+                pro.deviceHealth[sessionId].score = Math.min(100, (pro.deviceHealth[sessionId].score || 100) + 2);
+                persist('pro', pro);
+            } catch (e) {}
             const meta = { ...getMeta() };
             if (!meta.firstConnectedAt) { meta.firstConnectedAt = new Date().toISOString(); persist('meta', meta); }
             if (!meta.sessionFirstSeen) meta.sessionFirstSeen = {};
@@ -1542,69 +1571,27 @@ ${recent}
 Customer just said: ${text}
 
 Write ONLY the WhatsApp reply (no quotes, no labels).`;
-                    async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-                    // Prefer models that support generateContent (no legacy gemini-pro)
-                    let models = [
-                        'gemini-2.0-flash',
-                        'gemini-2.0-flash-lite',
-                        'gemini-2.0-flash-001',
-                        'gemini-1.5-flash',
-                        'gemini-1.5-flash-latest',
-                        'gemini-1.5-flash-8b',
-                        'gemini-1.5-pro',
-                        'gemini-1.5-pro-latest'
-                    ];
-                    try {
-                        const lr = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + encodeURIComponent(apiKey));
-                        const ld = await lr.json();
-                        if (lr.ok && ld.models && ld.models.length) {
-                            const fromApi = ld.models
-                                .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-                                .map(m => String(m.name || '').replace(/^models\//, ''))
-                                .filter(n => /flash|pro/i.test(n) && !/embed|tts|image|vision/i.test(n));
-                            // flash first
-                            fromApi.sort((a, b) => {
-                                const score = (n) => (/flash-lite/i.test(n) ? 0 : /flash/i.test(n) ? 1 : 2);
-                                return score(a) - score(b);
-                            });
-                            if (fromApi.length) models = fromApi.slice(0, 8);
-                        }
-                    } catch (e) {}
                     let reply = '';
-                    let lastErr = '';
-                    for (const model of models) {
-                        for (let attempt = 0; attempt < 2; attempt++) {
-                            try {
-                                if (attempt > 0) await sleep(1000 * attempt);
-                                const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey);
-                                const r = await fetch(url, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                                        generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
-                                    })
-                                });
-                                const data = await r.json();
-                                if (!r.ok) {
-                                    lastErr = model + ': ' + ((data.error && data.error.message) || ('HTTP ' + r.status));
-                                    if (r.status === 404 || /not found|not supported/i.test(lastErr)) break;
-                                    if (r.status === 429 || /high demand|resource exhausted|quota|rate/i.test(lastErr)) continue;
-                                    break;
-                                }
-                                try { reply = data.candidates[0].content.parts.map(p => p.text || '').join('').trim(); } catch (e) { lastErr = model + ': empty candidates'; reply = ''; }
-                                if (reply) break;
-                            } catch (e) {
-                                lastErr = model + ': ' + (e.message || String(e));
-                            }
-                        }
-                        if (reply) break;
-                    }
-                    reply = (reply || '').replace(/^["']|["']$/g, '').slice(0, 1500);
-                    if (!reply) {
-                        lastGeminiBotError = lastErr || 'Gemini empty reply';
+                    try {
+                        const needSearch = /\b(price|rate|news|today|latest|search|kitna|market)\b/i.test(text);
+                        reply = await aiGenerateText(prompt, {
+                            webSearch: needSearch,
+                            searchQuery: text,
+                            maxTokens: 512,
+                            temperature: 0.7,
+                            system: 'WhatsApp business assistant. Short helpful replies only.'
+                        });
+                        reply = String(reply || '').replace(/^["']|["']$/g, '').slice(0, 1500);
+                    } catch (e) {
+                        lastGeminiBotError = e.message || String(e);
                         botCfg.lastError = lastGeminiBotError;
-                        console.error('gemini bot no reply', lastGeminiBotError);
+                        console.error('AI bot no reply', lastGeminiBotError);
+                        return;
+                    }
+                    if (!reply) {
+                        lastGeminiBotError = 'AI empty reply';
+                        botCfg.lastError = lastGeminiBotError;
+                        console.error('AI bot no reply', lastGeminiBotError);
                         return;
                     }
                     lastGeminiBotError = null;
@@ -1696,7 +1683,28 @@ async function checkSchedules() {
                     if (typeof sendPushToAll === 'function') sendPushToAll('Scheduler', (s.name || 'Campaign') + ' due — open Campaign Sender to run payload');
                     // auto-run if payload.numbers present
                     if (s.payload && Array.isArray(s.payload.numbers) && s.payload.numbers.length) {
-                        console.log('[schedule] due', s.id, s.payload.numbers.length);
+                        console.log('[schedule] auto-run', s.id, s.payload.numbers.length);
+                        try {
+                            // Trigger internal send by simulating request body
+                            const numbers = s.payload.numbers.map(n => typeof n === 'string' ? ({ phone: n, name: 'Customer' }) : n);
+                            const sessionIds = s.payload.sessionIds || Array.from(sessions.values()).filter(x => x.connected).map(x => x.id);
+                            if (sessionIds.length && numbers.length) {
+                                // queue via fetch to self is hard; call lightweight inline
+                                s.lastAutoRun = Date.now();
+                                s.autoRunQueued = numbers.length;
+                                // Store pending auto campaign for UI to pick OR fire minimal
+                                const meta = getMeta();
+                                meta.pendingAutoCampaign = {
+                                    scheduleId: s.id,
+                                    numbers,
+                                    message: s.payload.message || '',
+                                    templates: s.payload.templates || [],
+                                    sessionIds,
+                                    at: Date.now()
+                                };
+                                persist('meta', meta);
+                            }
+                        } catch (e) { console.error('schedule autorun', e.message || e); }
                     }
                     if (s.recurring === 'daily') {
                         s.runAt = now + 86400000;
@@ -1904,6 +1912,177 @@ app.post('/update-autoreply', async (req, res) => {
 });
 
 
+
+app.get('/api/crm/kanban', (req, res) => {
+    const cols = { New: [], Interested: [], 'Follow-up': [], Customer: [], Lost: [] };
+    Object.values(getCrm().customers || {}).forEach(c => {
+        if (c.archived) return;
+        const st = cols[c.status] ? c.status : 'New';
+        cols[st].push(c);
+    });
+    res.json({ success: true, columns: cols });
+});
+
+app.get('/api/invoices', (req, res) => {
+    res.json({ success: true, invoices: getPro().invoices || [] });
+});
+app.post('/api/invoices', async (req, res) => {
+    const pro = getPro();
+    pro.invoices = pro.invoices || [];
+    const b = req.body || {};
+    if (b.action === 'status') {
+        const inv = pro.invoices.find(x => x.id === b.id);
+        if (!inv) return res.status(404).json({ success: false, error: 'not found' });
+        if (['Unpaid', 'Partial', 'Paid', 'Overdue'].includes(b.paymentStatus)) inv.paymentStatus = b.paymentStatus;
+        await savePro();
+        return res.json({ success: true, invoice: inv });
+    }
+    const inv = {
+        id: 'inv_' + Date.now(),
+        number: 'INV-' + String(pro.invoices.length + 1).padStart(4, '0'),
+        phone: normPhone(b.phone),
+        name: String(b.name || '').slice(0, 80),
+        items: Array.isArray(b.items) ? b.items.slice(0, 30) : [],
+        amount: Number(b.amount) || 0,
+        gst: Number(b.gst) || 0,
+        paymentStatus: b.paymentStatus || 'Unpaid',
+        dueDate: b.dueDate || '',
+        createdAt: Date.now()
+    };
+    let sub = inv.amount;
+    if (!sub && inv.items.length) inv.items.forEach(it => { sub += (Number(it.qty) || 0) * (Number(it.price) || 0); });
+    inv.amount = sub + sub * (inv.gst / 100);
+    pro.invoices.unshift(inv);
+    if (pro.invoices.length > 300) pro.invoices = pro.invoices.slice(0, 300);
+    await savePro();
+    if (b.send && inv.phone) {
+        try {
+            const sock = getSelectedOrRandomSock(null);
+            if (sock) {
+                let p = inv.phone; if (p.length === 10) p = '91' + p;
+                const text = 'Invoice ' + inv.number + '\\nAmount: ₹' + inv.amount.toFixed(2) + '\\nStatus: ' + inv.paymentStatus + (inv.dueDate ? ('\\nDue: ' + inv.dueDate) : '');
+                await sock.sendMessage(p + '@s.whatsapp.net', { text });
+                pushInboxMessage({ phone: inv.phone, text, fromMe: true });
+            }
+        } catch (e) {}
+    }
+    res.json({ success: true, invoice: inv });
+});
+
+app.get('/api/stock-alerts', (req, res) => {
+    const low = getProducts().filter(p => (Number(p.stock) || 0) <= (Number(p.lowAt) || 5));
+    res.json({ success: true, low });
+});
+
+app.post('/api/team', async (req, res) => {
+    const pro = getPro();
+    pro.teamUsers = pro.teamUsers || [];
+    const b = req.body || {};
+    if (b.action === 'delete') {
+        pro.teamUsers = pro.teamUsers.filter(u => u.id !== b.id);
+        await savePro();
+        return res.json({ success: true, teamUsers: pro.teamUsers });
+    }
+    if (b.action === 'login') {
+        const u = pro.teamUsers.find(x => x.username === b.username && x.pin === String(b.pin || ''));
+        if (!u) return res.status(401).json({ success: false, error: 'Invalid login' });
+        return res.json({ success: true, user: { id: u.id, username: u.username, role: u.role } });
+    }
+    const u = {
+        id: b.id || ('user_' + Date.now()),
+        username: String(b.username || '').slice(0, 40),
+        pin: String(b.pin || '').slice(0, 20),
+        role: ['admin', 'manager', 'sales'].includes(b.role) ? b.role : 'sales'
+    };
+    if (!u.username || !u.pin) return res.status(400).json({ success: false, error: 'username + pin' });
+    const ix = pro.teamUsers.findIndex(x => x.id === u.id || x.username === u.username);
+    if (ix >= 0) pro.teamUsers[ix] = { ...pro.teamUsers[ix], ...u };
+    else pro.teamUsers.push(u);
+    await savePro();
+    res.json({ success: true, teamUsers: pro.teamUsers.map(x => ({ id: x.id, username: x.username, role: x.role })) });
+});
+app.get('/api/team', (req, res) => {
+    res.json({ success: true, teamUsers: (getPro().teamUsers || []).map(x => ({ id: x.id, username: x.username, role: x.role })) });
+});
+
+app.post('/api/webhook/lead', async (req, res) => {
+    // Website / IndiaMART style lead
+    const b = req.body || {};
+    const phone = normPhone(b.phone || b.mobile || b.Mobile || b.contact);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone required' });
+    const c = getCustomer(phone);
+    c.name = String(b.name || b.Name || c.name || '').slice(0, 80);
+    c.company = String(b.company || b.Company || c.company || '').slice(0, 80);
+    c.city = String(b.city || b.City || c.city || '').slice(0, 60);
+    c.notes = ((c.notes || '') + '\\nLead: ' + String(b.message || b.Message || b.query || JSON.stringify(b)).slice(0, 500)).slice(0, 2000);
+    c.status = c.status === 'Customer' ? c.status : 'New';
+    c.score = Math.min(100, (c.score || 50) + 10);
+    c.scoreLabel = c.score >= 75 ? 'Hot' : (c.score >= 45 ? 'Warm' : 'Cold');
+    c.updatedAt = Date.now();
+    await saveCrm();
+    try { if (typeof sendPushToAll === 'function') sendPushToAll('New lead', c.name || phone); } catch (e) {}
+    res.json({ success: true, customer: c });
+});
+
+app.post('/api/track/create', async (req, res) => {
+    const pro = getPro();
+    pro.trackLinks = pro.trackLinks || {};
+    const code = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const target = String((req.body && req.body.url) || '').slice(0, 500);
+    const campaign = String((req.body && req.body.campaign) || '').slice(0, 80);
+    if (!target) return res.status(400).json({ success: false, error: 'url required' });
+    pro.trackLinks[code] = { target, campaign, clicks: 0, createdAt: Date.now() };
+    await savePro();
+    const base = (req.headers['x-forwarded-proto'] || req.protocol) + '://' + (req.headers['x-forwarded-host'] || req.get('host'));
+    res.json({ success: true, code, shortUrl: base + '/r/' + code });
+});
+app.get('/r/:code', (req, res) => {
+    const pro = getPro();
+    const link = (pro.trackLinks || {})[req.params.code];
+    if (!link) return res.status(404).send('Link not found');
+    link.clicks = (link.clicks || 0) + 1;
+    persist('pro', pro);
+    res.redirect(link.target);
+});
+app.get('/api/track', (req, res) => {
+    res.json({ success: true, links: getPro().trackLinks || {} });
+});
+
+app.get('/api/device-health', (req, res) => {
+    res.json({ success: true, health: getPro().deviceHealth || {} });
+});
+
+app.post('/api/inbox/archive', async (req, res) => {
+    const phone = normPhone(req.body && req.body.phone);
+    const archive = !(req.body && req.body.archive === false);
+    const inbox = getInbox();
+    if (inbox.chats[phone]) {
+        inbox.chats[phone].archived = archive;
+        await persist('inbox', inbox);
+    }
+    try {
+        const c = getCustomer(phone);
+        c.archived = archive;
+        await saveCrm();
+    } catch (e) {}
+    res.json({ success: true });
+});
+app.post('/api/inbox/bulk', async (req, res) => {
+    const phones = Array.isArray(req.body && req.body.phones) ? req.body.phones : [];
+    const action = (req.body && req.body.action) || 'archive';
+    const inbox = getInbox();
+    phones.forEach(p => {
+        const n = normPhone(p);
+        if (!inbox.chats[n]) return;
+        if (action === 'archive') inbox.chats[n].archived = true;
+        if (action === 'unarchive') inbox.chats[n].archived = false;
+        if (action === 'read') inbox.chats[n].unread = 0;
+    });
+    await persist('inbox', inbox);
+    res.json({ success: true });
+});
+
+
 app.get('/api/crm', (req, res) => {
     const crm = getCrm();
     const list = Object.values(crm.customers || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -1925,10 +2104,22 @@ app.post('/api/crm/save', async (req, res) => {
     if (b.status != null && ['New', 'Interested', 'Follow-up', 'Customer', 'Lost'].includes(b.status)) c.status = b.status;
     if (Array.isArray(b.tags)) c.tags = b.tags.map(t => String(t).slice(0, 30)).slice(0, 10);
     if (b.notes != null) c.notes = String(b.notes).slice(0, 2000);
+    if (b.dealValue != null) c.dealValue = Number(b.dealValue) || 0;
+    if (b.nextFollowUpAt != null) {
+        c.nextFollowUpAt = Number(b.nextFollowUpAt) || 0;
+        c.nextFollowUpText = c.nextFollowUpAt ? new Date(c.nextFollowUpAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '';
+    }
+    if (typeof b.archived === 'boolean') c.archived = b.archived;
     if (b.score != null) {
         c.score = Math.min(100, Math.max(0, Number(b.score) || 50));
         c.scoreLabel = c.score >= 75 ? 'Hot' : (c.score >= 45 ? 'Warm' : 'Cold');
     }
+    if (b.dealValue != null) c.dealValue = Number(b.dealValue) || 0;
+    if (b.nextFollowUpAt != null) {
+        c.nextFollowUpAt = Number(b.nextFollowUpAt) || 0;
+        c.nextFollowUpText = c.nextFollowUpAt ? new Date(c.nextFollowUpAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '';
+    }
+    if (typeof b.archived === 'boolean') c.archived = b.archived;
     c.updatedAt = Date.now();
     await saveCrm();
     res.json({ success: true, customer: c });
@@ -1968,6 +2159,17 @@ app.post('/api/crm/summary', async (req, res) => {
     }
 });
 
+app.post('/api/schedules/run-pending', async (req, res) => {
+    const meta = getMeta();
+    const pend = meta.pendingAutoCampaign;
+    if (!pend) return res.json({ success: false, error: 'No pending auto campaign' });
+    delete meta.pendingAutoCampaign;
+    persist('meta', meta);
+    res.json({ success: true, pending: pend, message: 'Pending payload returned — client can POST /send' });
+});
+app.get('/api/schedules/pending', (req, res) => {
+    res.json({ success: true, pending: (getMeta().pendingAutoCampaign || null) });
+});
 app.get('/api/schedules', (req, res) => res.json({ success: true, schedules: getSchedules() }));
 app.post('/api/schedules', async (req, res) => {
     const b = req.body || {};
@@ -2004,6 +2206,11 @@ app.post('/api/schedules/action', async (req, res) => {
 });
 
 app.get('/api/products', (req, res) => res.json({ success: true, products: getProducts() }));
+app.get('/api/products/low-stock', (req, res) => {
+    const min = Number(req.query.min) || 5;
+    const low = getProducts().filter(p => (p.stock || 0) <= min);
+    res.json({ success: true, low, min });
+});
 app.post('/api/products', async (req, res) => {
     const b = req.body || {};
     if (b.action === 'delete') {
@@ -2114,6 +2321,239 @@ app.post('/api/templates/category', async (req, res) => {
     t.category = category;
     await persist('templates', templates);
     res.json({ success: true });
+});
+
+
+
+
+app.post('/api/webhook/lead', async (req, res) => {
+    // Website / IndiaMART style lead
+    const b = req.body || {};
+    const phone = normPhone(b.phone || b.mobile || b.Mobile || b.contact);
+    if (!phone) return res.status(400).json({ success: false, error: 'phone required' });
+    const c = getCustomer(phone);
+    if (b.name || b.Name) c.name = String(b.name || b.Name).slice(0, 80);
+    if (b.company || b.Company) c.company = String(b.company || b.Company).slice(0, 80);
+    if (b.city || b.City) c.city = String(b.city || b.City).slice(0, 60);
+    if (b.message || b.Message || b.query) c.notes = ((c.notes || '') + '\n' + String(b.message || b.Message || b.query)).slice(0, 2000);
+    c.status = c.status === 'Customer' ? c.status : 'New';
+    c.tags = Array.from(new Set([...(c.tags || []), 'webhook', b.source || 'website'].filter(Boolean)));
+    c.updatedAt = Date.now();
+    await saveCrm();
+    try { if (typeof sendPushToAll === 'function') sendPushToAll('New lead', (c.name || phone) + ' via webhook'); } catch (e) {}
+    res.json({ success: true, phone, customer: c });
+});
+
+app.post('/api/track/create', async (req, res) => {
+    const b = req.body || {};
+    const id = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const target = String(b.url || b.target || '').trim();
+    if (!target) return res.status(400).json({ success: false, error: 'url required' });
+    const track = getTrack();
+    track.links[id] = {
+        id, target, campaign: String(b.campaign || '').slice(0, 80),
+        clicks: 0, createdAt: Date.now()
+    };
+    await persist('track', track);
+    const base = (req.protocol + '://' + req.get('host'));
+    res.json({ success: true, id, shortUrl: base + '/r/' + id, link: track.links[id] });
+});
+app.get('/r/:id', async (req, res) => {
+    const track = getTrack();
+    const link = track.links[req.params.id];
+    if (!link) return res.status(404).send('Link not found');
+    link.clicks = (link.clicks || 0) + 1;
+    link.lastClickAt = Date.now();
+    persist('track', track);
+    res.redirect(link.target);
+});
+app.get('/api/track', (req, res) => {
+    const links = Object.values(getTrack().links || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    res.json({ success: true, links });
+});
+
+app.get('/api/staff', (req, res) => res.json({ success: true, users: getStaff().users || [] }));
+app.post('/api/staff', async (req, res) => {
+    const b = req.body || {};
+    const staff = getStaff();
+    if (b.action === 'delete') {
+        staff.users = (staff.users || []).filter(u => u.id !== b.id);
+        await persist('staff', staff);
+        return res.json({ success: true, users: staff.users });
+    }
+    const role = ['admin', 'manager', 'sales'].includes(b.role) ? b.role : 'sales';
+    const user = {
+        id: b.id || ('stf_' + Date.now()),
+        name: String(b.name || '').slice(0, 40),
+        pin: String(b.pin || '').slice(0, 12),
+        role,
+        permissions: b.permissions || (
+            role === 'admin' ? ['all'] :
+            role === 'manager' ? ['inbox', 'crm', 'campaign', 'reports'] :
+            ['inbox', 'crm']
+        )
+    };
+    if (!user.name || user.pin.length < 4) return res.status(400).json({ success: false, error: 'name + pin(4+)' });
+    const ix = staff.users.findIndex(u => u.id === user.id);
+    if (ix >= 0) staff.users[ix] = user; else staff.users.push(user);
+    await persist('staff', staff);
+    res.json({ success: true, user: { ...user, pin: '****' }, users: staff.users.map(u => ({ ...u, pin: '****' })) });
+});
+app.post('/api/staff/login', (req, res) => {
+    const pin = String((req.body && req.body.pin) || '');
+    const name = String((req.body && req.body.name) || '');
+    const users = getStaff().users || [];
+    const u = users.find(x => x.pin === pin && (!name || x.name === name));
+    if (!u) return res.status(401).json({ success: false, error: 'Invalid staff PIN' });
+    res.json({ success: true, user: { id: u.id, name: u.name, role: u.role, permissions: u.permissions } });
+});
+
+app.post('/api/invoice', async (req, res) => {
+    const b = req.body || {};
+    const phone = normPhone(b.phone);
+    const items = Array.isArray(b.items) ? b.items : [];
+    const gst = Number(b.gst) || 0;
+    let sub = 0;
+    items.forEach(it => { sub += (Number(it.qty) || 0) * (Number(it.price) || 0); });
+    const gstAmt = sub * gst / 100;
+    const total = sub + gstAmt;
+    const invNo = b.invoiceNo || ('INV-' + Date.now().toString().slice(-8));
+    const lines = [
+        'INVOICE ' + invNo,
+        'Customer: ' + (b.name || phone),
+        'Date: ' + new Date().toLocaleDateString('en-IN'),
+        'Payment: ' + (b.paymentStatus || 'Unpaid'),
+        '----------'
+    ];
+    items.forEach(it => lines.push((it.name || 'Item') + ' x ' + (it.qty || 0) + ' @ ₹' + (it.price || 0)));
+    lines.push('Subtotal: ₹' + sub);
+    if (gst) lines.push('GST ' + gst + '%: ₹' + gstAmt.toFixed(2));
+    lines.push('TOTAL: ₹' + total.toFixed(2));
+    if (b.dueDate) lines.push('Due: ' + b.dueDate);
+    const text = lines.join('\\n');
+    // save as order-like invoice
+    const order = {
+        id: 'inv_' + Date.now(), type: 'invoice', invoiceNo: invNo, phone, name: b.name || '',
+        items, amount: total, status: 'New', paymentStatus: b.paymentStatus || 'Unpaid',
+        dueDate: b.dueDate || '', createdAt: Date.now(), updatedAt: Date.now()
+    };
+    getOrders().unshift(order);
+    await saveOrders();
+    if (b.send && phone) {
+        const sock = getSelectedOrRandomSock(null);
+        if (sock) {
+            let p = phone; if (p.length === 10) p = '91' + p;
+            await sock.sendMessage(p + '@s.whatsapp.net', { text });
+            pushInboxMessage({ phone, text, fromMe: true });
+        }
+    }
+    res.json({ success: true, text, invoiceNo: invNo, total, order });
+});
+
+app.get('/api/device-health', (req, res) => {
+    const list = Array.from(sessions.values()).map(s => ({
+        id: s.id, name: s.name, connected: !!s.connected,
+        healthScore: s.healthScore != null ? s.healthScore : 100,
+        errorCount: s.errorCount || 0,
+        slowFactor: s.slowFactor || 1,
+        restUntil: s.restUntil || null
+    }));
+    res.json({ success: true, devices: list });
+});
+
+app.post('/api/reports/weekly', async (req, res) => {
+    const stats = getStats();
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const key = d.toLocaleDateString('en-CA');
+        const s = stats[key] || { sent: 0, failed: 0 };
+        days.push({ date: key, sent: s.sent || 0, failed: s.failed || 0 });
+    }
+    const sent = days.reduce((a, x) => a + x.sent, 0);
+    const failed = days.reduce((a, x) => a + x.failed, 0);
+    const text = 'Weekly Report (7 days)\\nSent: ' + sent + '\\nFailed: ' + failed + '\\n' +
+        days.map(x => x.date + ': ✓' + x.sent + ' ✗' + x.failed).join('\\n') +
+        '\\nCRM customers: ' + Object.keys(getCrm().customers || {}).length +
+        '\\nOrders: ' + getOrders().length;
+    const phone = normPhone(req.body && req.body.phone);
+    if (phone) {
+        const sock = getSelectedOrRandomSock(null);
+        if (sock) {
+            let p = phone; if (p.length === 10) p = '91' + p;
+            await sock.sendMessage(p + '@s.whatsapp.net', { text });
+        }
+    }
+    res.json({ success: true, text, sent, failed, days });
+});
+
+
+app.get('/api/ai/config', (req, res) => {
+    const cfg = getAIConfig();
+    res.json({ success: true, provider: cfg.provider, openaiModel: cfg.openaiModel, openaiBulkModel: cfg.openaiBulkModel, geminiModel: cfg.geminiModel, hasOpenAI: !!getOpenAIKey(), hasGemini: !!getGeminiKey(), hasGoogleSearch: cfg.googleSearch });
+});
+app.post('/api/ai/config', async (req, res) => {
+    const meta = { ...getMeta() };
+    const b = req.body || {};
+    if (b.provider === 'openai' || b.provider === 'gemini') meta.aiProvider = b.provider;
+    if (b.openaiApiKey != null) { const k = String(b.openaiApiKey).trim(); if (!k) delete meta.openaiApiKey; else meta.openaiApiKey = k; }
+    if (b.openaiModel) meta.openaiModel = String(b.openaiModel).slice(0, 60);
+    if (b.openaiBulkModel) meta.openaiBulkModel = String(b.openaiBulkModel).slice(0, 60);
+    if (b.googleSearchApiKey != null) { const k = String(b.googleSearchApiKey).trim(); if (!k) delete meta.googleSearchApiKey; else meta.googleSearchApiKey = k; }
+    if (b.googleSearchCx != null) { const k = String(b.googleSearchCx).trim(); if (!k) delete meta.googleSearchCx; else meta.googleSearchCx = k; }
+    await persist('meta', meta);
+    const cfg = getAIConfig();
+    res.json({ success: true, provider: cfg.provider, hasOpenAI: !!getOpenAIKey(), hasGemini: !!getGeminiKey(), hasGoogleSearch: cfg.googleSearch });
+});
+app.get('/api/ai-settings', (req, res) => {
+    const cfg = getAIConfig();
+    res.json({
+        success: true,
+        provider: cfg.provider,
+        openaiModel: cfg.openaiModel,
+        openaiBulkModel: cfg.openaiBulkModel,
+        geminiModel: cfg.geminiModel,
+        hasOpenAI: !!getOpenAIKey(),
+        hasGemini: !!getGeminiKey(),
+        hasGoogleSearch: cfg.googleSearch
+    });
+});
+app.post('/api/ai-settings', async (req, res) => {
+    const meta = { ...getMeta() };
+    const b = req.body || {};
+    if (b.provider === 'openai' || b.provider === 'gemini') meta.aiProvider = b.provider;
+    if (b.openaiApiKey != null) {
+        const k = String(b.openaiApiKey).trim();
+        if (!k) delete meta.openaiApiKey; else meta.openaiApiKey = k;
+    }
+    if (b.openaiModel) meta.openaiModel = String(b.openaiModel).slice(0, 60);
+    if (b.openaiBulkModel) meta.openaiBulkModel = String(b.openaiBulkModel).slice(0, 60);
+    if (b.geminiModel) meta.geminiModel = String(b.geminiModel).slice(0, 60);
+    if (b.googleSearchApiKey != null) {
+        const k = String(b.googleSearchApiKey).trim();
+        if (!k) delete meta.googleSearchApiKey; else meta.googleSearchApiKey = k;
+    }
+    if (b.googleSearchCx != null) {
+        const k = String(b.googleSearchCx).trim();
+        if (!k) delete meta.googleSearchCx; else meta.googleSearchCx = k;
+    }
+    await persist('meta', meta);
+    res.json({ success: true, ...(await (async () => {
+        const cfg = getAIConfig();
+        return { provider: cfg.provider, hasOpenAI: !!getOpenAIKey(), hasGemini: !!getGeminiKey(), hasGoogleSearch: cfg.googleSearch };
+    })()) });
+});
+app.post('/api/ai-test', async (req, res) => {
+    try {
+        const text = await aiGenerateText(String((req.body && req.body.prompt) || 'Say OK in one word'), {
+            webSearch: !!(req.body && req.body.webSearch),
+            bulk: !!(req.body && req.body.bulk),
+            maxTokens: 100
+        });
+        res.json({ success: true, text });
+    } catch (e) {
+        res.status(400).json({ success: false, error: e.message || String(e) });
+    }
 });
 
 
@@ -2758,9 +3198,110 @@ app.get('/api/scan-progress', (req, res) => {
 });
 
 // ——— Gemini AI Assistant ———
+
 function getGeminiKey() {
     return process.env.GEMINI_API_KEY || (getMeta().geminiApiKey || '');
 }
+function getOpenAIKey() {
+    return process.env.OPENAI_API_KEY || (getMeta().openaiApiKey || '');
+}
+function getGoogleSearchKeys() {
+    const m = getMeta() || {};
+    return {
+        apiKey: process.env.GOOGLE_SEARCH_API_KEY || m.googleSearchApiKey || '',
+        cx: process.env.GOOGLE_SEARCH_CX || m.googleSearchCx || ''
+    };
+}
+function getAIConfig() {
+    const m = getMeta() || {};
+    return {
+        provider: m.aiProvider || (getOpenAIKey() ? 'openai' : 'gemini'), // openai | gemini
+        openaiModel: m.openaiModel || 'gpt-4o-mini',
+        openaiBulkModel: m.openaiBulkModel || 'gpt-4o-mini',
+        geminiModel: m.geminiModel || 'gemini-2.0-flash',
+        googleSearch: !!(getGoogleSearchKeys().apiKey && getGoogleSearchKeys().cx)
+    };
+}
+async function googleSearch(query, num) {
+    const { apiKey, cx } = getGoogleSearchKeys();
+    if (!apiKey || !cx) return '';
+    try {
+        const url = 'https://www.googleapis.com/customsearch/v1?key=' + encodeURIComponent(apiKey) +
+            '&cx=' + encodeURIComponent(cx) + '&q=' + encodeURIComponent(String(query || '').slice(0, 200)) +
+            '&num=' + Math.min(5, Math.max(1, num || 3));
+        const r = await fetch(url);
+        const data = await r.json();
+        const items = data.items || [];
+        if (!items.length) return '';
+        return items.map((it, i) => (i + 1) + '. ' + (it.title || '') + ' — ' + (it.snippet || '') + ' (' + (it.link || '') + ')').join('\n');
+    } catch (e) {
+        console.error('google search', e.message || e);
+        return '';
+    }
+}
+async function aiGenerateText(prompt, opts) {
+    opts = opts || {};
+    const cfg = getAIConfig();
+    const provider = opts.provider || cfg.provider;
+    const bulk = !!opts.bulk;
+    let searchBlock = '';
+    if (opts.webSearch && cfg.googleSearch) {
+        searchBlock = await googleSearch(opts.searchQuery || String(prompt).slice(0, 120), 3);
+        if (searchBlock) searchBlock = '\n\nLive Google search results (use if relevant):\n' + searchBlock + '\n';
+    }
+    const fullPrompt = String(prompt || '') + searchBlock;
+
+    if (provider === 'openai') {
+        const key = getOpenAIKey();
+        if (!key) throw new Error('OpenAI API key missing — Settings mein set karo');
+        const model = opts.model || (bulk ? cfg.openaiBulkModel : cfg.openaiModel) || 'gpt-4o-mini';
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+            body: JSON.stringify({
+                model,
+                messages: [
+                    { role: 'system', content: opts.system || 'You are a helpful WhatsApp business assistant. Reply concise Hinglish unless asked otherwise.' },
+                    { role: 'user', content: fullPrompt }
+                ],
+                max_tokens: opts.maxTokens || 800,
+                temperature: opts.temperature != null ? opts.temperature : 0.7
+            })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error((data.error && data.error.message) || ('OpenAI HTTP ' + r.status));
+        const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+        if (!text) throw new Error('OpenAI empty response');
+        return String(text).trim();
+    }
+
+    // gemini default
+    const key = getGeminiKey();
+    if (!key) throw new Error('Gemini API key missing');
+    const models = [opts.model || cfg.geminiModel, 'gemini-2.0-flash', 'gemini-1.5-flash'].filter(Boolean);
+    let lastErr = '';
+    for (const model of models) {
+        try {
+            const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key);
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ role: 'user', parts: [{ text: (opts.system ? opts.system + '\n\n' : '') + fullPrompt }] }],
+                    generationConfig: { maxOutputTokens: opts.maxTokens || 800, temperature: opts.temperature != null ? opts.temperature : 0.7 }
+                })
+            });
+            const data = await r.json();
+            if (!r.ok) { lastErr = (data.error && data.error.message) || ('HTTP ' + r.status); continue; }
+            const text = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts || [])
+                .map(p => p.text || '').join('').trim();
+            if (text) return text;
+            lastErr = 'empty';
+        } catch (e) { lastErr = e.message || String(e); }
+    }
+    throw new Error(lastErr || 'Gemini failed');
+}
+
 
 app.get('/api/ai/settings', (req, res) => {
     const key = getGeminiKey();
@@ -2786,13 +3327,14 @@ app.post('/api/ai/settings', async (req, res) => {
 });
 
 app.post('/api/ai/generate', async (req, res) => {
-    const apiKey = getGeminiKey();
-    if (!apiKey) {
-        return res.status(400).json({
-            success: false,
-            error: 'Gemini API key nahi mili. AI Studio mein key save karo (aistudio.google.com/apikey).'
-        });
+    const cfg = getAIConfig();
+    if (cfg.provider === 'openai' && !getOpenAIKey()) {
+        return res.status(400).json({ success: false, error: 'OpenAI API key missing — AI Studio mein save karo' });
     }
+    if (cfg.provider === 'gemini' && !getGeminiKey()) {
+        return res.status(400).json({ success: false, error: 'Gemini API key nahi mili — AI Studio mein save karo' });
+    }
+    const useWeb = !!(req.body && req.body.webSearch);
     let topic = String((req.body && req.body.topic) || '').trim();
     let websiteUrl = String((req.body && req.body.websiteUrl) || '').trim();
     const tone = String((req.body && req.body.tone) || 'friendly').trim();
@@ -2824,20 +3366,16 @@ app.post('/api/ai/generate', async (req, res) => {
     const langHint = language === 'hindi' ? 'Pure Hindi (Devanagari)' : (language === 'english' ? 'English only' : 'Hindi-English mix (Hinglish), natural Indian style');
 
     async function geminiText(prompt, maxTokens) {
-        const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(selectedModel) + ':generateContent?key=' + encodeURIComponent(apiKey);
-        const r = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.85, maxOutputTokens: maxTokens || 2048 }
-            })
+        // unified OpenAI / Gemini (+ optional Google search)
+        const text = await aiGenerateText(prompt, {
+            bulk: true,
+            webSearch: useWeb,
+            searchQuery: topic || websiteUrl,
+            maxTokens: maxTokens || 2048,
+            temperature: 0.85,
+            model: cfg.provider === 'openai' ? (cfg.openaiBulkModel || cfg.openaiModel) : (selectedModel || cfg.geminiModel)
         });
-        const data = await r.json();
-        if (!r.ok) throw new Error((data.error && data.error.message) || ('Gemini HTTP ' + r.status));
-        let text = '';
-        try { text = data.candidates[0].content.parts.map(p => p.text || '').join(''); } catch (e) { throw new Error('Gemini empty response'); }
-        return text.replace(/```json/gi, '').replace(/```html/gi, '').replace(/```/g, '').trim();
+        return String(text || '').replace(/```json/gi, '').replace(/```html/gi, '').replace(/```/g, '').trim();
     }
 
     async function fetchSiteSnippet(urlStr) {
@@ -2949,7 +3487,7 @@ Requirements:
         }
 
         if (!messages.length && !files.length) {
-            return res.status(500).json({ success: false, error: 'Gemini se output nahi bana' });
+            return res.status(500).json({ success: false, error: 'AI se output nahi bana' });
         }
         res.json({
             success: true,
@@ -3216,6 +3754,7 @@ app.post('/send', async (req, res) => {
     });
 
     const minD = Math.max(45, parseInt(minDelay) || 45); const maxD = Math.max(minD + 15, parseInt(maxDelay) || 90);
+    // per-session slow applied inside worker
     const queue = uniqueNumbers.map((n, idx) => ({ ...n, idx }));
 
     async function sessionWorker(sessionId) {
@@ -3410,6 +3949,21 @@ app.post('/send', async (req, res) => {
                     markTemplateSent(num, tplName || 'Message');
                     bumpNumberQuality(num, 'sent');
                     try {
+                        const pro = getPro();
+                        pro.deviceHealth = pro.deviceHealth || {};
+                        const dh = pro.deviceHealth[sessionId] || { errors: 0, sent: 0, score: 100 };
+                        dh.sent = (dh.sent || 0) + 1;
+                        dh.score = Math.min(100, (dh.score || 100) + 1);
+                        pro.deviceHealth[sessionId] = dh;
+                        persist('pro', pro);
+                    } catch (e) {}
+                    try {
+                        s.healthScore = Math.min(100, (s.healthScore || 100) + 1);
+                        s.errorCount = Math.max(0, (s.errorCount || 0) - 1);
+                        if (s.healthScore >= 80) s.slowFactor = 1;
+                        else if (s.healthScore >= 50) s.slowFactor = 1.5;
+                    } catch (e) {}
+                    try {
                         const seq = getPro().sequences || {};
                         if (seq.enabled) {
                             const pro = getPro();
@@ -3445,6 +3999,20 @@ app.post('/send', async (req, res) => {
                     saveStats(new Date().toLocaleDateString('en-CA'), 0, 1); batchCount++; s.sentInBatch = batchCount;
                     bumpTemplateStat(camp.numbers[idx] && camp.numbers[idx].template, false);
                     bumpSessionStat(s.name, false);
+                    try {
+                        const pro = getPro();
+                        pro.deviceHealth = pro.deviceHealth || {};
+                        const dh = pro.deviceHealth[sessionId] || { errors: 0, sent: 0, score: 100 };
+                        dh.errors = (dh.errors || 0) + 1;
+                        dh.score = Math.max(10, (dh.score || 100) - 5);
+                        dh.lastError = 'send fail';
+                        pro.deviceHealth[sessionId] = dh;
+                        persist('pro', pro);
+                        // auto slow-down
+                        if (dh.score < 50) {
+                            s.restUntil = Date.now() + 15 * 60 * 1000;
+                        }
+                    } catch (e) {}
                 }
             }
             if (batchCount >= batchSize && queue.length > 0) {
