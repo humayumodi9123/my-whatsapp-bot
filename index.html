@@ -541,6 +541,15 @@
 
             <div class="form-group" style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
                 <label>📱 Kis WhatsApp se bhejna hai? (multi select)</label>
+                <div style="margin-top:10px;">
+                    <label style="font-weight:700;font-size:13px;">Send mode</label>
+                    <select id="sendModeSelect" style="margin-top:6px;">
+                        <option value="auto">Auto (QR if connected, else Cloud API)</option>
+                        <option value="qr">Only QR / linked WhatsApp</option>
+                        <option value="cloud">Only Official Cloud API</option>
+                    </select>
+                    <p style="font-size:11px;color:#94a3b8;margin:6px 0 0;">Cloud API pe pehle 24h window / approved templates rules lagte hain. Free bulk nahi.</p>
+                </div>
                 <div id="campaignSessionPick" style="margin-top:8px;"></div>
             </div>
 
@@ -1279,6 +1288,22 @@
 
         <!-- 8. Connect Device -->
         <div id="connectWp" class="content-section">
+            <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:800;margin-bottom:6px;">Official WhatsApp Cloud API</div>
+                <p style="font-size:12px;color:#64748b;margin:0 0 10px;line-height:1.45;">QR ke saath-saath Meta API se bhi message. Token + Phone Number ID (Meta Developer → Try it out).</p>
+                <label style="display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:8px;"><input type="checkbox" id="cloudEnabled"> Cloud API ON</label>
+                <input id="cloudToken" type="password" placeholder="Access Token" style="margin-bottom:8px;">
+                <input id="cloudPhoneId" placeholder="Phone Number ID" style="margin-bottom:8px;">
+                <input id="cloudWabaId" placeholder="WhatsApp Business Account ID (optional)" style="margin-bottom:8px;">
+                <input id="cloudTestPhone" placeholder="Test ke liye 10-digit number" style="margin-bottom:8px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="action-btn btn-success btn-sm" onclick="saveCloudAPI()">Save Cloud API</button>
+                    <button type="button" class="action-btn btn-primary btn-sm" onclick="testCloudAPI()">Send test message</button>
+                </div>
+                <p id="cloudStatus" style="font-size:12px;color:#64748b;margin:10px 0 0;">Status: …</p>
+                <p style="font-size:11px;color:#94a3b8;margin:8px 0 0;line-height:1.4;">Webhook (incoming): <code>/api/wa-webhook</code> · Verify token default: <code>wa_bot_verify</code></p>
+            </div>
+
             <h2 class="section-title">Multi WhatsApp Login</h2>
 
             <div style="background:linear-gradient(135deg,#eff6ff,#f8fafc);border:1px solid #93c5fd;border-radius:14px;padding:16px;margin-bottom:18px;">
@@ -2496,6 +2521,36 @@
             fetch('/api/inbox/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: inboxSelectedPhone, archive: true }) })
                 .then(r => r.json()).then(d => { if (d.success) { showToast('Archived'); loadInboxList(); } });
         }
+
+        function loadCloudAPI() {
+            fetch('/api/wa-cloud').then(r => r.json()).then(d => {
+                const en = document.getElementById('cloudEnabled'); if (en) en.checked = !!d.enabled;
+                const pid = document.getElementById('cloudPhoneId'); if (pid && d.phoneNumberId) pid.value = d.phoneNumberId;
+                const wid = document.getElementById('cloudWabaId'); if (wid && d.wabaId) wid.value = d.wabaId;
+                const st = document.getElementById('cloudStatus');
+                if (st) st.textContent = 'Ready: ' + (d.ready ? 'YES' : 'NO') + (d.tokenPreview ? (' · Token ' + d.tokenPreview) : ' · Token missing');
+            }).catch(() => {});
+        }
+        function saveCloudAPI() {
+            fetch('/api/wa-cloud', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                enabled: !!(document.getElementById('cloudEnabled') || {}).checked,
+                token: (document.getElementById('cloudToken') || {}).value || '',
+                phoneNumberId: (document.getElementById('cloudPhoneId') || {}).value || '',
+                wabaId: (document.getElementById('cloudWabaId') || {}).value || ''
+            })}).then(r => r.json()).then(d => {
+                if (d.success) { showToast(d.ready ? 'Cloud API ready ✅' : 'Saved — token/ID check karo'); loadCloudAPI(); }
+                else showToast(d.error || 'Fail', true);
+            });
+        }
+        function testCloudAPI() {
+            const phone = (document.getElementById('cloudTestPhone') || {}).value || '';
+            fetch('/api/wa-cloud/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, message: 'Cloud API test from WhatsApp Bot ✅' }) })
+                .then(r => r.json()).then(d => {
+                    if (d.success) showToast('Test sent — WhatsApp check karo');
+                    else showToast(d.error || 'Test fail', true);
+                });
+        }
+
         function openSidebar() {
             const sb = document.getElementById('sidebar');
             const ov = document.getElementById('sidebarOverlay');
@@ -2526,6 +2581,7 @@
             if (id === 'invoiceSec') { loadInvoices(); loadStockAlerts(); }
             if (id === 'teamSec') loadTeam();
             if (id === 'trackSec') { loadTracks(); loadDeviceHealth(); }
+            if (id === 'connectWp') loadCloudAPI();
             if (id === 'aiStudioSec') loadAiProviderSettings();
             if (id === 'inboxSec') { loadProTools(); }
             document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
@@ -3791,8 +3847,9 @@
             if (numsObjArray.length === 0) return showToast('⚠️ नंबर लिस्ट खाली है!', true);
             const atts = campaignAttachments || [];
             if ((!templatesArr || templatesArr.length === 0) && !msg && !imgBase64 && !atts.length) return showToast('⚠️ टेम्प्लेट चुनें या मैसेज/फाइल डालें!', true);
+            const sendMode = (document.getElementById('sendModeSelect') || {}).value || 'auto';
             const sessionIds = Array.from(document.querySelectorAll('.waSessionChk:checked')).map(c => c.value);
-            if (!sessionIds.length) return showToast('⚠️ कम से कम 1 WhatsApp सेलेक्ट करें।', true);
+            if (sendMode !== 'cloud' && !sessionIds.length) return showToast('⚠️ QR mode: कम से कम 1 WhatsApp सेलेक्ट करें।', true);
             document.getElementById('sendBtn').disabled = true; document.getElementById('sendBtn').innerHTML = '⏳ Campaign Running...';
             const batchEl = document.getElementById('customBatch');
             const restEl = document.getElementById('customRestHours');
@@ -3803,6 +3860,7 @@
                 imageBase64: imgBase64,
                 attachments: atts,
                 sessionIds,
+                sendMode: (document.getElementById('sendModeSelect') || {}).value || 'auto',
                 customBatch: (customBatch && customBatch > 0) ? customBatch : null,
                 customRestHours: (customRestHours && customRestHours > 0) ? customRestHours : null,
                 templates: (templatesArr || []).map(t => {
